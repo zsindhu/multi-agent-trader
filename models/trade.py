@@ -1,9 +1,9 @@
 """Trade Model — SQLAlchemy model for trade records."""
 from sqlalchemy import Column, Integer, String, Float, DateTime
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.sql import func
 from datetime import datetime
 
-Base = declarative_base()
+from models import Base
 
 
 class Trade(Base):
@@ -22,5 +22,5 @@ class Trade(Base):
     status = Column(String, default="filled")
     pnl = Column(Float, nullable=True)
     notes = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, server_default=func.now())
     closed_at = Column(DateTime, nullable=True)
