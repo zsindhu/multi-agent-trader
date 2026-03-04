@@ -158,6 +158,25 @@ class ScannerAgent(BaseAgent):
         self.always_include = set(self.config.get("always_include", []))
         self.always_exclude = set(self.config.get("always_exclude", []))
 
+    def _load_config(self):
+        """Reload config from scanner_universe.yaml (called by API after param changes)."""
+        self.config = _load_scanner_config()
+        weights = self.config.get("weights", {})
+        self.weight_iv_rank = weights.get("iv_rank", 0.30)
+        self.weight_momentum = weights.get("momentum", 0.20)
+        self.weight_liquidity = weights.get("liquidity", 0.25)
+        self.weight_support = weights.get("support_proximity", 0.15)
+        self.weight_mean_reversion = weights.get("mean_reversion", 0.10)
+        self.min_daily_volume = self.config.get("min_daily_volume", 1_000_000)
+        self.min_price = self.config.get("min_price", 5.0)
+        self.max_price = self.config.get("max_price", 500.0)
+        self.min_iv_rank = self.config.get("min_iv_rank", 15)
+        self.min_liquidity = self.config.get("min_liquidity_score", 0.3)
+        self.top_n = self.config.get("top_n", 20)
+        self.always_include = set(self.config.get("always_include", []))
+        self.always_exclude = set(self.config.get("always_exclude", []))
+        logger.info("[Scanner] Config reloaded from scanner_universe.yaml")
+
         # Smart caches
         self._cache = _TTLCache()
 

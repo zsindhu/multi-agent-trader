@@ -50,3 +50,10 @@ Thumbs.db
 # Project specific
 premium_trader.db
 .cursor/
+
+# Dashboard
+dashboard/node_modules/
+dashboard/dist/
+
+# Backtest cache
+data/backtest_cache/*.pkl
