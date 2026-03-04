@@ -129,8 +129,8 @@ export default function AgentStatus() {
         {workers.map((w) => {
           const m = agentMetrics[w.name] || {}
           const stratKey =
-            w.name === 'Worker-A-CC' ? 'covered_calls' :
-            w.name === 'Worker-B-CSP' ? 'cash_secured_puts' : 'wheel'
+            w.name === 'Covered-Calls' ? 'covered_calls' :
+            w.name === 'Cash-Secured-Puts' ? 'cash_secured_puts' : 'wheel'
           const params = strategies?.[stratKey] || {}
 
           return (

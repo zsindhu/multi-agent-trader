@@ -1,5 +1,5 @@
 """
-Worker A — Covered Calls: Sells OTM calls against held shares.
+Covered Calls Worker — Sells OTM calls against held shares.
 
 Strategy:
 - Scan portfolio for positions with 100+ shares
@@ -37,7 +37,7 @@ def _load_strategy_params() -> dict:
 
 class CoveredCallWorker(BaseAgent):
     """
-    Worker A — Sells covered calls against existing stock positions.
+    Covered Calls — Sells covered calls against existing stock positions.
     """
 
     def __init__(
@@ -50,7 +50,7 @@ class CoveredCallWorker(BaseAgent):
         perf_logger: Optional[PerformanceLogger] = None,
         trade_journal: Optional[TradeJournalAgent] = None,
     ):
-        super().__init__(name="Worker-A-CC", agent_type="covered_calls")
+        super().__init__(name="Covered-Calls", agent_type="covered_calls")
         self.broker = broker
         self.portfolio = portfolio
         self.risk_manager = risk_manager

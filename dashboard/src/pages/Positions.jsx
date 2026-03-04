@@ -13,11 +13,20 @@ export default function Positions() {
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState('stocks')
 
-  useEffect(() => {
+  const load = () => {
     fetchPortfolio()
       .then(setData)
       .catch(console.error)
       .finally(() => setLoading(false))
+  }
+
+  useEffect(() => { load() }, [])
+
+  // Re-fetch when trading mode changes
+  useEffect(() => {
+    const handler = () => { setLoading(true); load() }
+    window.addEventListener('trading-mode-changed', handler)
+    return () => window.removeEventListener('trading-mode-changed', handler)
   }, [])
 
   if (loading) return <Spinner />

@@ -70,9 +70,9 @@ export default function TradeHistory() {
             className="bg-[#1e293b] border border-[#334155] rounded-lg px-3 py-2 text-sm text-[#94a3b8] focus:outline-none focus:border-blue-500"
           >
             <option value="">All Agents</option>
-            <option value="Worker-A-CC">Covered Calls</option>
-            <option value="Worker-B-CSP">Cash Secured Puts</option>
-            <option value="Worker-C-Wheel">The Wheel</option>
+            <option value="Covered-Calls">Covered Calls</option>
+            <option value="Cash-Secured-Puts">Cash Secured Puts</option>
+            <option value="Wheel">The Wheel</option>
           </select>
           <input
             type="text"

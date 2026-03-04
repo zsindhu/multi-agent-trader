@@ -67,5 +67,13 @@ export const runCompare = (params) =>
   request('/backtest/compare', { method: 'POST', body: JSON.stringify(params) });
 export const listJobs = () => request('/backtest/jobs');
 
+// ── Settings ──────────────────────────────────────────────────
+export const fetchTradingMode = () => request('/settings/mode');
+export const updateTradingMode = (trading_mode) =>
+  request('/settings/mode', {
+    method: 'POST',
+    body: JSON.stringify({ trading_mode }),
+  });
+
 // ── Health ─────────────────────────────────────────────────────
 export const fetchHealth = () => request('/health');

@@ -41,11 +41,15 @@ class AppState:
         self.trade_journal: Optional[TradeJournalAgent] = None
         self.scanner: Optional[ScannerAgent] = None
         self.notifier: Optional[Notifier] = None
+        self.broker_is_paper: bool = True  # Track current broker mode
 
     async def initialize(self):
         """Create and wire all services."""
+        from config.settings import settings
+
         logger.info("[AppState] Initializing services...")
 
+        self.broker_is_paper = settings.trading_mode == "paper"
         self.broker = AlpacaBroker()
         self.portfolio = Portfolio()
         self.risk_manager = RiskManager(self.portfolio)
@@ -75,6 +79,51 @@ class AppState:
             logger.warning(f"[AppState] Regime refresh failed: {e}")
 
         logger.info("[AppState] All services initialized.")
+
+    async def reinitialize_broker(self):
+        """
+        Reinitialize the broker and dependent services after a mode switch.
+
+        Called when the user toggles between paper and live trading.
+        The settings module must already have the updated trading_mode
+        before this method is called.
+        """
+        from config.settings import settings
+
+        new_mode = settings.trading_mode
+        logger.info(f"[AppState] Reinitializing broker for {new_mode.upper()} mode...")
+
+        self.broker_is_paper = new_mode == "paper"
+
+        # Create a fresh broker with the new settings
+        self.broker = AlpacaBroker()
+
+        # Re-wire dependent services to use the new broker instance
+        self.market_feed = MarketFeed(broker=self.broker)
+        self.options_chain = OptionsChainAnalyzer(broker=self.broker)
+        self.strategy_manager = StrategyManager(broker=self.broker)
+
+        self.scanner = ScannerAgent(
+            broker=self.broker,
+            market_feed=self.market_feed,
+            options_chain=self.options_chain,
+        )
+
+        # Sync portfolio from the new broker (different account!)
+        self.portfolio = Portfolio()
+        self.risk_manager = RiskManager(self.portfolio)
+        try:
+            await self.portfolio.sync_from_broker(self.broker)
+        except Exception as e:
+            logger.warning(f"[AppState] Portfolio sync failed after mode switch: {e}")
+
+        # Refresh regime
+        try:
+            await self.strategy_manager.refresh_regime()
+        except Exception as e:
+            logger.warning(f"[AppState] Regime refresh failed after mode switch: {e}")
+
+        logger.info(f"[AppState] Broker reinitialized for {new_mode.upper()} mode.")
 
     # ── Convenience methods for routes ──────────────────────────────
 

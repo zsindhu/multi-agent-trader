@@ -1,8 +1,8 @@
 """
-Worker C — The Wheel (state machine):
+The Wheel Worker (state machine):
   SELLING_PUTS → ASSIGNED → SELLING_CALLS → CALLED_AWAY → repeat
 
-Combines Workers A and B into a continuous cycle:
+Combines Covered Calls and Cash Secured Puts into a continuous cycle:
 1. Sell cash-secured puts on a stock
 2. If assigned, sell covered calls on the shares
 3. If called away, start selling puts again
@@ -49,7 +49,7 @@ def _load_strategy_params() -> dict:
 
 class WheelWorker(BaseAgent):
     """
-    Worker C — The Wheel: a state machine that cycles between
+    The Wheel — A state machine that cycles between
     selling puts and selling calls on assigned symbols.
     """
 
@@ -63,7 +63,7 @@ class WheelWorker(BaseAgent):
         perf_logger: Optional[PerformanceLogger] = None,
         trade_journal: Optional[TradeJournalAgent] = None,
     ):
-        super().__init__(name="Worker-C-Wheel", agent_type="wheel")
+        super().__init__(name="Wheel", agent_type="wheel")
         self.broker = broker
         self.portfolio = portfolio
         self.risk_manager = risk_manager
@@ -212,8 +212,8 @@ class WheelWorker(BaseAgent):
         """
         Scan based on current wheel state for each symbol.
 
-        - SELLING_PUTS: Look for put selling opportunities (like Worker B)
-        - SELLING_CALLS: Look for call selling opportunities (like Worker A)
+        - SELLING_PUTS: Look for put selling opportunities (CSP phase)
+        - SELLING_CALLS: Look for call selling opportunities (CC phase)
         - ASSIGNED: Transition to SELLING_CALLS
         - CALLED_AWAY: Transition to SELLING_PUTS, log full cycle
         """
@@ -261,7 +261,7 @@ class WheelWorker(BaseAgent):
         return opportunities
 
     async def _scan_for_puts(self, symbol: str) -> list[dict]:
-        """Scan for put-selling opportunities (like Worker B)."""
+        """Scan for put-selling opportunities (CSP phase)."""
         current_price = await self.market_feed.get_current_price(symbol)
         if current_price <= 0:
             return []
@@ -296,7 +296,7 @@ class WheelWorker(BaseAgent):
         return opportunities
 
     async def _scan_for_calls(self, symbol: str) -> list[dict]:
-        """Scan for call-selling opportunities (like Worker A)."""
+        """Scan for call-selling opportunities (CC phase)."""
         if not self.portfolio:
             return []
 

@@ -1,5 +1,5 @@
 """
-Worker B — Cash Secured Puts: Sells puts at support levels on pullbacks.
+Cash Secured Puts Worker — Sells puts at support levels on pullbacks.
 
 Strategy:
 - Scan watchlist for high IV rank stocks near support
@@ -37,7 +37,7 @@ def _load_strategy_params() -> dict:
 
 class CashSecuredPutWorker(BaseAgent):
     """
-    Worker B — Sells cash-secured puts on high-IV stocks near support.
+    Cash Secured Puts — Sells cash-secured puts on high-IV stocks near support.
     """
 
     def __init__(
@@ -50,7 +50,7 @@ class CashSecuredPutWorker(BaseAgent):
         perf_logger: Optional[PerformanceLogger] = None,
         trade_journal: Optional[TradeJournalAgent] = None,
     ):
-        super().__init__(name="Worker-B-CSP", agent_type="cash_secured_puts")
+        super().__init__(name="Cash-Secured-Puts", agent_type="cash_secured_puts")
         self.broker = broker
         self.portfolio = portfolio
         self.risk_manager = risk_manager

@@ -9,7 +9,8 @@ import StatCard from '../components/StatCard'
 import Card from '../components/Card'
 import Badge from '../components/Badge'
 import Spinner from '../components/Spinner'
-import { fetchPortfolioSummary, refreshPortfolio } from '../api'
+import ActivePositions from '../components/ActivePositions'
+import { fetchPortfolioSummary, fetchPortfolio, refreshPortfolio } from '../api'
 
 const fmt = (n) => {
   if (n == null) return '—'
@@ -23,13 +24,18 @@ const pct = (n) => {
 
 export default function Portfolio() {
   const [data, setData] = useState(null)
+  const [options, setOptions] = useState([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
   const load = async () => {
     try {
-      const d = await fetchPortfolioSummary()
-      setData(d)
+      const [summary, full] = await Promise.all([
+        fetchPortfolioSummary(),
+        fetchPortfolio(),
+      ])
+      setData(summary)
+      setOptions(full.options || [])
     } catch (e) {
       console.error('Portfolio load failed:', e)
     } finally {
@@ -38,6 +44,16 @@ export default function Portfolio() {
   }
 
   useEffect(() => { load() }, [])
+
+  // Re-fetch when trading mode changes (account balances differ)
+  useEffect(() => {
+    const handler = () => {
+      setLoading(true)
+      load()
+    }
+    window.addEventListener('trading-mode-changed', handler)
+    return () => window.removeEventListener('trading-mode-changed', handler)
+  }, [])
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -122,6 +138,9 @@ export default function Portfolio() {
           value={`${data?.stock_positions || 0} stocks · ${data?.short_options || 0} short opts`}
         />
       </div>
+
+      {/* Active Positions */}
+      <ActivePositions options={options} />
 
       {/* Market Regime */}
       <Card title="Market Regime" subtitle="VIX-based regime detection">

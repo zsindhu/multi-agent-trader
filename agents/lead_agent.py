@@ -13,9 +13,9 @@ Integrates:
 - Notifier for Discord webhook alerts on trades, risk events, daily summary
 
 Assignment Rules:
-- IV rank > 40 + we hold shares → Worker A (covered calls)
-- IV rank > 30 + stock near support + we have cash → Worker B (CSPs)
-- IV rank > 25 + good wheel candidate (liquid, $20-$500 range) → Worker C (Wheel)
+- IV rank > 40 + we hold shares → Covered Calls
+- IV rank > 30 + stock near support + we have cash → Cash Secured Puts
+- IV rank > 25 + good wheel candidate (liquid, $20-$500 range) → The Wheel
 - A symbol can only be assigned to ONE worker at a time
 """
 from __future__ import annotations
@@ -202,9 +202,9 @@ class LeadAgent:
             return
 
         mapping = {
-            "Worker-A-CC": "covered_calls",
-            "Worker-B-CSP": "cash_secured_puts",
-            "Worker-C-Wheel": "wheel",
+            "Covered-Calls": "covered_calls",
+            "Cash-Secured-Puts": "cash_secured_puts",
+            "Wheel": "wheel",
         }
 
         for worker_name, strategy_name in mapping.items():
@@ -244,9 +244,9 @@ class LeadAgent:
 
         Rules:
         - Each symbol assigned to only ONE worker
-        - Workers A (CC): need shares + IV rank > 40
-        - Workers B (CSP): IV rank > 30 + near support + have cash
-        - Workers C (Wheel): IV rank > 25 + good price range ($20-$500)
+        - Covered Calls: need shares + IV rank > 40
+        - Cash Secured Puts: IV rank > 30 + near support + have cash
+        - The Wheel: IV rank > 25 + good price range ($20-$500)
         """
         if not self.market_feed:
             logger.warning("[Lead] No market feed — skipping assignment update")
@@ -285,9 +285,9 @@ class LeadAgent:
         assigned: set[str] = set()
 
         # Worker references
-        cc_worker = self.workers.get("Worker-A-CC")
-        csp_worker = self.workers.get("Worker-B-CSP")
-        wheel_worker = self.workers.get("Worker-C-Wheel")
+        cc_worker = self.workers.get("Covered-Calls")
+        csp_worker = self.workers.get("Cash-Secured-Puts")
+        wheel_worker = self.workers.get("Wheel")
 
         for symbol in symbols:
             if symbol in assigned:

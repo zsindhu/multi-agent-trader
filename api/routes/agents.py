@@ -39,9 +39,9 @@ async def get_agent_status(request: Request):
         "regime": regime,
         "risk": risk,
         "workers": [
-            {"name": "Worker-A-CC", "type": "Covered Calls"},
-            {"name": "Worker-B-CSP", "type": "Cash Secured Puts"},
-            {"name": "Worker-C-Wheel", "type": "The Wheel"},
+            {"name": "Covered-Calls", "type": "Covered Calls"},
+            {"name": "Cash-Secured-Puts", "type": "Cash Secured Puts"},
+            {"name": "Wheel", "type": "The Wheel"},
         ],
     }
 
