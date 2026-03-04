@@ -18,6 +18,7 @@ from models.position import ActivePosition
 from models.performance import AgentPerformance
 from models.opportunity import ScannerOpportunity
 from models.journal_entry import JournalEntry
+from models.wheel_state import WheelStateRecord
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

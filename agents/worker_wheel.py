@@ -9,6 +9,7 @@ Combines Workers A and B into a continuous cycle:
 4. Track cumulative cost basis reduction across the full cycle
 
 The Wheel tracks per-symbol state and accumulates premium across the full cycle.
+State is persisted to the database so it survives restarts.
 """
 from datetime import datetime
 from enum import Enum
@@ -16,13 +17,16 @@ from typing import Optional
 
 import yaml
 from loguru import logger
+from sqlalchemy import select
 
 from agents.base_agent import BaseAgent
 from core.broker import Broker
+from core.database import AsyncSessionLocal
 from core.portfolio import Portfolio
 from core.risk_manager import RiskManager
 from data.market_feed import MarketFeed
 from data.options_chain import OptionsChainAnalyzer
+from models.wheel_state import WheelStateRecord
 from services.logger_service import PerformanceLogger
 from agents.trade_journal import TradeJournalAgent
 
@@ -77,7 +81,7 @@ class WheelWorker(BaseAgent):
         self.dte_max = self.params.get("dte_max", 45)
         self.max_positions = self.params.get("max_positions", 3)
 
-        # Per-symbol wheel state
+        # Per-symbol wheel state (in-memory cache — loaded from DB on first use)
         self.wheel_states: dict[str, WheelState] = {}
 
         # Cost basis tracking: symbol → {original_cost, total_premium, cycles}
@@ -88,19 +92,93 @@ class WheelWorker(BaseAgent):
         self.call_profit_target = 0.80  # Take profit on calls at 80%
         self.roll_dte_threshold = 5
 
-    # ── STATE MANAGEMENT ──────────────────────────────────────────
+        # DB state loaded flag
+        self._db_state_loaded = False
+
+    # ── STATE MANAGEMENT (with DB persistence) ─────────────────────
+
+    async def _load_states_from_db(self):
+        """Load all wheel states from the database on first use."""
+        if self._db_state_loaded:
+            return
+
+        try:
+            async with AsyncSessionLocal() as session:
+                result = await session.execute(select(WheelStateRecord))
+                rows = result.scalars().all()
+
+                for row in rows:
+                    try:
+                        self.wheel_states[row.symbol] = WheelState(row.state)
+                    except ValueError:
+                        self.wheel_states[row.symbol] = WheelState.SELLING_PUTS
+
+                    self.cost_basis[row.symbol] = {
+                        "original_cost": row.original_cost,
+                        "total_premium": row.total_premium_collected,
+                        "cycles_completed": row.cycle_count,
+                        "started_at": (
+                            row.entered_state_at.isoformat()
+                            if row.entered_state_at
+                            else datetime.utcnow().isoformat()
+                        ),
+                    }
+
+                self._db_state_loaded = True
+                logger.info(
+                    f"[{self.name}] Loaded {len(rows)} wheel states from DB"
+                )
+        except Exception as e:
+            logger.error(f"[{self.name}] Failed to load wheel states from DB: {e}")
+            self._db_state_loaded = True  # Don't retry forever
+
+    async def _save_state_to_db(self, symbol: str):
+        """Save a single symbol's wheel state to the database."""
+        state = self.wheel_states.get(symbol, WheelState.SELLING_PUTS)
+        cb = self.cost_basis.get(symbol, {})
+
+        try:
+            async with AsyncSessionLocal() as session:
+                # Upsert: check if exists
+                result = await session.execute(
+                    select(WheelStateRecord).where(WheelStateRecord.symbol == symbol)
+                )
+                record = result.scalar_one_or_none()
+
+                if record:
+                    record.state = state.value
+                    record.original_cost = cb.get("original_cost", 0.0)
+                    record.total_premium_collected = cb.get("total_premium", 0.0)
+                    record.cycle_count = cb.get("cycles_completed", 0)
+                    record.updated_at = datetime.utcnow()
+                else:
+                    record = WheelStateRecord(
+                        symbol=symbol,
+                        state=state.value,
+                        original_cost=cb.get("original_cost", 0.0),
+                        total_premium_collected=cb.get("total_premium", 0.0),
+                        cycle_count=cb.get("cycles_completed", 0),
+                        entered_state_at=datetime.utcnow(),
+                    )
+                    session.add(record)
+
+                await session.commit()
+                logger.debug(f"[{self.name}] Saved {symbol} state to DB: {state.value}")
+        except Exception as e:
+            logger.error(f"[{self.name}] Failed to save {symbol} state to DB: {e}")
 
     def get_state(self, symbol: str) -> WheelState:
         """Get current wheel state for a symbol."""
         return self.wheel_states.get(symbol, WheelState.SELLING_PUTS)
 
-    def set_state(self, symbol: str, state: WheelState):
-        """Transition a symbol to a new wheel state."""
+    async def set_state(self, symbol: str, state: WheelState):
+        """Transition a symbol to a new wheel state and persist to DB."""
         old_state = self.wheel_states.get(symbol, WheelState.SELLING_PUTS)
         self.wheel_states[symbol] = state
         logger.info(
             f"[{self.name}] {symbol}: {old_state.value} → {state.value}"
         )
+        await self._save_state_to_db(symbol)
 
     def _init_cost_basis(self, symbol: str, original_cost: float = 0.0):
         """Initialize cost basis tracking for a new wheel cycle."""
@@ -112,8 +190,8 @@ class WheelWorker(BaseAgent):
                 "started_at": datetime.utcnow().isoformat(),
             }
 
-    def _add_premium(self, symbol: str, premium: float):
-        """Add premium collected to the cost basis tracker."""
+    async def _add_premium(self, symbol: str, premium: float):
+        """Add premium collected to the cost basis tracker and persist."""
         if symbol in self.cost_basis:
             self.cost_basis[symbol]["total_premium"] += premium
             effective_cost = (
@@ -126,6 +204,7 @@ class WheelWorker(BaseAgent):
                 f"premium collected=${self.cost_basis[symbol]['total_premium']:.2f}, "
                 f"effective=${effective_cost:.2f}"
             )
+            await self._save_state_to_db(symbol)
 
     # ── SCAN ──────────────────────────────────────────────────────
 
@@ -141,6 +220,9 @@ class WheelWorker(BaseAgent):
         if not self.market_feed or not self.options_chain:
             logger.warning(f"[{self.name}] Missing dependencies — skipping scan")
             return []
+
+        # Ensure wheel states are loaded from DB on first scan
+        await self._load_states_from_db()
 
         opportunities = []
 
@@ -353,7 +435,7 @@ class WheelWorker(BaseAgent):
                 results.append(trade)
 
                 # Track premium in cost basis
-                self._add_premium(trade["symbol"], trade["limit_price"])
+                await self._add_premium(trade["symbol"], trade["limit_price"])
 
                 logger.info(
                     f"[{self.name}] [{trade['wheel_state']}] Sold {trade['qty']}x "
@@ -619,7 +701,7 @@ class WheelWorker(BaseAgent):
 
     async def _handle_assignment(self, symbol: str):
         """Handle put assignment — transition to selling calls."""
-        self.set_state(symbol, WheelState.SELLING_CALLS)
+        await self.set_state(symbol, WheelState.SELLING_CALLS)
 
         # Update cost basis with the assignment price
         if self.portfolio and symbol in self.portfolio.positions:
@@ -650,7 +732,7 @@ class WheelWorker(BaseAgent):
 
     async def _handle_called_away(self, symbol: str):
         """Handle shares called away — log full cycle metrics, restart."""
-        self.set_state(symbol, WheelState.SELLING_PUTS)
+        await self.set_state(symbol, WheelState.SELLING_PUTS)
 
         # Calculate full wheel cycle return
         if symbol in self.cost_basis:
@@ -688,6 +770,7 @@ class WheelWorker(BaseAgent):
             # Reset premium tracker for next cycle (keep original cost)
             cb["total_premium"] = 0.0
             cb["started_at"] = datetime.utcnow().isoformat()
+            await self._save_state_to_db(symbol)
 
     def _estimate_dte(self, expiration: str) -> Optional[int]:
         """Estimate DTE from expiration date string."""

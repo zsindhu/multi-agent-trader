@@ -8,6 +8,10 @@ Now powered by the Scanner Agent for dynamic symbol selection instead of
 a static watchlist.  Falls back to strategies.yaml watchlist if no scan
 results are available yet.
 
+Integrates:
+- StrategyManager for VIX-based regime detection and parameter adjustment
+- Notifier for Discord webhook alerts on trades, risk events, daily summary
+
 Assignment Rules:
 - IV rank > 40 + we hold shares → Worker A (covered calls)
 - IV rank > 30 + stock near support + we have cash → Worker B (CSPs)
@@ -25,8 +29,10 @@ from agents.base_agent import BaseAgent
 from core.broker import Broker
 from core.portfolio import Portfolio
 from core.risk_manager import RiskManager
+from core.strategy import StrategyManager
 from data.market_feed import MarketFeed
 from services.logger_service import PerformanceLogger
+from services.notifier import Notifier
 
 if TYPE_CHECKING:
     from agents.scanner import ScannerAgent
@@ -48,6 +54,9 @@ class LeadAgent:
 
     Uses ScannerAgent.get_top_opportunities() for dynamic symbol selection.
     Falls back to the static watchlist in strategies.yaml if no scan data.
+
+    Integrates StrategyManager for VIX regime detection and Notifier for
+    Discord alerts.
     """
 
     def __init__(
@@ -59,6 +68,8 @@ class LeadAgent:
         portfolio: Portfolio = None,
         market_feed: MarketFeed = None,
         scanner: Optional["ScannerAgent"] = None,
+        strategy_manager: Optional[StrategyManager] = None,
+        notifier: Optional[Notifier] = None,
     ):
         self.workers = {w.name: w for w in workers}
         self.risk_manager = risk_manager
@@ -67,6 +78,8 @@ class LeadAgent:
         self.portfolio = portfolio
         self.market_feed = market_feed
         self.scanner = scanner
+        self.strategy_manager = strategy_manager
+        self.notifier = notifier
 
         # Fallback watchlist (used only when scanner hasn't produced results)
         self._fallback_watchlist = _load_fallback_watchlist()
@@ -84,16 +97,37 @@ class LeadAgent:
         if self.portfolio and self.broker:
             await self.portfolio.sync_from_broker(self.broker)
 
-        # Step 2: Check portfolio health
+        # Step 2: Refresh VIX regime
+        if self.strategy_manager:
+            await self.strategy_manager.refresh_regime()
+            regime_info = self.strategy_manager.get_regime_summary()
+            logger.info(
+                f"[Lead] Market regime: {regime_info['regime']} "
+                f"(VIX≈{regime_info['vix_level']:.1f})"
+            )
+
+            # Push regime-adjusted params to workers
+            self._apply_regime_params()
+
+        # Step 3: Check portfolio health
         if self.risk_manager:
             risk_ok = await self.risk_manager.check_portfolio_health()
             if not risk_ok:
                 logger.warning("[Lead] Risk limits breached — running in conservative mode")
+                if self.notifier:
+                    drawdown = self.risk_manager.get_current_drawdown()
+                    await self.notifier.send_risk_warning(
+                        f"Portfolio drawdown at {drawdown:.1%} — conservative mode engaged",
+                        details={
+                            "drawdown": drawdown,
+                            "action": "Conservative mode enabled",
+                        },
+                    )
 
-        # Step 3: Update assignments based on Scanner + IV + portfolio state
+        # Step 4: Update assignments based on Scanner + IV + portfolio state
         await self._update_assignments()
 
-        # Step 4: Run all active workers
+        # Step 5: Run all active workers
         results = {}
         for name, worker in self.workers.items():
             if not worker.is_active:
@@ -110,11 +144,34 @@ class LeadAgent:
                 logger.error(f"[Lead] Worker {name} failed: {e}")
                 results[name] = {"error": str(e)}
 
-        # Step 5: Log cycle results
+        # Step 6: Log cycle results
         if self.performance_logger:
             await self.performance_logger.log_cycle(results)
 
-        # Step 6: Evaluate worker performance for rotation
+        # Step 7: Send trade notifications
+        if self.notifier:
+            # Notify on individual trades
+            for name, result in results.items():
+                if not isinstance(result, dict):
+                    continue
+                for trade in result.get("new_trades", []):
+                    await self.notifier.send_trade_alert({
+                        "agent": name,
+                        "symbol": trade.get("symbol", "?"),
+                        "strategy": trade.get("contract_type", trade.get("wheel_state", "?")),
+                        "side": trade.get("side", "sell"),
+                        "strike": trade.get("strike", 0),
+                        "premium": trade.get("limit_price", 0),
+                        "dte": trade.get("dte", 0),
+                        "delta": trade.get("delta", 0),
+                        "contracts": trade.get("qty", 1),
+                        "order_id": trade.get("order_id"),
+                    })
+
+            # Cycle summary (only if there was activity)
+            await self.notifier.send_cycle_summary(results)
+
+        # Step 8: Evaluate worker performance for rotation
         await self._evaluate_worker_performance()
 
         # Summary
@@ -131,6 +188,49 @@ class LeadAgent:
         logger.info("[Lead] ═══════════════════════════════════════════")
 
         return results
+
+    # ── REGIME-ADJUSTED PARAMETERS ────────────────────────────────
+
+    def _apply_regime_params(self):
+        """
+        Push regime-adjusted strategy parameters to worker agents.
+
+        Workers read delta targets and max_positions from their self.params —
+        we override those in-memory when the regime changes.
+        """
+        if not self.strategy_manager:
+            return
+
+        mapping = {
+            "Worker-A-CC": "covered_calls",
+            "Worker-B-CSP": "cash_secured_puts",
+            "Worker-C-Wheel": "wheel",
+        }
+
+        for worker_name, strategy_name in mapping.items():
+            worker = self.workers.get(worker_name)
+            if not worker:
+                continue
+
+            adjusted = self.strategy_manager.get_adjusted_params(strategy_name)
+
+            # Apply adjusted params to worker attributes
+            if hasattr(worker, "delta_target") and "delta_target" in adjusted:
+                worker.delta_target = abs(adjusted["delta_target"])
+            if hasattr(worker, "csp_delta") and "csp_delta" in adjusted:
+                worker.csp_delta = abs(adjusted["csp_delta"])
+            if hasattr(worker, "cc_delta") and "cc_delta" in adjusted:
+                worker.cc_delta = abs(adjusted["cc_delta"])
+            if hasattr(worker, "max_positions") and "max_positions" in adjusted:
+                worker.max_positions = adjusted["max_positions"]
+
+            regime = adjusted.get("_regime", "normal")
+            if regime != "normal":
+                logger.debug(
+                    f"[Lead] {worker_name}: applied {regime} regime params "
+                    f"(delta={adjusted.get('delta_target', adjusted.get('csp_delta', '?'))}, "
+                    f"max_pos={adjusted.get('max_positions', '?')})"
+                )
 
     # ── ASSIGNMENT LOGIC (Scanner-powered) ────────────────────────
 
@@ -301,6 +401,16 @@ class LeadAgent:
                         worker.max_positions -= 1
                         logger.info(f"[Lead] Reduced {name} max_positions to {worker.max_positions}")
 
+                    # Notify on poor performance
+                    if self.notifier and win_rate < 40:
+                        await self.notifier.send_risk_warning(
+                            f"{name} underperforming: {win_rate:.0f}% win rate",
+                            details={
+                                "worker": name,
+                                "action": f"Reduced max_positions, win_rate={win_rate:.0f}%",
+                            },
+                        )
+
                 # Check consecutive losses
                 losses = metrics.get("losses", 0)
                 self._consecutive_losses[name] = losses
@@ -318,3 +428,55 @@ class LeadAgent:
 
             except Exception as e:
                 logger.error(f"[Lead] Performance eval failed for {name}: {e}")
+
+    # ── DAILY SUMMARY ─────────────────────────────────────────────
+
+    async def send_daily_summary(self):
+        """
+        Build and send an end-of-day summary via Notifier.
+
+        Call this from the scheduler at market close.
+        """
+        if not self.notifier:
+            return
+
+        summary = {
+            "total_pnl": 0,
+            "premium_collected": 0,
+            "trades_executed": 0,
+            "portfolio_value": 0,
+            "equity": 0,
+            "cash": 0,
+            "regime": "normal",
+            "agent_performance": [],
+        }
+
+        if self.portfolio:
+            summary["portfolio_value"] = self.portfolio.total_value
+            summary["equity"] = self.portfolio.equity
+            summary["cash"] = self.portfolio.cash
+
+        if self.strategy_manager:
+            summary["regime"] = self.strategy_manager.regime.value
+
+        if self.performance_logger:
+            try:
+                port_summary = await self.performance_logger.get_portfolio_summary()
+                summary["total_pnl"] = port_summary.get("total_pnl", 0)
+                summary["premium_collected"] = port_summary.get("total_premium", 0)
+                summary["trades_executed"] = port_summary.get("trades_today", 0)
+            except Exception as e:
+                logger.error(f"[Lead] Failed to get portfolio summary for daily report: {e}")
+
+            for name in self.workers:
+                try:
+                    metrics = await self.performance_logger.get_agent_metrics(name, lookback_days=1)
+                    summary["agent_performance"].append({
+                        "name": name,
+                        "win_rate": metrics.get("win_rate", 0),
+                        "pnl": metrics.get("total_pnl", 0),
+                    })
+                except Exception:
+                    pass
+
+        await self.notifier.send_daily_summary(summary)

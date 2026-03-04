@@ -15,5 +15,14 @@ from .position import ActivePosition
 from .performance import AgentPerformance
 from .opportunity import ScannerOpportunity
 from .journal_entry import JournalEntry
+from .wheel_state import WheelStateRecord
 
-__all__ = ["Base", "Trade", "ActivePosition", "AgentPerformance", "ScannerOpportunity", "JournalEntry"]
+__all__ = [
+    "Base",
+    "Trade",
+    "ActivePosition",
+    "AgentPerformance",
+    "ScannerOpportunity",
+    "JournalEntry",
+    "WheelStateRecord",
+]

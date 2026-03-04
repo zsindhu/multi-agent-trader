@@ -4,6 +4,7 @@ Premium Trader — Main entry point.
 Initializes all agents with full dependency injection and starts the orchestration loop.
 The Lead Agent runs on a scheduled interval, coordinating all workers.
 The Scanner Agent runs 2x daily (market open + midday) to refresh the opportunity universe.
+Strategy regime detection refreshes each cycle. Discord notifications fire on trades/risk events.
 """
 import asyncio
 import argparse
@@ -21,9 +22,11 @@ from agents import (
 from agents.lead_agent import LeadAgent
 from services.alpaca_broker import AlpacaBroker
 from services.logger_service import PerformanceLogger
+from services.notifier import Notifier
 from core.broker import Broker
 from core.risk_manager import RiskManager
 from core.portfolio import Portfolio
+from core.strategy import StrategyManager
 from data.market_feed import MarketFeed
 from data.options_chain import OptionsChainAnalyzer
 from config.settings import settings
@@ -49,6 +52,10 @@ async def main(mode: str = "paper"):
     portfolio = Portfolio()
     risk_manager = RiskManager(portfolio)
     perf_logger = PerformanceLogger()
+
+    # ── Strategy & Notifications ───────────────────────────────────
+    strategy_manager = StrategyManager(broker=broker)
+    notifier = Notifier()
 
     # ── Data Layer ────────────────────────────────────────────────
     market_feed = MarketFeed(broker=broker)
@@ -95,7 +102,7 @@ async def main(mode: str = "paper"):
         trade_journal=trade_journal,
     )
 
-    # ── Lead Agent (orchestrator) — receives Scanner for dynamic assignments ──
+    # ── Lead Agent (orchestrator) — receives Scanner, Strategy, Notifier ──
     lead = LeadAgent(
         workers=[worker_cc, worker_csp, worker_wheel],
         risk_manager=risk_manager,
@@ -104,6 +111,8 @@ async def main(mode: str = "paper"):
         portfolio=portfolio,
         market_feed=market_feed,
         scanner=scanner,
+        strategy_manager=strategy_manager,
+        notifier=notifier,
     )
 
     # ── Sync portfolio state from broker ──────────────────────────
@@ -114,6 +123,13 @@ async def main(mode: str = "paper"):
         f"${portfolio.buying_power:,.2f} buying power, "
         f"{len(portfolio.positions)} stocks, "
         f"{len(portfolio.options)} options"
+    )
+
+    # ── Initial regime detection ──────────────────────────────────
+    await strategy_manager.refresh_regime()
+    logger.info(
+        f"Market regime: {strategy_manager.regime.value} "
+        f"(VIX≈{strategy_manager.vix_level:.1f})"
     )
 
     # ── Run initial Scanner cycle before first trade cycle ────────
@@ -136,10 +152,20 @@ async def main(mode: str = "paper"):
         id="scanner_morning",
     )
 
+    # Daily summary at market close (4:05 PM ET)
+    scheduler.add_job(
+        lead.send_daily_summary,
+        "cron",
+        hour="16",
+        minute="5",
+        timezone="US/Eastern",
+        id="daily_summary",
+    )
+
     scheduler.start()
     logger.info(
         f"Orchestrator running every {settings.scan_interval_minutes} min, "
-        f"Scanner at 9:35 ET + 12:30 ET.  Ctrl+C to stop."
+        f"Scanner at 9:35 ET + 12:30 ET, Daily summary at 4:05 PM ET.  Ctrl+C to stop."
     )
 
     # Run first orchestration cycle immediately
