@@ -1,0 +1,36 @@
+covered_calls:
+  min_iv_rank: 30
+  delta_target: 0.30
+  dte_min: 20
+  dte_max: 45
+  roll_threshold: 0.10
+  max_positions: 5
+
+cash_secured_puts:
+  min_iv_rank: 25
+  delta_target: -0.25
+  dte_min: 20
+  dte_max: 45
+  support_buffer: 0.05
+  max_positions: 5
+
+wheel:
+  min_iv_rank: 25
+  cc_delta: 0.30
+  csp_delta: -0.25
+  dte_min: 25
+  dte_max: 45
+  max_positions: 3
+
+watchlists:
+  high_iv_stocks:
+    - AAPL
+    - MSFT
+    - NVDA
+    - AMD
+    - TSLA
+    - AMZN
+    - META
+    - GOOGL
+    - SPY
+    - QQQ
