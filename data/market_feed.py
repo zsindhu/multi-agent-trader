@@ -11,7 +11,7 @@ from typing import Optional
 from loguru import logger
 
 from config.settings import settings
-from services.alpaca_client import AlpacaClient
+from core.broker import Broker
 
 
 class MarketDataCache:
@@ -55,8 +55,11 @@ class MarketFeed:
     - Cached market data for fast lookups
     """
 
-    def __init__(self, alpaca_client: Optional[AlpacaClient] = None):
-        self.client = alpaca_client or AlpacaClient()
+    def __init__(self, broker: Optional[Broker] = None):
+        if broker is None:
+            from services.alpaca_broker import AlpacaBroker
+            broker = AlpacaBroker()
+        self.broker = broker
         self.cache = MarketDataCache(default_ttl=60)
 
         # Real-time quote storage
@@ -155,7 +158,7 @@ class MarketFeed:
             return cached
 
         # Fetch from API
-        quote = await self.client.get_latest_quote(symbol)
+        quote = await self.broker.get_latest_quote(symbol)
         if quote:
             quote["mid"] = (quote.get("bid", 0) + quote.get("ask", 0)) / 2
             self._quotes[symbol] = quote
@@ -168,7 +171,7 @@ class MarketFeed:
         if quote and quote.get("mid", 0) > 0:
             return quote["mid"]
         # Fallback: use last close from daily bars
-        bars = await self.client.get_historical_bars(symbol, "1Day", days_back=5)
+        bars = await self.broker.get_historical_bars(symbol, "1Day", days_back=5)
         if bars:
             return bars[-1]["close"]
         return 0.0
@@ -186,7 +189,7 @@ class MarketFeed:
 
         try:
             # Get 1 year of daily bars to compute historical volatility as IV proxy
-            bars = await self.client.get_historical_bars(
+            bars = await self.broker.get_historical_bars(
                 symbol, "1Day", days_back=365
             )
             if not bars or len(bars) < 20:
@@ -280,7 +283,7 @@ class MarketFeed:
 
             # Fetch near-term options to get ATM IV
             now = datetime.now()
-            chain = await self.client.get_options_chain(
+            chain = await self.broker.get_options_chain(
                 symbol=symbol,
                 expiration_date_gte=(now + timedelta(days=20)).strftime("%Y-%m-%d"),
                 expiration_date_lte=(now + timedelta(days=45)).strftime("%Y-%m-%d"),
@@ -340,7 +343,7 @@ class MarketFeed:
         if cached:
             return cached.get("levels", [])
 
-        bars = await self.client.get_historical_bars(symbol, "1Day", lookback_days)
+        bars = await self.broker.get_historical_bars(symbol, "1Day", lookback_days)
         if not bars or len(bars) < 10:
             return []
 

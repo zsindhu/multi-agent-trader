@@ -26,18 +26,18 @@ def event_loop():
 
 
 @pytest.mark.skipif(not HAS_API_KEYS, reason=SKIP_REASON)
-class TestAlpacaClient:
+class TestAlpacaBroker:
     """Tests that require a live Alpaca paper trading connection."""
 
     @pytest.fixture(autouse=True)
     def setup(self):
-        from services.alpaca_client import AlpacaClient
-        self.client = AlpacaClient()
+        from services.alpaca_broker import AlpacaBroker
+        self.broker = AlpacaBroker()
 
     @pytest.mark.asyncio
     async def test_connection_and_account(self):
         """Verify we can connect to Alpaca and fetch account info."""
-        account = await self.client.get_account()
+        account = await self.broker.get_account()
         assert "cash" in account
         assert "equity" in account
         assert "buying_power" in account
@@ -50,7 +50,7 @@ class TestAlpacaClient:
     @pytest.mark.asyncio
     async def test_get_latest_quote_aapl(self):
         """Verify we can fetch a quote for AAPL."""
-        quote = await self.client.get_latest_quote("AAPL")
+        quote = await self.broker.get_latest_quote("AAPL")
         assert quote, "No quote returned for AAPL"
         assert quote.get("bid", 0) > 0, "Bid should be positive"
         assert quote.get("ask", 0) > 0, "Ask should be positive"
@@ -59,7 +59,7 @@ class TestAlpacaClient:
     @pytest.mark.asyncio
     async def test_get_historical_bars(self):
         """Verify we can fetch historical daily bars for AAPL."""
-        bars = await self.client.get_historical_bars("AAPL", "1Day", days_back=30)
+        bars = await self.broker.get_historical_bars("AAPL", "1Day", days_back=30)
         assert bars, "No bars returned"
         assert len(bars) > 10, f"Expected 10+ bars, got {len(bars)}"
         bar = bars[-1]
@@ -71,14 +71,14 @@ class TestAlpacaClient:
     @pytest.mark.asyncio
     async def test_get_positions(self):
         """Verify we can fetch positions (may be empty in paper)."""
-        positions = await self.client.get_positions()
+        positions = await self.broker.get_positions()
         assert isinstance(positions, list)
         print(f"\n✓ Positions: {len(positions)} open")
 
     @pytest.mark.asyncio
     async def test_get_options_chain(self):
         """Verify we can fetch an options chain for AAPL."""
-        chain = await self.client.get_options_chain("AAPL")
+        chain = await self.broker.get_options_chain("AAPL")
         if chain:
             assert len(chain) > 0
             contract = chain[0]

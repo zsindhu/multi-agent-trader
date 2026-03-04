@@ -8,7 +8,7 @@ from typing import Optional
 import yaml
 from loguru import logger
 
-from services.alpaca_client import AlpacaClient
+from core.broker import Broker
 
 
 def _load_strategies() -> dict:
@@ -32,8 +32,11 @@ class OptionsChainAnalyzer:
     - Support both calls and puts
     """
 
-    def __init__(self, alpaca_client: Optional[AlpacaClient] = None):
-        self.client = alpaca_client or AlpacaClient()
+    def __init__(self, broker: Optional[Broker] = None):
+        if broker is None:
+            from services.alpaca_broker import AlpacaBroker
+            broker = AlpacaBroker()
+        self.broker = broker
         self.strategies = _load_strategies()
 
     async def get_filtered_chain(
@@ -69,7 +72,7 @@ class OptionsChainAnalyzer:
         exp_gte = (now + timedelta(days=dte_min)).strftime("%Y-%m-%d")
         exp_lte = (now + timedelta(days=dte_max)).strftime("%Y-%m-%d")
 
-        chain = await self.client.get_options_chain(
+        chain = await self.broker.get_options_chain(
             symbol=symbol,
             expiration_date_gte=exp_gte,
             expiration_date_lte=exp_lte,

@@ -5,7 +5,7 @@ from loguru import logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from agents import CoveredCallWorker, CashSecuredPutWorker, WheelWorker
 from agents.lead_agent import LeadAgent
-from services.alpaca_client import AlpacaClient
+from services.alpaca_broker import AlpacaBroker
 from services.logger_service import PerformanceLogger
 from core.risk_manager import RiskManager
 from core.portfolio import Portfolio
@@ -14,7 +14,7 @@ from config.settings import settings
 
 async def main(mode: str = "paper"):
     logger.info(f"Premium Trader starting in {mode} mode...")
-    alpaca = AlpacaClient()
+    broker = AlpacaBroker()
     portfolio = Portfolio()
     risk_manager = RiskManager(portfolio)
     perf_logger = PerformanceLogger()
@@ -29,7 +29,7 @@ async def main(mode: str = "paper"):
         performance_logger=perf_logger,
     )
 
-    account = alpaca.get_account()
+    account = await broker.get_account()
     portfolio.cash = account["cash"]
     portfolio.buying_power = account["buying_power"]
     portfolio.equity = account["equity"]
