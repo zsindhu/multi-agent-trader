@@ -15,6 +15,7 @@ from alpaca.trading.requests import (
     MarketOrderRequest,
 )
 from alpaca.trading.enums import (
+    AssetClass,
     AssetStatus,
     ContractType,
     OrderSide,
@@ -433,3 +434,133 @@ class AlpacaBroker(Broker):
         except Exception as e:
             logger.error(f"Failed to cancel order {order_id}: {e}")
             return False
+
+    # ── Asset Discovery ───────────────────────────────────────────────
+
+    async def get_tradable_assets(self, options_enabled: bool = True) -> list[dict]:
+        """
+        Fetch all tradable US equity assets from Alpaca.
+
+        Filters by status=ACTIVE and asset_class=US_EQUITY, then optionally
+        keeps only those with options support via the 'attributes' field.
+
+        Alpaca marks options-eligible assets with 'options_enabled' in the
+        attributes list on the Asset object.
+        """
+        await self._rate_limiter.acquire()
+        try:
+            from alpaca.trading.requests import GetAssetsRequest
+
+            request = GetAssetsRequest(
+                status=AssetStatus.ACTIVE,
+                asset_class=AssetClass.US_EQUITY,
+            )
+            # Pass attributes filter for options_enabled if supported
+            if options_enabled:
+                request.attributes = "options_enabled"
+
+            assets = self.trading.get_all_assets(request)
+
+            results = []
+            for a in assets:
+                if not a.tradable:
+                    continue
+
+                # Determine asset type: ETF vs stock
+                # Alpaca doesn't have a dedicated "etf" asset_class — ETFs
+                # appear under us_equity. We classify by exchange:
+                # ARCA / BATS / NYSEARCA are common ETF exchanges.
+                etf_exchanges = {"ARCA", "BATS", "NYSEARCA"}
+                exchange_str = str(a.exchange) if a.exchange else ""
+                # Strip enum prefix if present (e.g. "AssetExchange.ARCA" → "ARCA")
+                exchange_clean = exchange_str.split(".")[-1] if "." in exchange_str else exchange_str
+
+                asset_type = "etf" if exchange_clean in etf_exchanges else "stock"
+
+                has_options = False
+                if a.attributes:
+                    has_options = "options_enabled" in a.attributes
+
+                if options_enabled and not has_options:
+                    continue
+
+                results.append({
+                    "symbol": a.symbol,
+                    "name": a.name or "",
+                    "asset_type": asset_type,
+                    "tradable": a.tradable,
+                    "options_enabled": has_options,
+                    "exchange": exchange_clean,
+                })
+
+            logger.info(
+                f"Fetched {len(results)} tradable assets "
+                f"({'options-enabled only' if options_enabled else 'all'})"
+            )
+            return results
+
+        except Exception as e:
+            logger.error(f"Failed to fetch tradable assets: {e}")
+            raise
+
+    # ── Batch Historical Bars ─────────────────────────────────────────
+
+    async def get_historical_bars_batch(
+        self,
+        symbols: list[str],
+        timeframe: str = "1Day",
+        days_back: int = 5,
+    ) -> dict[str, list[dict]]:
+        """
+        Fetch historical bars for multiple symbols in one API call.
+
+        Alpaca's StockBarsRequest natively supports a list of symbols.
+        We batch in groups of 200 to stay within API limits.
+        """
+        tf_map = {
+            "1Min": TimeFrame.Minute,
+            "5Min": TimeFrame(5, "Min"),
+            "15Min": TimeFrame(15, "Min"),
+            "1Hour": TimeFrame.Hour,
+            "1Day": TimeFrame.Day,
+        }
+        tf = tf_map.get(timeframe, TimeFrame.Day)
+        start = datetime.now() - timedelta(days=days_back)
+
+        all_results: dict[str, list[dict]] = {}
+        batch_size = 200
+
+        for i in range(0, len(symbols), batch_size):
+            batch = symbols[i : i + batch_size]
+            await self._rate_limiter.acquire()
+
+            try:
+                request = StockBarsRequest(
+                    symbol_or_symbols=batch,
+                    timeframe=tf,
+                    start=start,
+                )
+                bars_set = self.stock_data.get_stock_bars(request)
+
+                for sym in batch:
+                    bars = bars_set.get(sym, []) if bars_set else []
+                    all_results[sym] = [
+                        {
+                            "timestamp": str(bar.timestamp),
+                            "open": float(bar.open),
+                            "high": float(bar.high),
+                            "low": float(bar.low),
+                            "close": float(bar.close),
+                            "volume": int(bar.volume),
+                            "vwap": float(bar.vwap) if hasattr(bar, "vwap") and bar.vwap else None,
+                        }
+                        for bar in bars
+                    ]
+            except Exception as e:
+                logger.warning(f"Batch bar fetch failed for batch at index {i}: {e}")
+                # Fill missing symbols with empty lists
+                for sym in batch:
+                    if sym not in all_results:
+                        all_results[sym] = []
+
+        return all_results

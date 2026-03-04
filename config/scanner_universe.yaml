@@ -1,0 +1,78 @@
+# Scanner Configuration — Dynamic Universe Discovery
+#
+# The universe is no longer a static symbol list. It's discovered fresh every
+# scan by querying the broker for all tradable, optionable assets and applying
+# a cheap pre-filter before expensive per-symbol analysis.
+#
+# This file controls pre-filter thresholds, scoring weights, cache TTLs,
+# and override lists (always_include / always_exclude).
+
+scanner:
+  # ── Pre-filter thresholds (applied to broker's asset list) ──────
+  min_daily_volume: 1000000     # Min avg daily stock volume (shares/day)
+  min_price: 5.0                # Min stock price (avoid penny stocks)
+  max_price: 500.0              # Max stock price (capital efficiency for CSPs)
+  min_options_oi: 100           # Min total open interest on ATM options
+
+  # ── Composite scoring weights (must sum to 1.0) ─────────────────
+  weights:
+    iv_rank: 0.30
+    momentum: 0.20
+    liquidity: 0.25
+    support_proximity: 0.15
+    mean_reversion: 0.10        # Distance from 20-day MA
+
+  # ── Thresholds ──────────────────────────────────────────────────
+  min_iv_rank: 15               # Minimum IV rank to include in final results
+  min_liquidity_score: 0.3      # Minimum options liquidity score (0-1)
+  max_spread_pct: 0.10          # Max bid-ask spread as % of mid price
+  top_n: 20                     # How many symbols to surface to Lead Agent
+
+  # ── Technical parameters ────────────────────────────────────────
+  momentum_lookback_days: 30
+  ma_short_period: 20
+  ma_long_period: 50
+
+  # ── Cache TTLs (seconds) ────────────────────────────────────────
+  cache:
+    iv_history_ttl: 43200       # 12 hours — load once at market open
+    historical_bars_ttl: 43200  # 12 hours — momentum/MA bars don't change intraday
+    support_levels_ttl: 86400   # 24 hours — swing lows are static intraday
+    prefilter_ttl: 43200        # 12 hours — discovery runs once, midday reuses
+
+  # ── ETF scoring adjustments ─────────────────────────────────────
+  etf:
+    iv_rank_discount: 10        # Lower min_iv_rank by this amount for ETFs
+    support_weight_reduction: 0.5   # Multiply support weight by this for broad index ETFs
+    liquidity_bonus: 0.10       # Flat bonus added to ETF liquidity score
+    # Broad index ETFs that get special scoring treatment
+    broad_index_etfs:
+      - SPY
+      - QQQ
+      - IWM
+      - DIA
+
+  # ── Override lists ──────────────────────────────────────────────
+  always_include:
+    # Guaranteed to be scanned even if they fail the pre-filter
+    - SPY
+    - QQQ
+    - IWM
+    - DIA
+    - XLF
+    - XLE
+    - XBI
+    - SMH
+    - GDX
+    - XLK
+    - XLV
+    - XLRE
+    - TLT
+    - EEM
+    - HYG
+    - EFA
+
+  always_exclude: []
+    # Blacklisted symbols — never scanned or traded
+    # Example:
+    # - ARKK

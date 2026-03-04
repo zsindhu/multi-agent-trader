@@ -22,6 +22,7 @@ class JournalEntry(Base):
     # Trade Details
     agent_name = Column(String, nullable=False, index=True)
     symbol = Column(String, nullable=False, index=True)
+    asset_type = Column(String, nullable=True, index=True)  # "stock" or "etf"
     option_symbol = Column(String, nullable=True, index=True)
     contract_type = Column(String, nullable=False)  # "call" or "put"
     strike = Column(Float, nullable=False)

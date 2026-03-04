@@ -22,7 +22,11 @@ wheel:
   dte_max: 45
   max_positions: 3
 
+# Scanner config has moved to config/scanner_universe.yaml
+# (pre-filter thresholds, weights, cache TTLs, override lists)
+
 watchlists:
+  # Fallback watchlist if Scanner hasn't run yet
   high_iv_stocks:
     - AAPL
     - MSFT

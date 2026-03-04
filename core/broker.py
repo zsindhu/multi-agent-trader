@@ -149,3 +149,43 @@ class Broker(ABC):
             True if successful, False otherwise
         """
         pass
+
+    @abstractmethod
+    async def get_tradable_assets(self, options_enabled: bool = True) -> list[dict]:
+        """
+        Fetch all tradable assets, optionally filtered to those with options support.
+
+        Uses the broker's assets endpoint (e.g. GET /v2/assets for Alpaca).
+
+        Args:
+            options_enabled: If True, only return assets that support options trading.
+
+        Returns:
+            List of dicts with keys: symbol, name, asset_type ("stock" or "etf"),
+            tradable, options_enabled, exchange
+        """
+        pass
+
+    @abstractmethod
+    async def get_historical_bars_batch(
+        self,
+        symbols: list[str],
+        timeframe: str = "1Day",
+        days_back: int = 5,
+    ) -> dict[str, list[dict]]:
+        """
+        Fetch historical OHLCV bars for multiple symbols in a single request.
+
+        Useful for cheap pre-filter checks (e.g. checking avg daily volume
+        across hundreds of symbols without per-symbol API calls).
+
+        Args:
+            symbols: List of stock/ETF tickers
+            timeframe: "1Min", "5Min", "15Min", "1Hour", "1Day"
+            days_back: Number of calendar days to look back
+
+        Returns:
+            Dict mapping symbol -> list of bar dicts with keys:
+            timestamp, open, high, low, close, volume, vwap
+        """
+        pass
