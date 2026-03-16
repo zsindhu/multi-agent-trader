@@ -2,29 +2,20 @@ import { useState, useEffect } from 'react'
 import { Routes, Route, NavLink } from 'react-router-dom'
 import {
   LayoutDashboard,
-  Briefcase,
-  ScrollText,
-  Bot,
-  Search,
-  FlaskConical,
+  Crosshair,
+  BarChart2,
 } from 'lucide-react'
-import Portfolio from './pages/Portfolio'
-import Positions from './pages/Positions'
-import TradeHistory from './pages/TradeHistory'
-import AgentStatus from './pages/AgentStatus'
-import ScannerWorkshop from './pages/ScannerWorkshop'
-import Backtest from './pages/Backtest'
+import DashboardPage from './pages/DashboardPage'
+import TradeDeskPage from './pages/TradeDeskPage'
+import PerformancePage from './pages/PerformancePage'
 import TradingModeToggle from './components/TradingModeToggle'
 import ConfirmLiveModal from './components/ConfirmLiveModal'
 import { fetchTradingMode, updateTradingMode } from './api'
 
 const navItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Portfolio' },
-  { to: '/positions', icon: Briefcase, label: 'Positions' },
-  { to: '/trades', icon: ScrollText, label: 'Trades' },
-  { to: '/agents', icon: Bot, label: 'Agents' },
-  { to: '/scanner', icon: Search, label: 'Scanner' },
-  { to: '/backtest', icon: FlaskConical, label: 'Backtest' },
+  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/trade-desk', icon: Crosshair, label: 'Trade Desk' },
+  { to: '/performance', icon: BarChart2, label: 'Performance' },
 ]
 
 export default function App() {
@@ -144,12 +135,9 @@ export default function App() {
           }`}
         >
           <Routes>
-            <Route path="/" element={<Portfolio />} />
-            <Route path="/positions" element={<Positions />} />
-            <Route path="/trades" element={<TradeHistory />} />
-            <Route path="/agents" element={<AgentStatus />} />
-            <Route path="/scanner" element={<ScannerWorkshop />} />
-            <Route path="/backtest" element={<Backtest />} />
+            <Route path="/" element={<DashboardPage />} />
+            <Route path="/trade-desk" element={<TradeDeskPage />} />
+            <Route path="/performance" element={<PerformancePage />} />
           </Routes>
         </main>
       </div>

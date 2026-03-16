@@ -10,6 +10,24 @@ from api.state import AppState
 
 router = APIRouter()
 
+# Factory defaults — the original values from scanner_universe.yaml before any
+# user customisation.  The Workshop uses these as the baseline reference.
+FACTORY_DEFAULTS = {
+    "min_daily_volume": 1_000_000,
+    "min_price": 5.0,
+    "max_price": 500.0,
+    "min_iv_rank": 15,
+    "min_liquidity_score": 0.3,
+    "top_n": 20,
+    "weights": {
+        "iv_rank": 0.30,
+        "momentum": 0.20,
+        "liquidity": 0.25,
+        "support_proximity": 0.15,
+        "mean_reversion": 0.10,
+    },
+}
+
 
 def _get_state(request: Request) -> AppState:
     return request.app.state.app
@@ -25,7 +43,7 @@ async def get_opportunities(
     if not state.scanner:
         return {"opportunities": []}
 
-    opps = await state.scanner.get_top_opportunities(top_n=top_n)
+    opps = await state.scanner.get_top_opportunities(n=top_n)
     return {"opportunities": opps, "count": len(opps)}
 
 
@@ -51,13 +69,20 @@ async def run_scanner(request: Request):
 
 @router.get("/config")
 async def get_scanner_config():
-    """Get current scanner_universe.yaml config."""
+    """Get current scanner_universe.yaml config + factory defaults."""
     try:
         with open("config/scanner_universe.yaml", "r") as f:
             cfg = yaml.safe_load(f) or {}
-        return cfg.get("scanner", cfg)
+        current = cfg.get("scanner", cfg)
+        return {"current": current, "defaults": FACTORY_DEFAULTS}
     except FileNotFoundError:
-        return {}
+        return {"current": {}, "defaults": FACTORY_DEFAULTS}
+
+
+@router.get("/config/defaults")
+async def get_scanner_defaults():
+    """Return the factory-default scanner parameters."""
+    return FACTORY_DEFAULTS
 
 
 class ScannerConfigUpdate(BaseModel):

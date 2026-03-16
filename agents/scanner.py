@@ -158,6 +158,14 @@ class ScannerAgent(BaseAgent):
         self.always_include = set(self.config.get("always_include", []))
         self.always_exclude = set(self.config.get("always_exclude", []))
 
+        # Smart cache
+        self._cache = _TTLCache()
+
+        # In-memory results
+        self._latest_opportunities: list[dict] = []
+        self._last_scan_at: Optional[datetime] = None
+        self._asset_type_map: dict[str, str] = {}
+
     def _load_config(self):
         """Reload config from scanner_universe.yaml (called by API after param changes)."""
         self.config = _load_scanner_config()

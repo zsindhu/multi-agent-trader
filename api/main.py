@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from api.state import AppState
-from api.routes import portfolio, trades, agents, scanner, backtest, settings
+from api.routes import portfolio, trades, agents, scanner, backtest, settings, proposals
 
 
 # ── Lifespan ────────────────────────────────────────────────────────
@@ -46,7 +46,11 @@ app = FastAPI(
 # CORS — allow the Vite dev server
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=[
+        "http://localhost:5173", "http://127.0.0.1:5173",
+        "http://localhost:5174", "http://127.0.0.1:5174",
+        "http://localhost:5175", "http://127.0.0.1:5175",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -60,6 +64,7 @@ app.include_router(agents.router, prefix="/api/agents", tags=["Agents"])
 app.include_router(scanner.router, prefix="/api/scanner", tags=["Scanner"])
 app.include_router(backtest.router, prefix="/api/backtest", tags=["Backtest"])
 app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
+app.include_router(proposals.router, prefix="/api/proposals", tags=["Proposals"])
 
 
 # ── Health ──────────────────────────────────────────────────────────

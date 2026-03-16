@@ -66,12 +66,19 @@ A multi-agent architecture for automated options income strategies (Covered Call
                  └────────────┬──────────────┘
                               │
                  ┌────────────▼──────────────┐
-                 │   React Dashboard          │
+                 │   Proposal Layer           │
+                 │   TradeProposal model      │
+                 │   status: pending →        │
+                 │   approved / rejected      │
+                 │   Batch ops · Audit trail  │
+                 └────────────┬──────────────┘
+                              │  operator approval
+                 ┌────────────▼──────────────┐
+                 │   React Dashboard (3 screens)│
+                 │   Dashboard · Trade Desk · │
+                 │   Performance              │
                  │   Vite + Tailwind CSS      │
-                 │   Portfolio · Positions ·  │
-                 │   Trades · Agents ·        │
-                 │   Scanner Workshop ·       │
-                 │   Backtest · Mode Toggle   │
+                 │   Mode Toggle · ProposalCard│
                  └───────────────────────────┘
 ```
 
@@ -123,7 +130,7 @@ A multi-agent architecture for automated options income strategies (Covered Call
 ### Phase 9 — FastAPI Backend + React Dashboard ✅
 - **FastAPI Backend** (`api/main.py`):
   - `AppState` singleton (`api/state.py`) — wires broker, portfolio, scanner, strategy manager, and all services at startup
-  - REST endpoints: `/api/portfolio`, `/api/trades`, `/api/agents`, `/api/scanner`, `/api/backtest`, `/api/settings`
+  - REST endpoints: `/api/portfolio`, `/api/trades`, `/api/agents`, `/api/scanner`, `/api/backtest`, `/api/settings`, `/api/proposals`
   - Portfolio snapshot with account balances, positions, options, market regime
   - Trade history + journal queries with filtering
   - Agent status and strategy parameter CRUD
@@ -133,16 +140,23 @@ A multi-agent architecture for automated options income strategies (Covered Call
 
 - **React Dashboard** (`dashboard/`):
   - Vite + React 19 + Tailwind CSS 4 + React Router
-  - **Portfolio Overview**: stat cards (equity, cash, buying power, P&L), Active Positions summary (collapsible, grouped by underlying, strategy badges), Market Regime display
-  - **Positions Page**: stock + option positions with filtering
-  - **Trade History**: filterable trade log and journal entries
-  - **Agent Status**: per-agent metrics, strategy parameter editor
-  - **Scanner Workshop**: live parameter tuning, preview runs, opportunity scoring
-  - **Backtest**: run backtests, view results with equity curves, compare mode
   - **Trading Mode Toggle**: interactive header toggle (Paper ↔ Live), green/red pulsing indicator, 2-step confirmation modal for live mode, global visual cues (red top border, sidebar tints when live)
-  - **Active Positions Summary**: collapsible section on Portfolio view — groups options by underlying, shows contract count, managing agent with color-coded badges (indigo=CC, emerald=CSP, pink=Wheel), premium collected, P&L; Wheel phase display (selling puts / selling calls)
+  - **Active Positions Summary**: collapsible component — groups options by underlying, shows contract count, managing agent with color-coded badges (indigo=CC, emerald=CSP, pink=Wheel), premium collected, P&L; Wheel phase display
   - API client (`api.js`) with all endpoint functions
   - Vite dev proxy to FastAPI backend on `:8000`
+
+### Phase 10 — Human-in-the-Loop Proposal System + 3-Screen Dashboard ✅
+- **Trade Proposal Layer**:
+  - `models/proposal.py` — `TradeProposal` model with full trade details (strike, expiry, delta, premium, collateral, annualized return, PoP, max risk, IV rank, rationale); status lifecycle: `pending → executed | rejected`
+  - `api/routes/proposals.py` — 9 endpoints: generate batch, approve/reject/modify individual proposals, batch approve/reject, history query
+  - `AppState.auto_approve = False` — system never executes trades without explicit operator approval
+  - Proposal rationale string auto-generated from IV rank, delta, DTE, distance OTM, and annualized return
+
+- **3-Screen Dashboard Restructure** (from 6 pages → 3 focused screens):
+  - **Dashboard** (`/`) — monitor screen: portfolio stat cards, equity chart with range toggles, risk/drawdown gauge, Active Positions, agent status grid
+  - **Trade Desk** (`/trade-desk`) — action screen: scanner results table, collapsible Tune Scanner panel with live parameter sliders/weights, trade proposals with `ProposalCard` components, batch Approve All / Reject All, execution status feed
+  - **Performance** (`/performance`) — review screen: summary stat cards, trade history table, journal analytics, full backtest engine with compare mode
+  - `ProposalCard` component — displays all proposal details with agent-colored left border, inline modify editor (delta/contracts), Approve/Reject/Modify actions
 
 ## Phased Build Plan
 
@@ -155,13 +169,14 @@ A multi-agent architecture for automated options income strategies (Covered Call
 | **7B** | Supporting Services — VIX regime, Discord notifications, Wheel state persistence | ✅ Complete |
 | **8** | Backtesting Engine — historical replay, synthetic chains, CLI, compare mode | ✅ Complete |
 | **9** | Dashboard — FastAPI REST API, React + Tailwind, Scanner Workshop, Mode Toggle | ✅ Complete |
+| **10** | Human-in-the-Loop Proposals + 3-Screen Dashboard restructure | ✅ Complete |
 
 ### Remaining Work
 | Phase | Scope | Status |
 |-------|-------|--------|
 | **5** | Advanced Intelligence — earnings avoidance, sector diversification, correlation | 🔲 Planned |
-| **10** | ML Layer — IV surface modeling, regime detection, entry timing | 🔲 Planned |
-| **11** | Risk Hardening — Greeks monitoring, margin impact, circuit breakers | 🔲 Planned |
+| **11** | ML Layer — IV surface modeling, regime detection, entry timing | 🔲 Planned |
+| **12** | Risk Hardening — Greeks monitoring, margin impact, circuit breakers | 🔲 Planned |
 
 ## Quick Start
 
@@ -280,7 +295,8 @@ premium-trader/
 │       ├── agents.py          # Agent status, regime, strategy CRUD
 │       ├── scanner.py         # Run scanner, preview, config tuning
 │       ├── backtest.py        # Run/status/results, compare mode, job list
-│       └── settings.py        # Trading mode toggle (paper ↔ live)
+│       ├── settings.py        # Trading mode toggle (paper ↔ live)
+│       └── proposals.py       # Generate, approve, reject, modify trade proposals
 │
 ├── core/                      # Core abstractions & business logic
 │   ├── broker.py              # Abstract Broker interface (ABC)
@@ -298,16 +314,14 @@ premium-trader/
 │   │   │   ├── Badge.jsx            # Color-coded badges (green, red, blue, indigo, pink…)
 │   │   │   ├── Card.jsx             # Reusable card container
 │   │   │   ├── ConfirmLiveModal.jsx # 2-step confirmation for live trading switch
+│   │   │   ├── ProposalCard.jsx     # Trade proposal card with approve/reject/modify actions
 │   │   │   ├── Spinner.jsx          # Loading spinner
 │   │   │   ├── StatCard.jsx         # Metric display card with trend indicator
 │   │   │   └── TradingModeToggle.jsx # Paper/Live dropdown with pulsing indicators
 │   │   └── pages/
-│   │       ├── Portfolio.jsx        # Account overview + active positions + regime
-│   │       ├── Positions.jsx        # Stock & option position details
-│   │       ├── TradeHistory.jsx     # Trade log & journal with filters
-│   │       ├── AgentStatus.jsx      # Per-agent metrics & strategy editor
-│   │       ├── ScannerWorkshop.jsx  # Live parameter tuning & preview
-│   │       └── Backtest.jsx         # Run backtests, view results, compare
+│   │       ├── DashboardPage.jsx    # Monitor: stat cards, equity chart, risk gauge, positions
+│   │       ├── TradeDeskPage.jsx    # Act: scanner results, proposals, execution feed
+│   │       └── PerformancePage.jsx  # Review: trade history, journal, backtest engine
 │   ├── vite.config.js         # Vite config with API proxy to :8000
 │   └── package.json
 │
@@ -323,7 +337,8 @@ premium-trader/
 │   ├── performance.py         # Agent performance snapshots
 │   ├── opportunity.py         # Scanner-detected opportunities (+ asset_type)
 │   ├── journal_entry.py       # Detailed trade journal entries (+ asset_type)
-│   └── wheel_state.py         # Wheel state machine persistence
+│   ├── wheel_state.py         # Wheel state machine persistence
+│   └── proposal.py            # TradeProposal — pending/executed/rejected proposals
 │
 ├── services/                  # External service integrations
 │   ├── alpaca_broker.py       # AlpacaBroker — Broker interface implementation
@@ -379,6 +394,8 @@ premium-trader/
 | **API** | FastAPI with Pydantic models | Auto-docs, async, validation |
 | **Dashboard** | React 19 + Vite + Tailwind CSS 4 | Fast HMR, modern CSS, component-based UI |
 | **Trading Mode** | Runtime toggle with broker reinitialization | Switch paper ↔ live without restart; 2-step confirmation for safety |
+| **Trade Proposals** | Human-in-the-loop approval layer | Agents never execute orders autonomously; every trade requires explicit operator approval |
+| **Dashboard Structure** | 3 screens: Dashboard / Trade Desk / Performance | Maps directly to operator workflow: monitor → decide → review |
 | **Notifications** | Discord webhooks (graceful no-op) | Non-intrusive; no crash if not configured |
 
 ## Tech Stack

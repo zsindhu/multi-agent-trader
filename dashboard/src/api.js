@@ -52,6 +52,7 @@ export const fetchOpportunities = (top_n) =>
   request(`/scanner/opportunities${top_n ? `?top_n=${top_n}` : ''}`);
 export const runScanner = () => request('/scanner/run', { method: 'POST' });
 export const fetchScannerConfig = () => request('/scanner/config');
+export const fetchScannerDefaults = () => request('/scanner/config/defaults');
 export const updateScannerConfig = (update) =>
   request('/scanner/config', { method: 'PUT', body: JSON.stringify(update) });
 export const previewScanner = (overrides) =>
@@ -74,6 +75,24 @@ export const updateTradingMode = (trading_mode) =>
     method: 'POST',
     body: JSON.stringify({ trading_mode }),
   });
+
+// ── Proposals ──────────────────────────────────────────────────────
+export const fetchPendingProposals = (batchId) =>
+  request(`/proposals/pending${batchId ? `?batch_id=${batchId}` : ''}`);
+export const fetchProposalHistory = (params = {}) => {
+  const q = new URLSearchParams(params).toString();
+  return request(`/proposals/history${q ? `?${q}` : ''}`);
+};
+export const fetchProposalBatch = (batchId) => request(`/proposals/batch/${batchId}`);
+export const generateProposals = () => request('/proposals/generate', { method: 'POST' });
+export const approveProposal = (id) => request(`/proposals/${id}/approve`, { method: 'POST' });
+export const rejectProposal = (id) => request(`/proposals/${id}/reject`, { method: 'POST' });
+export const modifyProposal = (id, overrides) =>
+  request(`/proposals/${id}/modify`, { method: 'POST', body: JSON.stringify(overrides) });
+export const approveBatch = (batchId) =>
+  request(`/proposals/batch/${batchId}/approve`, { method: 'POST' });
+export const rejectBatch = (batchId) =>
+  request(`/proposals/batch/${batchId}/reject`, { method: 'POST' });
 
 // ── Health ─────────────────────────────────────────────────────
 export const fetchHealth = () => request('/health');

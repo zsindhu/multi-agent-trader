@@ -21,6 +21,10 @@ from services.logger_service import PerformanceLogger
 from services.notifier import Notifier
 from agents.scanner import ScannerAgent
 from agents.trade_journal import TradeJournalAgent
+from agents.lead_agent import LeadAgent
+from agents.worker_cc import CoveredCallWorker
+from agents.worker_csp import CashSecuredPutWorker
+from agents.worker_wheel import WheelWorker
 
 
 class AppState:
@@ -42,6 +46,8 @@ class AppState:
         self.scanner: Optional[ScannerAgent] = None
         self.notifier: Optional[Notifier] = None
         self.broker_is_paper: bool = True  # Track current broker mode
+        self.lead_agent: Optional[LeadAgent] = None
+        self.auto_approve: bool = False  # Always False by default — never auto-trade
 
     async def initialize(self):
         """Create and wire all services."""
@@ -64,6 +70,46 @@ class AppState:
             broker=self.broker,
             market_feed=self.market_feed,
             options_chain=self.options_chain,
+        )
+
+        # Build workers and lead agent for the proposal system
+        cc_worker = CoveredCallWorker(
+            broker=self.broker,
+            portfolio=self.portfolio,
+            market_feed=self.market_feed,
+            options_chain=self.options_chain,
+            risk_manager=self.risk_manager,
+            perf_logger=self.perf_logger,
+            trade_journal=self.trade_journal,
+        )
+        csp_worker = CashSecuredPutWorker(
+            broker=self.broker,
+            portfolio=self.portfolio,
+            market_feed=self.market_feed,
+            options_chain=self.options_chain,
+            risk_manager=self.risk_manager,
+            perf_logger=self.perf_logger,
+            trade_journal=self.trade_journal,
+        )
+        wheel_worker = WheelWorker(
+            broker=self.broker,
+            portfolio=self.portfolio,
+            market_feed=self.market_feed,
+            options_chain=self.options_chain,
+            risk_manager=self.risk_manager,
+            perf_logger=self.perf_logger,
+            trade_journal=self.trade_journal,
+        )
+        self.lead_agent = LeadAgent(
+            workers=[cc_worker, csp_worker, wheel_worker],
+            risk_manager=self.risk_manager,
+            performance_logger=self.perf_logger,
+            broker=self.broker,
+            portfolio=self.portfolio,
+            market_feed=self.market_feed,
+            scanner=self.scanner,
+            strategy_manager=self.strategy_manager,
+            notifier=self.notifier,
         )
 
         # Sync portfolio

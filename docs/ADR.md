@@ -98,14 +98,19 @@ CLI via `scripts/backtest.py` supports single runs, parameter overrides, `--comp
 
 ## ADR-008: React Dashboard with Vite + Tailwind
 
-**Status:** Accepted  
+**Status:** Accepted
 **Date:** 2025-06
 
 **Context:** Operators need a visual dashboard to monitor portfolio, positions, trades, agent status, and scanner opportunities without reading logs.
 
-**Decision:** Built a React 19 SPA using Vite 7 as the build tool and Tailwind CSS 4 for styling. The dashboard uses React Router for client-side navigation across six pages: Portfolio, Positions, Trade History, Agent Status, Scanner Workshop, and Backtest. Vite's dev server proxies `/api` requests to the FastAPI backend on port 8000. Production builds are served as static files from FastAPI.
+**Decision:** Built a React 19 SPA using Vite 7 as the build tool and Tailwind CSS 4 for styling. The dashboard uses React Router for client-side navigation. Vite's dev server proxies `/api` requests to the FastAPI backend on port 8000. Production builds are served as static files from FastAPI.
 
-**Consequences:** Fast HMR during development. Zero-config proxy avoids CORS issues. The dashboard is a standalone SPA that can be deployed independently or served from the API. Tailwind's utility classes keep styling co-located with components.
+The dashboard was initially structured across six pages (Portfolio, Positions, Trade History, Agent Status, Scanner Workshop, Backtest) and later restructured into three focused screens aligned with the human-in-the-loop workflow (see ADR-011):
+- **Dashboard** (`/`) — portfolio monitor: stat cards, equity chart, risk gauge, active positions, agent status
+- **Trade Desk** (`/trade-desk`) — action screen: scanner results, trade proposals, execution feed
+- **Performance** (`/performance`) — review screen: trade history, journal analytics, backtest engine
+
+**Consequences:** Fast HMR during development. Zero-config proxy avoids CORS issues. The three-screen structure maps directly to the operator workflow: monitor → decide → review.
 
 ---
 
@@ -124,6 +129,29 @@ CLI via `scripts/backtest.py` supports single runs, parameter overrides, `--comp
 Global visual cues (red top border, sidebar tints, mode label in footer) reinforce which mode is active across all pages. A `trading-mode-changed` custom event triggers data refreshes in Portfolio and Positions pages.
 
 **Consequences:** Safe mode switching at runtime. The 2-step confirmation prevents accidental live trading. The broker and all dependent services are fully reinitialized — no stale paper-mode references. The `.env` persistence ensures the mode survives API server restarts.
+
+---
+
+## ADR-011: Human-in-the-Loop Trade Proposal System
+
+**Status:** Accepted
+**Date:** 2026-03
+
+**Context:** The original Lead Agent ran full autonomous cycles — scanning, evaluating, and executing trades without any user approval step. This made it impossible to review trade logic before real orders were placed, and it created unnecessary risk in paper-to-live transitions.
+
+**Decision:** Introduced a proposal layer between the Lead Agent's analysis and actual order execution. The system now operates in two explicit steps:
+
+1. **Generate** — `POST /api/proposals/generate` triggers the Lead Agent to analyze scanner opportunities, build `TradeProposal` objects with all trade details (strike, expiry, delta, premium, collateral, rationale), and save them with `status="pending"`. No orders are placed.
+2. **Approve/Reject/Modify** — The operator reviews proposals on the Trade Desk. Approving a proposal sends the order to the broker; rejecting discards it. Modifications re-fetch the options chain with new parameters before resubmission.
+
+Key implementation details:
+- `models/proposal.py` — `TradeProposal` SQLAlchemy model stored in a `proposals` table (indexed on `batch_id` and `status`)
+- `api/routes/proposals.py` — 9 endpoints: `GET /pending`, `GET /history`, `GET /batch/{id}`, `POST /generate`, `POST /{id}/approve`, `POST /{id}/reject`, `POST /{id}/modify`, `POST /batch/{id}/approve`, `POST /batch/{id}/reject`
+- `AppState.auto_approve = False` — hardcoded default; no code path sets it to `True` without explicit operator action
+- Batch operations allow approving or rejecting an entire scan cycle in one click
+- `ProposalCard` component surfaces all relevant details: strike, expiry, delta, premium, collateral, annualized return, PoP, max risk, IV rank, rationale string
+
+**Consequences:** Operators have full visibility and control before any capital is deployed. The system can never auto-trade by default. The proposal history table provides a complete audit trail of every considered trade, whether approved, rejected, or modified.
 
 ---
 

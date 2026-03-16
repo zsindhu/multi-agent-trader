@@ -16,6 +16,7 @@ from .performance import AgentPerformance
 from .opportunity import ScannerOpportunity
 from .journal_entry import JournalEntry
 from .wheel_state import WheelStateRecord
+from .proposal import TradeProposal
 
 __all__ = [
     "Base",
@@ -25,4 +26,5 @@ __all__ = [
     "ScannerOpportunity",
     "JournalEntry",
     "WheelStateRecord",
+    "TradeProposal",
 ]
