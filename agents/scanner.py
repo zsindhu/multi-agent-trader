@@ -221,14 +221,22 @@ class ScannerAgent(BaseAgent):
             logger.warning(f"[{self.name}] Pre-filter returned 0 symbols")
             return []
 
+        sample = [p["symbol"] for p in prefiltered[:5]]
         logger.info(
-            f"[{self.name}] Pre-filter passed: {len(prefiltered)} symbols — "
-            f"starting full analysis..."
+            f"[{self.name}] Pre-filter passed: {len(prefiltered)} symbols "
+            f"(first 5: {sample}) — starting full analysis..."
         )
 
         # Step 2: Batch IV ranks
         symbols = [p["symbol"] for p in prefiltered]
         iv_ranks = await self.market_feed.get_iv_ranks(symbols)
+
+        valid_iv = sum(1 for v in iv_ranks.values() if v >= 0)
+        invalid_iv = sum(1 for v in iv_ranks.values() if v < 0)
+        logger.info(
+            f"[{self.name}] IV ranks: {valid_iv}/{len(symbols)} valid (>= 0), "
+            f"{invalid_iv} returned -1 (insufficient data)"
+        )
 
         # Step 3: Full analysis on each survivor (concurrency-limited)
         sem = asyncio.Semaphore(10)
@@ -239,15 +247,18 @@ class ScannerAgent(BaseAgent):
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         opportunities = []
+        exceptions = 0
         for result in results:
             if isinstance(result, Exception):
-                logger.debug(f"[{self.name}] Analysis error: {result}")
+                logger.warning(f"[{self.name}] Analysis exception: {result}")
+                exceptions += 1
             elif result is not None:
                 opportunities.append(result)
 
+        dropped = len(prefiltered) - len(opportunities) - exceptions
         logger.info(
-            f"[{self.name}] Scan complete: {len(opportunities)}/{len(prefiltered)} "
-            f"passed full analysis"
+            f"[{self.name}] Scan complete: {len(opportunities)}/{len(prefiltered)} passed "
+            f"({dropped} filtered out, {exceptions} exceptions)"
         )
         return opportunities
 
@@ -266,6 +277,20 @@ class ScannerAgent(BaseAgent):
         # Step 1: Query broker for all tradable, optionable assets
         logger.info(f"[{self.name}] Discovering tradable optionable assets from broker...")
         all_assets = await self.broker.get_tradable_assets(options_enabled=True)
+
+        if not all_assets:
+            logger.error(
+                f"[{self.name}] Broker returned 0 optionable assets — "
+                f"check API key permissions and attributes filter"
+            )
+        else:
+            etf_count = sum(1 for a in all_assets if a.get("asset_type") == "etf")
+            stock_count = len(all_assets) - etf_count
+            tradable_count = sum(1 for a in all_assets if a.get("tradable"))
+            logger.info(
+                f"[{self.name}] Asset discovery: {len(all_assets)} total "
+                f"({stock_count} stocks, {etf_count} ETFs, {tradable_count} tradable)"
+            )
 
         # Build asset type map
         self._asset_type_map = {a["symbol"]: a["asset_type"] for a in all_assets}
@@ -297,14 +322,23 @@ class ScannerAgent(BaseAgent):
             candidate_symbols, timeframe="1Day", days_back=5
         )
 
-        # Apply pre-filter
+        with_bars = sum(1 for sym in candidate_symbols if bars_batch.get(sym))
+        logger.info(
+            f"[{self.name}] Batch bars: {with_bars}/{len(candidate_symbols)} symbols got data, "
+            f"{len(candidate_symbols) - with_bars} returned empty"
+        )
+
+        # Apply pre-filter with drop reason tracking
         prefiltered = []
+        drops = {"no_bars": 0, "low_volume": 0, "low_price": 0, "high_price": 0}
+
         for sym in candidate_symbols:
             bars = bars_batch.get(sym, [])
             is_always_include = sym in self.always_include
 
             # Must have at least 1 bar (unless always_include)
             if not bars and not is_always_include:
+                drops["no_bars"] += 1
                 continue
 
             if bars:
@@ -318,10 +352,15 @@ class ScannerAgent(BaseAgent):
 
             # Volume filter (skip for always_include)
             if avg_volume < self.min_daily_volume and not is_always_include:
+                drops["low_volume"] += 1
                 continue
 
             # Price filter (skip for always_include)
-            if (latest_close < self.min_price or latest_close > self.max_price) and not is_always_include:
+            if latest_close < self.min_price and not is_always_include:
+                drops["low_price"] += 1
+                continue
+            if latest_close > self.max_price and not is_always_include:
+                drops["high_price"] += 1
                 continue
 
             asset_type = self._asset_type_map.get(sym, "stock")
@@ -333,6 +372,12 @@ class ScannerAgent(BaseAgent):
                 "latest_close": latest_close,
                 "is_always_include": is_always_include,
             })
+
+        logger.info(
+            f"[{self.name}] Pre-filter drops: no_bars={drops['no_bars']}, "
+            f"low_volume={drops['low_volume']}, low_price={drops['low_price']}, "
+            f"high_price={drops['high_price']}"
+        )
 
         # Cache the pre-filter results
         self._cache.set("prefiltered_universe", prefiltered, self.ttl_prefilter)
@@ -365,7 +410,13 @@ class ScannerAgent(BaseAgent):
                 if asset_type == "etf":
                     effective_min_iv = max(0, self.min_iv_rank - self.etf_iv_discount)
 
+                if iv_rank == -1 and not prefilter_data.get("is_always_include"):
+                    logger.info(f"{symbol}: dropped — IV rank -1 (insufficient data)")
+                    return None
                 if iv_rank < effective_min_iv and not prefilter_data.get("is_always_include"):
+                    logger.info(
+                        f"{symbol}: dropped — IV rank {iv_rank:.0f} below threshold {effective_min_iv:.0f}"
+                    )
                     return None
 
                 # Get current price
@@ -373,11 +424,16 @@ class ScannerAgent(BaseAgent):
                 if current_price <= 0:
                     current_price = await self.market_feed.get_current_price(symbol)
                 if current_price <= 0:
+                    logger.info(f"{symbol}: dropped — current price 0 (quote unavailable)")
                     return None
 
                 # Historical bars (cached 12h)
                 bars = await self._get_cached_bars(symbol)
                 if not bars or len(bars) < self.ma_short:
+                    got = len(bars) if bars else 0
+                    logger.info(
+                        f"{symbol}: dropped — insufficient bars (got {got}, need {self.ma_short})"
+                    )
                     return None
 
                 closes = [b["close"] for b in bars]
@@ -397,6 +453,10 @@ class ScannerAgent(BaseAgent):
                     liquidity_score = min(1.0, liquidity_score + self.etf_liquidity_bonus)
 
                 if liquidity_score < self.min_liquidity and not prefilter_data.get("is_always_include"):
+                    logger.info(
+                        f"{symbol}: dropped — liquidity score {liquidity_score:.2f} "
+                        f"below threshold {self.min_liquidity:.2f}"
+                    )
                     return None
 
                 # Support proximity (cached 24h)
@@ -416,7 +476,7 @@ class ScannerAgent(BaseAgent):
                 }
 
             except Exception as e:
-                logger.debug(f"[{self.name}] Error analyzing {symbol}: {e}")
+                logger.warning(f"[{self.name}] Error analyzing {symbol}: {e}")
                 return None
 
     # ── Cached Data Fetchers ──────────────────────────────────────
@@ -725,27 +785,49 @@ class ScannerAgent(BaseAgent):
                 min_bid=0.01,
             )
 
+            logger.info(f"{symbol}: liquidity check — got {len(chain)} contracts in chain")
+
             if not chain:
+                logger.info(
+                    f"{symbol}: liquidity=0.0 — no option contracts returned "
+                    f"(market may be closed or symbol not optionable)"
+                )
                 return 0.0
 
             spreads = []
             oi_values = []
+            all_bids_zero = True
             for c in chain[:10]:
                 bid = c.get("bid", 0)
                 ask = c.get("ask", 0)
                 mid = c.get("mid_price", 0) or ((bid + ask) / 2)
                 oi = c.get("open_interest", 0)
 
+                if bid > 0:
+                    all_bids_zero = False
                 if mid > 0:
                     spread_pct = (ask - bid) / mid
                     spreads.append(spread_pct)
                 oi_values.append(oi)
 
-            if not spreads:
+            avg_oi = sum(oi_values) / len(oi_values) if oi_values else 0
+
+            # Market-closed fallback: if all bids are 0, use OI-only score
+            if all_bids_zero or not spreads:
+                logger.info(
+                    f"{symbol}: using OI-only liquidity score (market appears closed), "
+                    f"avg_oi={avg_oi:.0f}"
+                )
+                oi_score = min(avg_oi / 1000.0, 1.0)
+                # Return minimum 0.2 if there are contracts with OI > min_options_oi
+                if avg_oi > self.min_options_oi:
+                    return round(max(0.2, 0.4 * oi_score), 3)
                 return 0.0
 
             avg_spread = sum(spreads) / len(spreads)
-            avg_oi = sum(oi_values) / len(oi_values) if oi_values else 0
+            logger.info(
+                f"{symbol}: liquidity — avg_spread={avg_spread:.3f}, avg_oi={avg_oi:.0f}"
+            )
 
             spread_score = max(0, 1.0 - (avg_spread / self.max_spread_pct))
             oi_score = min(avg_oi / 1000.0, 1.0)
@@ -754,7 +836,7 @@ class ScannerAgent(BaseAgent):
             return round(min(max(liquidity, 0), 1.0), 3)
 
         except Exception as e:
-            logger.debug(f"[{self.name}] Liquidity calc failed for {symbol}: {e}")
+            logger.warning(f"[{self.name}] Liquidity calc failed for {symbol}: {e}")
             return 0.0
 
     # ══════════════════════════════════════════════════════════════

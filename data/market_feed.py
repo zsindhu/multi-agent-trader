@@ -222,8 +222,9 @@ class MarketFeed:
 
             self._iv_history[symbol] = iv_series
             self._iv_history_loaded.add(symbol)
-            logger.debug(
-                f"Loaded IV history for {symbol}: {len(iv_series)} data points, "
+            logger.info(
+                f"[MarketFeed] IV history for {symbol}: {len(bars)} bars → "
+                f"{len(iv_series)} vol data points, "
                 f"range [{min(iv_series):.2f}, {max(iv_series):.2f}]"
             )
 
@@ -244,13 +245,20 @@ class MarketFeed:
 
         iv_series = self._iv_history.get(symbol, [])
         if len(iv_series) < 20:
-            logger.warning(f"Insufficient IV data for {symbol} rank calculation")
+            logger.warning(
+                f"[MarketFeed] {symbol}: IV rank returning -1 — "
+                f"insufficient iv_series length ({len(iv_series)} < 20)"
+            )
             return -1.0
 
         # Get current IV (most recent value in the series)
         # Ideally we'd fetch live ATM IV from the options chain
         current_iv = await self._get_current_iv(symbol)
         if current_iv <= 0:
+            logger.info(
+                f"[MarketFeed] {symbol}: current_iv=0, falling back to "
+                f"last realized vol ({iv_series[-1]:.3f})"
+            )
             current_iv = iv_series[-1]  # fallback to last computed
 
         iv_low = min(iv_series)
@@ -290,6 +298,10 @@ class MarketFeed:
             )
 
             if not chain:
+                logger.info(
+                    f"[MarketFeed] {symbol}: options chain empty for current IV "
+                    f"(market may be closed) — will use realized vol fallback"
+                )
                 return 0.0
 
             # Find the ATM options (closest strike to current price)
@@ -299,6 +311,10 @@ class MarketFeed:
             )
 
             if not atm_options:
+                logger.info(
+                    f"[MarketFeed] {symbol}: {len(chain)} contracts in chain but "
+                    f"all have IV=0 (market closed) — will use realized vol fallback"
+                )
                 return 0.0
 
             # Average IV of the 2-4 closest-to-ATM options

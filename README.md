@@ -96,7 +96,7 @@ A multi-agent architecture for automated options income strategies (Covered Call
 - `AlpacaBroker` implementation (`services/alpaca_broker.py`) with full API coverage
 - All agents and data modules use dependency injection — swap brokers without touching agent code
 - `get_tradable_assets()` for dynamic asset discovery with ETF classification
-- `get_historical_bars_batch()` for cheap multi-symbol bar fetching (up to 200 per call)
+- `get_historical_bars_batch()` for multi-symbol bar fetching; both single and batch methods bypass the alpaca-py SDK via direct `httpx` calls (see ADR-012)
 
 ### Phase 3 — Database & Trade Journal Agent ✅
 - SQLAlchemy 2.0 async models: `Trade`, `ActivePosition`, `AgentPerformance`, `ScannerOpportunity`, `JournalEntry`
@@ -157,6 +157,13 @@ A multi-agent architecture for automated options income strategies (Covered Call
   - **Trade Desk** (`/trade-desk`) — action screen: scanner results table, collapsible Tune Scanner panel with live parameter sliders/weights, trade proposals with `ProposalCard` components, batch Approve All / Reject All, execution status feed
   - **Performance** (`/performance`) — review screen: summary stat cards, trade history table, journal analytics, full backtest engine with compare mode
   - `ProposalCard` component — displays all proposal details with agent-colored left border, inline modify editor (delta/contracts), Approve/Reject/Modify actions
+
+- **Alpaca SDK Historical Bar Fix** (ADR-012):
+  - `alpaca-py` SDK `StockHistoricalDataClient.get_stock_bars()` returns empty `BarSet` on free-tier paper accounts — SDK deserialization bug
+  - `get_historical_bars()` and `get_historical_bars_batch()` in `AlpacaBroker` now bypass the SDK entirely, calling the Alpaca REST API directly via `httpx`
+  - Single-symbol: `GET /v2/stocks/{symbol}/bars` — Multi-symbol: `GET /v2/stocks/bars?symbols=...`
+  - Full pagination support via `next_page_token`; shared `_parse_bar()` helper normalizes compact API format
+  - `scripts/diagnose_bars.py` — 5-test diagnostic confirms SDK fails, raw REST works; retained for future regression testing
 
 ## Phased Build Plan
 

@@ -155,6 +155,29 @@ Key implementation details:
 
 ---
 
+## ADR-012: Alpaca SDK Bypass — Direct REST API for Historical Bars
+
+**Status:** Accepted
+**Date:** 2026-03
+
+**Context:** `StockHistoricalDataClient.get_stock_bars()` from the `alpaca-py` SDK consistently returns an empty `BarSet` on the free-tier paper account despite valid API credentials. The SDK call returns HTTP 200 but deserializes to an empty result. The same credentials work correctly against the raw REST endpoint (`https://data.alpaca.markets/v2`).
+
+Diagnosis was performed via `scripts/diagnose_bars.py` (5-test matrix: baseline SDK, IEX feed, TZ-aware datetime, IEX+TZ, raw httpx). Tests A–C2 all FAIL (empty BarSet); Test D (raw httpx) PASS — confirming the issue is SDK-level deserialization, not authentication or data availability.
+
+**Decision:** Replace both `get_historical_bars()` and `get_historical_bars_batch()` in `services/alpaca_broker.py` with direct `httpx.AsyncClient` calls:
+
+- Single-symbol: `GET /v2/stocks/{symbol}/bars?timeframe=1Day&start=...`
+- Multi-symbol: `GET /v2/stocks/bars?symbols=SPY,QQQ,...&timeframe=1Day&start=...`
+- Auth via `APCA-API-KEY-ID` / `APCA-API-SECRET-KEY` headers
+- Pagination via `next_page_token` in response body
+- Compact bar format (`c/h/l/o/t/v/vw`) normalized via shared `_parse_bar()` helper
+
+The SDK is still used for order placement, account queries, and options chain data — only historical bar methods are bypassed.
+
+**Consequences:** Historical bar fetching works on free-tier accounts. The bypass is isolated to two methods in `AlpacaBroker`. If the SDK is fixed in a future release, reverting is a two-method change. `scripts/diagnose_bars.py` is retained as a regression test for future SDK upgrades.
+
+---
+
 ## ADR-010: Active Positions Summary Component
 
 **Status:** Accepted  

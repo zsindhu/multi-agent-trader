@@ -313,6 +313,32 @@ class AlpacaBroker(Broker):
             raise
 
     # ── Historical Data ───────────────────────────────────────────────
+    #
+    # NOTE: The alpaca-py StockHistoricalDataClient.get_stock_bars() returns
+    # empty BarSets despite valid credentials. The raw REST API works correctly.
+    # Both methods below use httpx directly to work around the SDK bug.
+
+    _DATA_BASE = "https://data.alpaca.markets/v2/stocks"
+
+    @property
+    def _data_headers(self) -> dict:
+        return {
+            "APCA-API-KEY-ID": settings.alpaca_api_key,
+            "APCA-API-SECRET-KEY": settings.alpaca_secret_key,
+        }
+
+    @staticmethod
+    def _parse_bar(raw: dict) -> dict:
+        """Convert Alpaca compact bar dict (c/h/l/o/t/v/vw) to our format."""
+        return {
+            "timestamp": raw.get("t", ""),
+            "open": float(raw.get("o", 0)),
+            "high": float(raw.get("h", 0)),
+            "low": float(raw.get("l", 0)),
+            "close": float(raw.get("c", 0)),
+            "volume": int(raw.get("v", 0)),
+            "vwap": float(raw.get("vw")) if raw.get("vw") else None,
+        }
 
     async def get_historical_bars(
         self,
@@ -321,50 +347,36 @@ class AlpacaBroker(Broker):
         days_back: int = 60,
     ) -> list[dict]:
         """
-        Fetch historical OHLCV bars for a stock symbol.
-        
-        Args:
-            symbol: Stock ticker (e.g. "AAPL")
-            timeframe: "1Min", "5Min", "15Min", "1Hour", "1Day"
-            days_back: Number of calendar days to look back
-        
-        Returns:
-            List of dicts with: timestamp, open, high, low, close, volume
+        Fetch historical OHLCV bars for a stock symbol via direct REST call.
+        Uses httpx instead of the Alpaca SDK (SDK returns empty BarSets on free plan).
         """
+        import httpx
         await self._rate_limiter.acquire()
 
-        tf_map = {
-            "1Min": TimeFrame.Minute,
-            "5Min": TimeFrame(5, "Min"),
-            "15Min": TimeFrame(15, "Min"),
-            "1Hour": TimeFrame.Hour,
-            "1Day": TimeFrame.Day,
-        }
-        tf = tf_map.get(timeframe, TimeFrame.Day)
-        start = datetime.now() - timedelta(days=days_back)
+        tf_str = timeframe if timeframe in ("1Min", "5Min", "15Min", "1Hour", "1Day") else "1Day"
+        start = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
 
+        url = f"{self._DATA_BASE}/{symbol}/bars"
+        params = {"timeframe": tf_str, "start": start, "limit": 1000}
+
+        bars: list[dict] = []
         try:
-            request = StockBarsRequest(
-                symbol_or_symbols=symbol,
-                timeframe=tf,
-                start=start,
-            )
-            bars_set = self.stock_data.get_stock_bars(request)
-            bars = bars_set[symbol] if symbol in bars_set else []
-
-            return [
-                {
-                    "timestamp": str(bar.timestamp),
-                    "open": float(bar.open),
-                    "high": float(bar.high),
-                    "low": float(bar.low),
-                    "close": float(bar.close),
-                    "volume": int(bar.volume),
-                    "vwap": float(bar.vwap) if hasattr(bar, "vwap") and bar.vwap else None,
-                }
-                for bar in bars
-            ]
-
+            async with httpx.AsyncClient(timeout=30) as client:
+                while True:
+                    resp = await client.get(url, params=params, headers=self._data_headers)
+                    if resp.status_code != 200:
+                        logger.error(
+                            f"Bars HTTP {resp.status_code} for {symbol}: {resp.text[:200]}"
+                        )
+                        break
+                    data = resp.json()
+                    for raw in data.get("bars") or []:
+                        bars.append(self._parse_bar(raw))
+                    token = data.get("next_page_token")
+                    if not token:
+                        break
+                    params["page_token"] = token
+            return bars
         except Exception as e:
             logger.error(f"Failed to fetch historical bars for {symbol}: {e}")
             raise
@@ -451,15 +463,22 @@ class AlpacaBroker(Broker):
         try:
             from alpaca.trading.requests import GetAssetsRequest
 
+            # Fetch ALL active US equity assets without server-side attributes filter.
+            # The attributes field is unreliable — many options-eligible assets have
+            # it unpopulated. We apply a two-tier client-side check instead.
             request = GetAssetsRequest(
                 status=AssetStatus.ACTIVE,
                 asset_class=AssetClass.US_EQUITY,
             )
-            # Pass attributes filter for options_enabled if supported
-            if options_enabled:
-                request.attributes = "options_enabled"
 
             assets = self.trading.get_all_assets(request)
+
+            with_attrs = sum(1 for a in assets if a.attributes)
+            without_attrs = sum(1 for a in assets if not a.attributes)
+            logger.info(
+                f"[AlpacaBroker] Raw asset fetch: {len(assets)} total, "
+                f"{with_attrs} with attributes populated, {without_attrs} without"
+            )
 
             results = []
             for a in assets:
@@ -467,19 +486,19 @@ class AlpacaBroker(Broker):
                     continue
 
                 # Determine asset type: ETF vs stock
-                # Alpaca doesn't have a dedicated "etf" asset_class — ETFs
-                # appear under us_equity. We classify by exchange:
-                # ARCA / BATS / NYSEARCA are common ETF exchanges.
                 etf_exchanges = {"ARCA", "BATS", "NYSEARCA"}
                 exchange_str = str(a.exchange) if a.exchange else ""
-                # Strip enum prefix if present (e.g. "AssetExchange.ARCA" → "ARCA")
                 exchange_clean = exchange_str.split(".")[-1] if "." in exchange_str else exchange_str
-
                 asset_type = "etf" if exchange_clean in etf_exchanges else "stock"
 
-                has_options = False
-                if a.attributes:
+                # Two-tier options check:
+                # Tier 1: attributes populated — check explicitly
+                # Tier 2: attributes missing — assume optionable, let liquidity score filter it
+                if a.attributes and isinstance(a.attributes, (list, set)):
                     has_options = "options_enabled" in a.attributes
+                else:
+                    # Attributes not populated by Alpaca — pass through, downstream will filter
+                    has_options = True
 
                 if options_enabled and not has_options:
                     continue
@@ -494,9 +513,16 @@ class AlpacaBroker(Broker):
                 })
 
             logger.info(
-                f"Fetched {len(results)} tradable assets "
-                f"({'options-enabled only' if options_enabled else 'all'})"
+                f"[AlpacaBroker] Passing {len(results)} assets to pre-filter "
+                f"({'options-enabled filter applied' if options_enabled else 'all assets'})"
             )
+
+            if len(results) < 10:
+                logger.warning(
+                    f"[AlpacaBroker] Only {len(results)} assets discovered — "
+                    f"possible API permission issue. Scanner will supplement with always_include list."
+                )
+
             return results
 
         except Exception as e:
@@ -514,53 +540,52 @@ class AlpacaBroker(Broker):
         """
         Fetch historical bars for multiple symbols in one API call.
 
-        Alpaca's StockBarsRequest natively supports a list of symbols.
-        We batch in groups of 200 to stay within API limits.
+        Uses the multi-symbol REST endpoint directly (SDK returns empty BarSet on free tier).
+        Batches in groups of 100 to stay within URL length limits.
         """
-        tf_map = {
-            "1Min": TimeFrame.Minute,
-            "5Min": TimeFrame(5, "Min"),
-            "15Min": TimeFrame(15, "Min"),
-            "1Hour": TimeFrame.Hour,
-            "1Day": TimeFrame.Day,
-        }
-        tf = tf_map.get(timeframe, TimeFrame.Day)
-        start = datetime.now() - timedelta(days=days_back)
+        import httpx
 
+        start = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
         all_results: dict[str, list[dict]] = {}
-        batch_size = 200
+        batch_size = 100
 
         for i in range(0, len(symbols), batch_size):
             batch = symbols[i : i + batch_size]
             await self._rate_limiter.acquire()
 
             try:
-                request = StockBarsRequest(
-                    symbol_or_symbols=batch,
-                    timeframe=tf,
-                    start=start,
-                )
-                bars_set = self.stock_data.get_stock_bars(request)
+                url = f"{self._DATA_BASE}/bars"
+                params: dict = {
+                    "symbols": ",".join(batch),
+                    "timeframe": timeframe,
+                    "start": start,
+                    "limit": 1000,
+                }
 
-                for sym in batch:
-                    bars = bars_set.get(sym, []) if bars_set else []
-                    all_results[sym] = [
-                        {
-                            "timestamp": str(bar.timestamp),
-                            "open": float(bar.open),
-                            "high": float(bar.high),
-                            "low": float(bar.low),
-                            "close": float(bar.close),
-                            "volume": int(bar.volume),
-                            "vwap": float(bar.vwap) if hasattr(bar, "vwap") and bar.vwap else None,
-                        }
-                        for bar in bars
-                    ]
+                async with httpx.AsyncClient(timeout=30) as client:
+                    while True:
+                        resp = await client.get(url, params=params, headers=self._data_headers)
+                        if resp.status_code != 200:
+                            logger.warning(
+                                f"[AlpacaBroker] batch bars HTTP {resp.status_code}: {resp.text[:200]}"
+                            )
+                            break
+                        data = resp.json()
+                        bars_by_sym = data.get("bars") or {}
+                        for sym, raw_bars in bars_by_sym.items():
+                            all_results.setdefault(sym, []).extend(
+                                self._parse_bar(r) for r in raw_bars
+                            )
+                        token = data.get("next_page_token")
+                        if not token:
+                            break
+                        params["page_token"] = token
+
             except Exception as e:
-                logger.warning(f"Batch bar fetch failed for batch at index {i}: {e}")
-                # Fill missing symbols with empty lists
-                for sym in batch:
-                    if sym not in all_results:
-                        all_results[sym] = []
+                logger.warning(f"[AlpacaBroker] Batch bar fetch failed for batch at index {i}: {e}")
+
+            # Fill any symbols that got no data
+            for sym in batch:
+                all_results.setdefault(sym, [])
 
         return all_results

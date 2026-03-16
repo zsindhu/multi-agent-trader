@@ -174,3 +174,107 @@ async def preview_scanner(request: Request, update: ScannerConfigUpdate):
         # Restore original config
         if hasattr(state.scanner, "config"):
             state.scanner.config = original_cfg
+
+
+@router.get("/diagnostic")
+async def scanner_diagnostic(request: Request):
+    """
+    Mini diagnostic scan on a fixed set of liquid symbols (SPY, QQQ, AAPL).
+    Returns step-by-step pipeline results for each symbol so you can see
+    exactly where the scanner is dropping things.
+    """
+    state = _get_state(request)
+    if not state.scanner:
+        raise HTTPException(status_code=503, detail="Scanner not initialized")
+
+    DIAG_SYMBOLS = ["SPY", "QQQ", "AAPL"]
+    results = []
+
+    for sym in DIAG_SYMBOLS:
+        entry = {"symbol": sym, "steps": {}}
+
+        # Step 1: Asset discovery
+        try:
+            all_assets = await state.scanner.broker.get_tradable_assets(options_enabled=False)
+            found = next((a for a in all_assets if a["symbol"] == sym), None)
+            entry["steps"]["asset_discovery"] = {
+                "found": found is not None,
+                "tradable": found.get("tradable") if found else None,
+                "options_enabled": found.get("options_enabled") if found else None,
+                "asset_type": found.get("asset_type") if found else None,
+            }
+        except Exception as e:
+            entry["steps"]["asset_discovery"] = {"error": str(e)}
+
+        # Step 2: Historical bars (pre-filter input)
+        try:
+            bars = await state.scanner.broker.get_historical_bars(sym, "1Day", days_back=5)
+            avg_vol = round(sum(b["volume"] for b in bars) / len(bars)) if bars else 0
+            latest_close = bars[-1]["close"] if bars else 0
+            entry["steps"]["pre_filter"] = {
+                "bars_returned": len(bars),
+                "avg_daily_volume": avg_vol,
+                "latest_close": latest_close,
+                "passes_volume": avg_vol >= state.scanner.min_daily_volume,
+                "passes_price": state.scanner.min_price <= latest_close <= state.scanner.max_price,
+            }
+        except Exception as e:
+            entry["steps"]["pre_filter"] = {"error": str(e)}
+
+        # Step 3: IV rank
+        try:
+            iv_rank = await state.scanner.market_feed.get_iv_rank(sym)
+            iv_series_len = len(state.scanner.market_feed._iv_history.get(sym, []))
+            entry["steps"]["iv_rank"] = {
+                "iv_rank": iv_rank,
+                "iv_series_length": iv_series_len,
+                "passes_threshold": iv_rank >= state.scanner.min_iv_rank or iv_rank == -1,
+                "note": "IV rank -1 means insufficient history data" if iv_rank == -1 else None,
+            }
+        except Exception as e:
+            entry["steps"]["iv_rank"] = {"error": str(e)}
+
+        # Step 4: Liquidity score
+        try:
+            current_price = latest_close if "latest_close" in entry["steps"].get("pre_filter", {}) else 0
+            if current_price <= 0:
+                current_price = await state.scanner.market_feed.get_current_price(sym)
+            liq = await state.scanner._calc_liquidity_score(sym, current_price)
+            entry["steps"]["liquidity"] = {
+                "score": liq,
+                "passes_threshold": liq >= state.scanner.min_liquidity,
+                "current_price_used": current_price,
+            }
+        except Exception as e:
+            entry["steps"]["liquidity"] = {"error": str(e)}
+
+        # Step 5: Composite score (if we have enough data)
+        try:
+            iv = entry["steps"].get("iv_rank", {}).get("iv_rank", -1)
+            liq = entry["steps"].get("liquidity", {}).get("score", 0)
+            if iv >= 0 and liq > 0:
+                fake_opp = {
+                    "symbol": sym,
+                    "asset_type": entry["steps"].get("asset_discovery", {}).get("asset_type", "stock"),
+                    "iv_rank": iv,
+                    "momentum_30d": 0,
+                    "distance_from_20ma": 0,
+                    "options_liquidity_score": liq,
+                    "near_support": False,
+                }
+                score = state.scanner._compute_composite_score(fake_opp)
+                entry["steps"]["composite_score"] = {"score": round(score, 3)}
+            else:
+                entry["steps"]["composite_score"] = {"score": None, "reason": "IV or liquidity unavailable"}
+        except Exception as e:
+            entry["steps"]["composite_score"] = {"error": str(e)}
+
+        results.append(entry)
+
+    return {"diagnostic": results, "thresholds": {
+        "min_iv_rank": state.scanner.min_iv_rank,
+        "min_liquidity": state.scanner.min_liquidity,
+        "min_daily_volume": state.scanner.min_daily_volume,
+        "min_price": state.scanner.min_price,
+        "max_price": state.scanner.max_price,
+    }}
