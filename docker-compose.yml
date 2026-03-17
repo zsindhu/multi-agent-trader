@@ -1,0 +1,49 @@
+services:
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: premium_trader
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: premium_trader
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U premium_trader"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://premium_trader:${DB_PASSWORD}@db:5432/premium_trader
+    ports:
+      - "8000:8000"
+    volumes:
+      - backtest_data:/app/data/backtest_cache
+      - backtest_results:/app/data/backtest_results
+    command: >
+      sh -c "alembic upgrade head && uvicorn api.main:app --host 0.0.0.0 --port 8000"
+
+  agents:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://premium_trader:${DB_PASSWORD}@db:5432/premium_trader
+    volumes:
+      - backtest_data:/app/data/backtest_cache
+      - backtest_results:/app/data/backtest_results
+    command: python main.py --mode paper
+
+volumes:
+  pgdata:
+  backtest_data:
+  backtest_results:

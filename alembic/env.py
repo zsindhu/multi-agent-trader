@@ -25,7 +25,8 @@ from models.wheel_state import WheelStateRecord
 config = context.config
 
 # Set the database URL from settings
-config.set_main_option("sqlalchemy.url", settings.database_url.replace("+aiosqlite", ""))  # Remove async driver for migrations
+sync_url = settings.database_url.replace("+asyncpg", "").replace("+aiosqlite", "")
+config.set_main_option("sqlalchemy.url", sync_url)  # Remove async driver for migrations
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

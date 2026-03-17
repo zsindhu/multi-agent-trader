@@ -17,6 +17,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPExceptio
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
+from config.settings import settings as app_settings
 from api.state import AppState
 from api.routes import portfolio, trades, agents, scanner, backtest, settings, proposals
 
@@ -71,7 +72,21 @@ app.include_router(proposals.router, prefix="/api/proposals", tags=["Proposals"]
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
+    from sqlalchemy import text
+    from core.database import AsyncSessionLocal
+    db_ok = False
+    try:
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("SELECT 1"))
+            db_ok = True
+    except Exception:
+        pass
+    return {
+        "status": "ok" if db_ok else "degraded",
+        "database": "connected" if db_ok else "disconnected",
+        "trading_mode": app_settings.trading_mode,
+        "timestamp": datetime.utcnow().isoformat(),
+    }
 
 
 # ── WebSocket ───────────────────────────────────────────────────────
@@ -133,3 +148,23 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # Make ws_manager accessible for broadcasting from background tasks
 app.state.ws_manager = ws_manager
+
+
+# ── Dashboard Static Files (production) ─────────────────────────────
+# Must be registered LAST — catch-all would intercept /api routes otherwise.
+import os
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+_dashboard_dist = os.path.join(os.path.dirname(os.path.dirname(__file__)), "dashboard", "dist")
+if os.path.exists(_dashboard_dist):
+    _assets_dir = os.path.join(_dashboard_dist, "assets")
+    if os.path.exists(_assets_dir):
+        app.mount("/assets", StaticFiles(directory=_assets_dir), name="static-assets")
+
+    @app.get("/{path:path}")
+    async def serve_dashboard(path: str):
+        file_path = os.path.join(_dashboard_dist, path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+        return FileResponse(os.path.join(_dashboard_dist, "index.html"))

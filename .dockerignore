@@ -1,0 +1,14 @@
+__pycache__
+*.pyc
+.env
+.git/
+node_modules/
+*.db
+.pytest_cache/
+venv/
+dashboard/dist/
+dashboard/build/
+dashboard/node_modules/
+.DS_Store
+data/backtest_cache/*
+data/backtest_results/*
