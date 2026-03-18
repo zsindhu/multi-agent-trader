@@ -19,7 +19,28 @@ from loguru import logger
 
 from config.settings import settings as app_settings
 from api.state import AppState
-from api.routes import portfolio, trades, agents, scanner, backtest, settings, proposals
+from api.routes import portfolio, trades, agents, scanner, backtest, settings, proposals, account
+
+
+# ── Background Scanner ──────────────────────────────────────────────
+
+async def _periodic_scanner(state: AppState, interval_minutes: int = 30):
+    """
+    Refresh scanner opportunities every N minutes.
+    Persists results to DB — does NOT execute any trades.
+    This keeps the dashboard's Trade Desk populated without user interaction.
+    """
+    await asyncio.sleep(90)  # let startup settle before first background scan
+    while True:
+        try:
+            logger.info("[API] Background scanner running...")
+            raw = await state.scanner.scan()
+            scored = await state.scanner.evaluate(raw)
+            await state.scanner.execute(scored)  # execute() = save to DB, no broker orders
+            logger.info(f"[API] Background scanner: {len(scored)} opportunities refreshed")
+        except Exception as e:
+            logger.warning(f"[API] Background scanner error: {e}")
+        await asyncio.sleep(interval_minutes * 60)
 
 
 # ── Lifespan ────────────────────────────────────────────────────────
@@ -31,8 +52,14 @@ async def lifespan(app: FastAPI):
     state = AppState()
     await state.initialize()
     app.state.app = state
+    scanner_task = asyncio.create_task(_periodic_scanner(state))
     yield
     logger.info("[API] Shutting down...")
+    scanner_task.cancel()
+    try:
+        await scanner_task
+    except asyncio.CancelledError:
+        pass
 
 
 # ── App ─────────────────────────────────────────────────────────────
@@ -66,6 +93,7 @@ app.include_router(scanner.router, prefix="/api/scanner", tags=["Scanner"])
 app.include_router(backtest.router, prefix="/api/backtest", tags=["Backtest"])
 app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
 app.include_router(proposals.router, prefix="/api/proposals", tags=["Proposals"])
+app.include_router(account.router, prefix="/api/account", tags=["Account"])
 
 
 # ── Health ──────────────────────────────────────────────────────────

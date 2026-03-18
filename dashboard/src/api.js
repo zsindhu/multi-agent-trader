@@ -87,12 +87,17 @@ export const fetchProposalBatch = (batchId) => request(`/proposals/batch/${batch
 export const generateProposals = () => request('/proposals/generate', { method: 'POST' });
 export const approveProposal = (id) => request(`/proposals/${id}/approve`, { method: 'POST' });
 export const rejectProposal = (id) => request(`/proposals/${id}/reject`, { method: 'POST' });
+export const resetProposal = (id) => request(`/proposals/${id}/reset`, { method: 'POST' });
 export const modifyProposal = (id, overrides) =>
   request(`/proposals/${id}/modify`, { method: 'POST', body: JSON.stringify(overrides) });
 export const approveBatch = (batchId) =>
   request(`/proposals/batch/${batchId}/approve`, { method: 'POST' });
 export const rejectBatch = (batchId) =>
   request(`/proposals/batch/${batchId}/reject`, { method: 'POST' });
+
+// ── Account ────────────────────────────────────────────────────
+export const fetchAccountStatus = () => request('/account/status');
+export const fetchAlpacaOrders = (limit = 30) => request(`/account/orders?limit=${limit}`);
 
 // ── Health ─────────────────────────────────────────────────────
 export const fetchHealth = () => request('/health');

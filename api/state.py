@@ -48,6 +48,7 @@ class AppState:
         self.broker_is_paper: bool = True  # Track current broker mode
         self.lead_agent: Optional[LeadAgent] = None
         self.auto_approve: bool = False  # Always False by default — never auto-trade
+        self.account_status: dict = {}  # Cached from last startup verification
 
     async def initialize(self):
         """Create and wire all services."""
@@ -71,6 +72,9 @@ class AppState:
             market_feed=self.market_feed,
             options_chain=self.options_chain,
         )
+
+        # ── Startup verification ─────────────────────────────────────────
+        await self._verify_account()
 
         # Build workers and lead agent for the proposal system
         cc_worker = CoveredCallWorker(
@@ -170,6 +174,83 @@ class AppState:
             logger.warning(f"[AppState] Regime refresh failed after mode switch: {e}")
 
         logger.info(f"[AppState] Broker reinitialized for {new_mode.upper()} mode.")
+
+    # ── Account verification ─────────────────────────────────────────
+
+    async def _verify_account(self):
+        """
+        Verify Alpaca connection and options trading configuration at startup.
+
+        Logs clear errors with fix instructions. Does NOT crash — runs in degraded
+        mode where the Scanner works but proposals aren't generated if there are issues.
+        """
+        status = {
+            "connection": "failed",
+            "account_status": None,
+            "options_enabled": False,
+            "options_level": None,
+        }
+
+        try:
+            raw_account = self.broker.trading.get_account()
+            status["connection"] = "ok"
+
+            account_status = str(getattr(raw_account, "status", "UNKNOWN")).split(".")[-1]
+            status["account_status"] = account_status
+
+            equity = float(getattr(raw_account, "equity", 0) or 0)
+            buying_power = float(getattr(raw_account, "buying_power", 0) or 0)
+            options_level_raw = getattr(raw_account, "options_approved_level", None)
+            options_level = int(options_level_raw) if options_level_raw is not None else None
+            status["options_level"] = options_level
+            status["options_enabled"] = options_level is not None and options_level >= 2
+
+            mode = "PAPER" if self.broker_is_paper else "LIVE"
+            logger.info(
+                f"[AppState] Alpaca {mode} account connected: "
+                f"status={account_status}, equity=${equity:,.0f}, "
+                f"buying_power=${buying_power:,.0f}, "
+                f"options_level={options_level}"
+            )
+
+            if account_status != "ACTIVE":
+                logger.error(
+                    f"[AppState] Account status is {account_status} (expected ACTIVE). "
+                    "Proposal generation disabled until account is active."
+                )
+            if options_level is None or options_level == 0:
+                logger.error(
+                    "[AppState] Options trading NOT enabled on this account. "
+                    "Go to Alpaca dashboard → Account → Configure → Enable options trading. "
+                    "Proposal generation will not work until options are enabled."
+                )
+            elif options_level == 1:
+                logger.error(
+                    "[AppState] Options level 1 — cannot sell puts or calls. "
+                    "Upgrade to level 2 in Alpaca dashboard. "
+                    "Proposal generation will not work until level is upgraded."
+                )
+            elif options_level >= 2:
+                logger.info(
+                    f"[AppState] Options level {options_level} ✓ — "
+                    "can sell covered calls and cash-secured puts."
+                )
+
+        except Exception as e:
+            status["connection"] = "failed"
+            error_str = str(e)
+            if "forbidden" in error_str.lower() or "401" in error_str or "403" in error_str:
+                logger.error(
+                    "[AppState] Alpaca API credentials rejected. "
+                    "Check ALPACA_API_KEY and ALPACA_SECRET_KEY in your .env file."
+                )
+            else:
+                logger.error(
+                    f"[AppState] Failed to connect to Alpaca: {e}. "
+                    "Running in degraded mode — Scanner only."
+                )
+
+        self.account_status = status
 
     # ── Convenience methods for routes ──────────────────────────────
 

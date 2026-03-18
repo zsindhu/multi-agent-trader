@@ -119,8 +119,8 @@ class Portfolio:
                         symbol=underlying,
                         option_symbol=symbol,
                         contract_type=self._parse_contract_type(symbol),
-                        strike=0.0,  # Would need to parse from OCC symbol
-                        expiration="",
+                        strike=self._parse_strike(symbol),
+                        expiration=self._parse_expiration(symbol),
                         quantity=pos["qty"],
                         entry_price=pos["avg_cost"],
                         current_price=pos["current_price"],
@@ -231,3 +231,20 @@ class Portfolio:
             elif c == 'P':
                 return "put"
         return "unknown"
+
+    @staticmethod
+    def _parse_strike(option_symbol: str) -> float:
+        """Parse strike price from OCC symbol. Last 8 chars = strike * 1000."""
+        try:
+            return int(option_symbol[-8:]) / 1000.0
+        except (ValueError, IndexError):
+            return 0.0
+
+    @staticmethod
+    def _parse_expiration(option_symbol: str) -> str:
+        """Parse expiration date from OCC symbol. Chars [-15:-9] = YYMMDD."""
+        try:
+            date_str = option_symbol[-15:-9]
+            return f"20{date_str[:2]}-{date_str[2:4]}-{date_str[4:6]}"
+        except (ValueError, IndexError):
+            return ""

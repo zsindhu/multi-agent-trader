@@ -487,22 +487,45 @@ class LeadAgent:
 
     # ── PROPOSAL SYSTEM ───────────────────────────────────────────
 
-    async def generate_proposals(self, batch_id: Optional[str] = None) -> list[TradeProposal]:
+    async def generate_proposals(
+        self,
+        batch_id: Optional[str] = None,
+        capital_reserve: float = 0.20,
+    ) -> list[TradeProposal]:
         """
         Generate trade proposals from latest Scanner results without executing.
 
-        Runs the same assignment logic as run_cycle() but instead of calling
-        worker.execute(), fetches the optimal contract and saves a TradeProposal
-        with status="pending" for human review.
+        Capital-aware: fetches current buying power and only proposes trades that
+        are actually executable given the account size. Stops generating when
+        cumulative collateral would exceed (1 - capital_reserve) of buying power.
 
-        If auto_approve is True, immediately calls approve_proposal for each.
+        Args:
+            batch_id: Optional batch identifier (auto-generated if None).
+            capital_reserve: Fraction of buying power to keep in reserve (default 0.20 = 20%).
         """
         if batch_id is None:
             batch_id = str(uuid4())
 
         logger.info(f"[Lead] Generating proposals (batch {batch_id[:8]}...)")
 
-        # Get scanner results and build assignment map (same as _update_assignments)
+        # ── Fetch account state ──────────────────────────────────────────
+        buying_power = 0.0
+        if self.broker:
+            try:
+                account = await self.broker.get_account()
+                buying_power = float(account.get("buying_power", 0))
+                equity = float(account.get("equity", 0))
+                logger.info(
+                    f"[Lead] Account: equity=${equity:,.0f}, "
+                    f"buying_power=${buying_power:,.0f}"
+                )
+            except Exception as e:
+                logger.warning(f"[Lead] Could not fetch account state: {e}")
+
+        max_deployable = buying_power * (1.0 - capital_reserve)
+        cumulative_collateral = 0.0
+
+        # ── Get scanner results ──────────────────────────────────────────
         scanner_opportunities = []
         if self.scanner:
             scanner_opportunities = await self.scanner.get_top_opportunities()
@@ -511,12 +534,25 @@ class LeadAgent:
             logger.info("[Lead] No scanner results available for proposals")
             return []
 
-        opp_map = {o["symbol"]: o for o in scanner_opportunities}
+        # Sort by composite_score descending — best opportunities first
+        scanner_opportunities = sorted(
+            scanner_opportunities,
+            key=lambda o: o.get("composite_score", 0),
+            reverse=True,
+        )
 
-        # Build IV ranks from scanner data
+        opp_map = {o["symbol"]: o for o in scanner_opportunities}
         iv_ranks = {sym: opp_map[sym].get("iv_rank", -1) for sym in opp_map}
 
-        # Determine assignments (same rules as _update_assignments)
+        # ── Capital-based strategy filters ──────────────────────────────
+        skip_wheel = False
+        wheel_skip_reason = ""
+        if buying_power > 0 and buying_power < 20_000:
+            skip_wheel = True
+            wheel_skip_reason = f"buying power ${buying_power:,.0f} insufficient for share assignment"
+            logger.info(f"[Lead] Skipping Wheel strategy — {wheel_skip_reason}")
+
+        # ── Build assignment list ────────────────────────────────────────
         assignments: list[tuple[str, str, dict]] = []  # (symbol, agent_name, opp_data)
         assigned: set[str] = set()
 
@@ -553,6 +589,21 @@ class LeadAgent:
 
             # CSP rule: IV rank > 30 + near support + have cash
             if iv_rank > 30 and price > 0:
+                # Capital filter: only propose CSPs on strikes we can afford
+                csp_collateral = price * 100  # approximate (1 contract)
+                if buying_power > 0 and csp_collateral > buying_power:
+                    logger.debug(
+                        f"[Lead] Skipping CSP {symbol} — collateral ${csp_collateral:,.0f} "
+                        f"> buying power ${buying_power:,.0f}"
+                    )
+                    continue
+                # Low buying power: only propose strikes < $50
+                if buying_power > 0 and buying_power < 5_000 and price > 50:
+                    logger.debug(
+                        f"[Lead] Skipping CSP {symbol} — price ${price:.0f} > $50 "
+                        f"(buying power < $5k)"
+                    )
+                    continue
                 if not near_support:
                     try:
                         near_support = await self.market_feed.is_near_support(symbol, price)
@@ -565,14 +616,48 @@ class LeadAgent:
 
             # Wheel rule: IV rank > 25 + good price range
             if iv_rank > 25 and 20 <= price <= 500:
-                assignments.append((symbol, "Wheel", opp))
-                assigned.add(symbol)
+                if skip_wheel:
+                    logger.debug(f"[Lead] Skipping Wheel {symbol} — {wheel_skip_reason}")
+                    continue
+                # Wheel needs capital for both CSP collateral AND potential share assignment
+                wheel_collateral = price * 100  # CSP margin
+                share_purchase_cost = price * 100  # if assigned, need to buy 100 shares
+                wheel_total_needed = wheel_collateral + share_purchase_cost
+                if buying_power > 0 and wheel_total_needed > buying_power:
+                    logger.debug(
+                        f"[Lead] Skipping Wheel {symbol} — need ${wheel_total_needed:,.0f} "
+                        f"(CSP + shares if assigned), have ${buying_power:,.0f}"
+                    )
+                    continue
+                # Check if we already hold 100+ shares (can just sell calls)
+                shares_held = self.portfolio.get_shares_for_symbol(symbol) if self.portfolio else 0
+                if shares_held >= 100:
+                    # Already hold shares — only need CSP collateral for puts, or $0 for calls
+                    assignments.append((symbol, "Wheel", opp))
+                    assigned.add(symbol)
+                else:
+                    # Need full capital buffer for potential assignment
+                    if buying_power > 0 and wheel_total_needed <= buying_power:
+                        assignments.append((symbol, "Wheel", opp))
+                        assigned.add(symbol)
+                    elif buying_power == 0:
+                        assignments.append((symbol, "Wheel", opp))
+                        assigned.add(symbol)
 
         logger.info(f"[Lead] {len(assignments)} assignments → fetching contracts...")
 
         proposals: list[TradeProposal] = []
 
         for symbol, agent_name, opp in assignments:
+            # ── Capital gate: stop if we've deployed enough ──────────────
+            if buying_power > 0 and cumulative_collateral >= max_deployable:
+                logger.info(
+                    f"[Lead] Capital limit reached — deployed "
+                    f"${cumulative_collateral:,.0f} of ${max_deployable:,.0f} max. "
+                    f"Stopping proposal generation."
+                )
+                break
+
             try:
                 price = opp.get("current_price", 0)
                 iv_rank = opp.get("iv_rank", 0)
@@ -594,7 +679,6 @@ class LeadAgent:
                     )
                     contract_type = "put"
                 elif agent_name == "Wheel":
-                    # Default to selling puts (initial phase)
                     contracts_list = await options_chain.find_optimal_puts(
                         symbol, price, strategy_name="wheel", top_n=1
                     )
@@ -611,6 +695,12 @@ class LeadAgent:
                 bid = c.get("bid", 0)
                 ask = c.get("ask", 0)
                 mid_price = c.get("mid_price", round((bid + ask) / 2, 2))
+                if mid_price <= 0:
+                    logger.info(
+                        f"[Lead] Skipping {symbol} ({agent_name}) — "
+                        f"no market data (mid_price=0, snapshot likely missing)"
+                    )
+                    continue
                 ann_return = c.get("annualized_return", options_chain.calculate_annualized_return(
                     mid_price, strike, dte, contract_type
                 ))
@@ -626,15 +716,53 @@ class LeadAgent:
                     collateral_required = round(strike * 100 * num_contracts, 2)
                     max_risk = round(collateral_required - total_premium, 2)
                 else:
-                    # Covered call — no additional collateral (shares already held)
                     collateral_required = 0.0
-                    max_risk = total_premium  # premium collected (capped upside)
+                    max_risk = total_premium
+
+                # ── Per-proposal capital feasibility check ───────────────
+                if buying_power > 0 and collateral_required > buying_power:
+                    logger.info(
+                        f"[Lead] Skipping {symbol} — collateral ${collateral_required:,.0f} "
+                        f"> buying power ${buying_power:,.0f}"
+                    )
+                    continue
+
+                # ── Max position size check (15% of equity) ──────────────
+                if self.risk_manager and self.portfolio and self.portfolio.equity > 0:
+                    max_position = self.portfolio.equity * 0.15
+                    if collateral_required > max_position:
+                        logger.info(
+                            f"[Lead] Skipping {symbol} — collateral ${collateral_required:,.0f} "
+                            f"> 15% of equity (${max_position:,.0f})"
+                        )
+                        continue
+
+                # ── Capital percentage fields ────────────────────────────
+                pct_of_buying_power = (
+                    round((collateral_required / buying_power) * 100, 1)
+                    if buying_power > 0 else None
+                )
+                cumulative_collateral += collateral_required
+                cumulative_pct = (
+                    round((cumulative_collateral / buying_power) * 100, 1)
+                    if buying_power > 0 else None
+                )
 
                 # Human-readable rationale
                 support_note = " near support" if opp.get("near_support") else ""
+                wheel_note = ""
+                if agent_name == "Wheel" and self.portfolio:
+                    shares_held = self.portfolio.get_shares_for_symbol(symbol)
+                    if shares_held < 100:
+                        assignment_cost = strike * 100
+                        wheel_note = (
+                            f" If assigned, ${assignment_cost:,.0f} buying power will be "
+                            f"used to hold 100 shares of {symbol}."
+                        )
                 rationale = (
                     f"IV rank {iv_rank:.0f}{support_note}, {distance_otm_pct:.1f}% OTM "
                     f"at Δ{abs(delta):.2f}, {dte}DTE — {ann_return:.1f}% annualized"
+                    f"{wheel_note}"
                 )
 
                 proposal = TradeProposal(
@@ -663,6 +791,8 @@ class LeadAgent:
                     iv_rank=iv_rank,
                     scanner_score=scanner_score,
                     rationale=rationale,
+                    pct_of_buying_power=pct_of_buying_power,
+                    cumulative_pct=cumulative_pct,
                     created_at=datetime.utcnow(),
                 )
 
@@ -675,13 +805,17 @@ class LeadAgent:
                 logger.info(
                     f"[Lead] Proposal: {agent_name} {symbol} "
                     f"{contract_type.upper()} ${strike} exp {c.get('expiration')} "
-                    f"@ ${mid_price:.2f} ({ann_return:.1f}% ann)"
+                    f"@ ${mid_price:.2f} ({ann_return:.1f}% ann) "
+                    f"[{pct_of_buying_power or '—'}% BP, {cumulative_pct or '—'}% cumul]"
                 )
 
             except Exception as e:
                 logger.error(f"[Lead] Failed to generate proposal for {symbol}: {e}")
 
-        logger.info(f"[Lead] Generated {len(proposals)} proposals in batch {batch_id[:8]}")
+        logger.info(
+            f"[Lead] Generated {len(proposals)} proposals in batch {batch_id[:8]} "
+            f"(${cumulative_collateral:,.0f} collateral / ${buying_power:,.0f} buying power)"
+        )
         return proposals
 
     async def get_pending_proposals(self, batch_id: Optional[str] = None) -> list[TradeProposal]:
@@ -749,11 +883,17 @@ class LeadAgent:
             try:
                 executed = await worker.execute([trade_dict])
                 if executed:
+                    # Workers catch broker exceptions and return {"status": "failed"} — check for real successes
+                    successful = [t for t in executed if t.get("status") not in {"failed", "rejected", "canceled", "held"}]
+                    if not successful:
+                        first_error = executed[0].get("error", "Order submission failed")
+                        raise RuntimeError(f"Broker rejected order: {first_error}")
                     proposal.status = "executed"
                     proposal.executed_at = datetime.utcnow()
                     logger.info(
                         f"[Lead] Proposal {proposal_id} executed: "
-                        f"{proposal.agent_name} {proposal.symbol}"
+                        f"{proposal.agent_name} {proposal.symbol} "
+                        f"(order_id={successful[0].get('order_id')})"
                     )
                 else:
                     raise RuntimeError("Worker returned no executed trades")

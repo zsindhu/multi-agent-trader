@@ -2,7 +2,7 @@ import { useState } from 'react'
 import clsx from 'clsx'
 import Badge from './Badge'
 import Spinner from './Spinner'
-import { approveProposal, rejectProposal, modifyProposal } from '../api'
+import { approveProposal, rejectProposal, modifyProposal, resetProposal } from '../api'
 
 const AGENT_COLORS = {
   'Covered-Calls': '#6366f1',
@@ -25,7 +25,7 @@ function fmtPct(n) {
   return Number(n).toFixed(1) + '%'
 }
 
-export default function ProposalCard({ proposal, onUpdate }) {
+export default function ProposalCard({ proposal, onUpdate, remainingBuyingPower }) {
   const [loading, setLoading] = useState(null) // 'approve' | 'reject' | 'modify'
   const [modifyOpen, setModifyOpen] = useState(false)
   const [modifyDelta, setModifyDelta] = useState(Math.abs(proposal.delta).toFixed(2))
@@ -57,6 +57,18 @@ export default function ProposalCard({ proposal, onUpdate }) {
     }
   }
 
+  async function handleReset() {
+    setLoading('reset')
+    try {
+      const updated = await resetProposal(proposal.id)
+      onUpdate?.(updated)
+    } catch (e) {
+      alert('Reset failed: ' + e.message)
+    } finally {
+      setLoading(null)
+    }
+  }
+
   async function handleModify() {
     setLoading('modify')
     try {
@@ -81,18 +93,28 @@ export default function ProposalCard({ proposal, onUpdate }) {
   const isRejected = proposal.status === 'rejected'
   const isDone = isExecuted || isRejected
 
+  // Insufficient buying power: collateral exceeds what's remaining after prior approvals
+  const collateral = proposal.collateral_required || 0
+  const insufficientBP = (
+    !isDone &&
+    remainingBuyingPower != null &&
+    remainingBuyingPower > 0 &&
+    collateral > remainingBuyingPower
+  )
+
   return (
     <div
       className={clsx(
         'bg-[#111827] rounded-xl border border-[#1e293b] overflow-hidden transition-opacity',
-        isDone && 'opacity-60'
+        isDone && 'opacity-60',
+        insufficientBP && !isDone && 'opacity-50'
       )}
       style={{ borderLeft: `4px solid ${accentColor}` }}
     >
       {/* Top Row — Symbol + Agent + Rationale */}
       <div className="px-5 pt-4 pb-3 border-b border-[#1e293b]">
         <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <span className="text-xl font-bold text-white font-mono">{proposal.symbol}</span>
             <Badge variant={AGENT_BADGE_VARIANTS[proposal.agent_name] || 'gray'}>
               {proposal.agent_name}
@@ -102,6 +124,11 @@ export default function ProposalCard({ proposal, onUpdate }) {
             </Badge>
             {isExecuted && <Badge variant="blue">Executed</Badge>}
             {isRejected && <Badge variant="gray">Rejected</Badge>}
+            {insufficientBP && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20">
+                Insufficient buying power
+              </span>
+            )}
           </div>
           <span className="text-xs text-[#64748b] flex-shrink-0">
             {proposal.asset_type?.toUpperCase()}
@@ -125,7 +152,15 @@ export default function ProposalCard({ proposal, onUpdate }) {
         <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
           <DataPoint label="Premium" value={fmt$(proposal.premium_per_contract) + '/contract'} highlight />
           <DataPoint label="Total" value={fmt$(proposal.total_premium)} highlight />
-          <DataPoint label="Collateral" value={fmt$(proposal.collateral_required)} />
+          <DataPoint
+            label="Collateral"
+            value={
+              proposal.pct_of_buying_power != null
+                ? `${fmt$(proposal.collateral_required)} (${proposal.pct_of_buying_power.toFixed(1)}% BP)`
+                : fmt$(proposal.collateral_required)
+            }
+            danger={insufficientBP}
+          />
           <DataPoint label="Ann. Return" value={fmtPct(proposal.annualized_return)} highlight />
           <DataPoint label="PoP" value={fmtPct(proposal.probability_of_profit)} />
         </div>
@@ -186,6 +221,20 @@ export default function ProposalCard({ proposal, onUpdate }) {
               Cancel
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Retry Row — for executed proposals that may have silently failed */}
+      {isExecuted && (
+        <div className="px-5 py-2.5 border-t border-[#1e293b] flex items-center gap-2">
+          <span className="text-xs text-[#64748b]">Order not in Alpaca?</span>
+          <button
+            onClick={handleReset}
+            disabled={!!loading}
+            className="px-3 py-1 text-xs rounded border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition-colors disabled:opacity-50"
+          >
+            {loading === 'reset' ? <Spinner size="sm" /> : 'Reset to Pending'}
+          </button>
         </div>
       )}
 

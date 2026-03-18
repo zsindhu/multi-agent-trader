@@ -64,6 +64,10 @@ class TradeProposal(Base):
     # Human-readable explanation
     rationale = Column(String, nullable=False)
 
+    # Capital awareness — populated at proposal generation time
+    pct_of_buying_power = Column(Float, nullable=True)  # % of buying power this trade uses
+    cumulative_pct = Column(Float, nullable=True)  # running % if all prior proposals approved
+
     # Timestamps
     created_at = Column(DateTime, nullable=False, server_default=func.now())
     approved_at = Column(DateTime, nullable=True)

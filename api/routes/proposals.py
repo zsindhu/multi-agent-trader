@@ -52,6 +52,8 @@ def _proposal_to_dict(p: TradeProposal) -> dict:
         "iv_rank": p.iv_rank,
         "scanner_score": p.scanner_score,
         "rationale": p.rationale,
+        "pct_of_buying_power": p.pct_of_buying_power,
+        "cumulative_pct": p.cumulative_pct,
         "created_at": p.created_at.isoformat() if p.created_at else None,
         "approved_at": p.approved_at.isoformat() if p.approved_at else None,
         "executed_at": p.executed_at.isoformat() if p.executed_at else None,
@@ -162,6 +164,31 @@ async def reject_proposal(proposal_id: int, request: Request):
         proposal = await state.lead_agent.reject_proposal(proposal_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    return _proposal_to_dict(proposal)
+
+
+@router.post("/{proposal_id}/reset")
+async def reset_proposal(proposal_id: int, request: Request):
+    """
+    Reset an executed (or rejected) proposal back to pending so it can be retried.
+
+    Useful when proposals were falsely marked 'executed' due to silent broker failures,
+    or when an order was rejected and the user wants to retry after fixing the issue
+    (e.g. after enabling options trading on the Alpaca account).
+    """
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(TradeProposal).where(TradeProposal.id == proposal_id)
+        )
+        proposal = result.scalar_one_or_none()
+        if not proposal:
+            raise HTTPException(status_code=404, detail=f"Proposal {proposal_id} not found")
+        proposal.status = "pending"
+        proposal.approved_at = None
+        proposal.executed_at = None
+        proposal.rejected_at = None
+        await db.commit()
+        await db.refresh(proposal)
     return _proposal_to_dict(proposal)
 
 

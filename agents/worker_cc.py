@@ -253,6 +253,16 @@ class CoveredCallWorker(BaseAgent):
 
         for trade in trades:
             try:
+                # Guard: option_symbol must be present and limit_price must be > 0
+                if not trade.get("option_symbol"):
+                    results.append({**trade, "status": "failed", "error": "option_symbol is missing"})
+                    logger.error(f"[CC] Skipping trade — option_symbol is None/empty for {trade.get('symbol')}")
+                    continue
+                if not trade.get("limit_price") or trade["limit_price"] <= 0:
+                    results.append({**trade, "status": "failed", "error": f"invalid limit_price: {trade.get('limit_price')}"})
+                    logger.error(f"[CC] Skipping trade — limit_price={trade.get('limit_price')} for {trade.get('symbol')} {trade.get('option_symbol')}")
+                    continue
+
                 order = await self.broker.submit_option_order(
                     option_symbol=trade["option_symbol"],
                     side="sell",
@@ -262,8 +272,19 @@ class CoveredCallWorker(BaseAgent):
                     time_in_force="day",
                 )
 
-                trade["order_id"] = order.get("order_id")
-                trade["status"] = order.get("status", "submitted")
+                order_id = order.get("order_id")
+                order_status = order.get("status", "")
+                if order_status in ("rejected", "canceled", "held"):
+                    logger.error(
+                        f"[{self.name}] Order {order_id} for {trade['option_symbol']} "
+                        f"was {order_status} by Alpaca"
+                    )
+                    results.append({**trade, "status": "failed", "order_id": order_id,
+                                    "error": f"Alpaca order was {order_status}"})
+                    continue
+
+                trade["order_id"] = order_id
+                trade["status"] = "submitted"
                 results.append(trade)
 
                 logger.info(

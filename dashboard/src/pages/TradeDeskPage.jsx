@@ -11,7 +11,7 @@ import {
   fetchOpportunities, fetchScannerConfig, updateScannerConfig,
   previewScanner, runScanner,
   fetchPendingProposals, generateProposals, approveBatch, rejectBatch,
-  fetchPortfolioSummary,
+  fetchPortfolioSummary, fetchAlpacaOrders,
 } from '../api'
 
 // ── Scanner slider/weight defs (same as ScannerWorkshop) ────────────
@@ -102,6 +102,11 @@ export default function TradeDeskPage() {
 
   // Execution feed
   const [executedProposals, setExecutedProposals] = useState([])
+
+  // Alpaca order history
+  const [alpacaOrders, setAlpacaOrders] = useState([])
+  const [ordersLoading, setOrdersLoading] = useState(false)
+  const [ordersOpen, setOrdersOpen] = useState(false)
 
   const [loading, setLoading] = useState(true)
 
@@ -210,6 +215,19 @@ export default function TradeDeskPage() {
     }
   }
 
+  const handleLoadOrders = async () => {
+    setOrdersLoading(true)
+    try {
+      const orders = await fetchAlpacaOrders(30)
+      setAlpacaOrders(orders)
+      setOrdersOpen(true)
+    } catch (e) {
+      console.error('Failed to load Alpaca orders:', e)
+    } finally {
+      setOrdersLoading(false)
+    }
+  }
+
   const handleApproveAll = async () => {
     if (!batchId) return
     setApproving(true)
@@ -249,6 +267,18 @@ export default function TradeDeskPage() {
 
   const buyingPower = portfolioSummary?.buying_power || 0
   const collateralPct = buyingPower > 0 ? ((portfolioImpact.collateral / buyingPower) * 100).toFixed(1) : '—'
+  const remainingAfterAll = buyingPower > 0 ? buyingPower - portfolioImpact.collateral : null
+
+  // Per-card remaining buying power: decreases as we walk down the proposal list
+  // so each card knows how much is left after the proposals above it
+  function getRemainingBefore(index) {
+    if (buyingPower <= 0) return null
+    let used = 0
+    for (let i = 0; i < index; i++) {
+      used += pendingProposals[i].collateral_required || 0
+    }
+    return buyingPower - used
+  }
 
   const prefilterParams = PARAM_DEFS.filter(p => p.group === 'prefilter')
   const scoringParams = PARAM_DEFS.filter(p => p.group === 'scoring')
@@ -424,7 +454,7 @@ export default function TradeDeskPage() {
                       <td className="py-2.5 px-2 text-right font-mono text-blue-400">{(o.composite_score || 0).toFixed(3)}</td>
                       <td className="py-2.5 px-2 text-right text-white">{(o.iv_rank || 0).toFixed(0)}</td>
                       <td className={`py-2.5 px-2 text-right ${(o.momentum_30d || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {((o.momentum_30d || 0) * 100).toFixed(1)}%
+                        {(o.momentum_30d || 0).toFixed(1)}%
                       </td>
                       <td className="py-2.5 px-2 text-center">{o.near_support ? '✓' : '—'}</td>
                       <td className="py-2.5 px-2 text-right text-[#94a3b8]">{(o.options_liquidity_score || 0).toFixed(2)}</td>
@@ -507,21 +537,49 @@ export default function TradeDeskPage() {
           </Card>
         ) : (
           <div className="space-y-3">
-            {/* Pending */}
-            {pendingProposals.map(p => (
-              <ProposalCard key={p.id} proposal={p} onUpdate={handleProposalUpdate} />
-            ))}
-
-            {/* Portfolio impact bar */}
-            {pendingProposals.length > 0 && (
-              <div className="px-4 py-3 bg-[#0a0f1e] rounded-xl border border-[#1e293b] text-sm">
-                <span className="text-[#64748b]">If all approved: </span>
-                <span className="text-white font-medium">${portfolioImpact.collateral.toLocaleString('en-US', { minimumFractionDigits: 0 })}</span>
-                <span className="text-[#64748b]"> collateral deployed ({collateralPct}% of buying power) · </span>
-                <span className="text-emerald-400 font-medium">${portfolioImpact.premium.toLocaleString('en-US', { minimumFractionDigits: 0 })}</span>
-                <span className="text-[#64748b]"> estimated premium</span>
+            {/* Capital summary banner */}
+            {pendingProposals.length > 0 && buyingPower > 0 && (
+              <div className="px-4 py-3 bg-[#0a0f1e] rounded-xl border border-[#1e293b]">
+                <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+                  <div>
+                    <span className="text-[#64748b] text-xs uppercase tracking-wider">Available</span>
+                    <p className="text-white font-medium font-mono">${buyingPower.toLocaleString('en-US', { minimumFractionDigits: 0 })}</p>
+                  </div>
+                  <div>
+                    <span className="text-[#64748b] text-xs uppercase tracking-wider">Would deploy</span>
+                    <p className="text-amber-400 font-medium font-mono">
+                      ${portfolioImpact.collateral.toLocaleString('en-US', { minimumFractionDigits: 0 })}
+                      {collateralPct !== '—' && <span className="text-xs text-[#64748b] ml-1">({collateralPct}%)</span>}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[#64748b] text-xs uppercase tracking-wider">Remaining</span>
+                    <p className={`font-medium font-mono ${remainingAfterAll != null && remainingAfterAll < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                      ${Math.max(remainingAfterAll ?? 0, 0).toLocaleString('en-US', { minimumFractionDigits: 0 })}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-[#64748b] text-xs uppercase tracking-wider">Est. premium</span>
+                    <p className="text-emerald-400 font-medium font-mono">+${portfolioImpact.premium.toLocaleString('en-US', { minimumFractionDigits: 0 })}</p>
+                  </div>
+                </div>
+                {remainingAfterAll != null && remainingAfterAll < 0 && (
+                  <p className="text-xs text-red-400 mt-2">
+                    ⚠ Proposals exceed buying power by ${Math.abs(remainingAfterAll).toLocaleString('en-US', { minimumFractionDigits: 0 })} — some will show as insufficient
+                  </p>
+                )}
               </div>
             )}
+
+            {/* Pending */}
+            {pendingProposals.map((p, i) => (
+              <ProposalCard
+                key={p.id}
+                proposal={p}
+                onUpdate={handleProposalUpdate}
+                remainingBuyingPower={getRemainingBefore(i)}
+              />
+            ))}
 
             {/* Completed proposals (collapsed) */}
             {doneProposals.length > 0 && (
@@ -559,6 +617,86 @@ export default function TradeDeskPage() {
           </div>
         </section>
       )}
+
+      {/* ═══════════════════════════════════════════════════════════════
+          SECTION D — Alpaca Order History (diagnostic)
+      ═══════════════════════════════════════════════════════════════ */}
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <button
+            onClick={() => ordersOpen ? setOrdersOpen(false) : handleLoadOrders()}
+            className="flex items-center gap-2 text-sm text-[#64748b] hover:text-white transition-colors"
+          >
+            {ordersOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+            <span className="font-medium">Alpaca Order History</span>
+            <span className="text-[10px] uppercase tracking-wider text-[#475569]">diagnostic</span>
+          </button>
+          {ordersOpen && (
+            <button
+              onClick={handleLoadOrders}
+              disabled={ordersLoading}
+              className="flex items-center gap-1 px-2.5 py-1 text-xs rounded border border-[#334155] text-[#94a3b8] hover:text-white hover:border-[#64748b] transition-colors disabled:opacity-50"
+            >
+              <RotateCcw size={11} className={ordersLoading ? 'animate-spin' : ''} />
+              Refresh
+            </button>
+          )}
+        </div>
+
+        {ordersOpen && (
+          <div className="bg-[#111827] rounded-xl border border-[#1e293b] overflow-hidden">
+            {alpacaOrders.length === 0 ? (
+              <p className="px-5 py-6 text-sm text-[#64748b] text-center">
+                {ordersLoading ? 'Loading...' : 'No orders found in Alpaca.'}
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-[#64748b] text-[10px] uppercase tracking-wider border-b border-[#1e293b]">
+                      <th className="text-left px-4 py-2.5">Symbol</th>
+                      <th className="text-left px-4 py-2.5">Side</th>
+                      <th className="text-right px-4 py-2.5">Qty</th>
+                      <th className="text-left px-4 py-2.5">Status</th>
+                      <th className="text-right px-4 py-2.5">Limit $</th>
+                      <th className="text-right px-4 py-2.5">Fill $</th>
+                      <th className="text-right px-4 py-2.5">Submitted</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {alpacaOrders.map((o, i) => {
+                      const status = String(o.status || '').toLowerCase().replace('orderstatus.', '')
+                      const statusColor =
+                        status === 'filled' ? 'text-emerald-400' :
+                        status === 'rejected' || status === 'canceled' ? 'text-red-400' :
+                        status === 'held' ? 'text-amber-400' :
+                        'text-[#94a3b8]'
+                      const submittedAt = o.submitted_at
+                        ? new Date(o.submitted_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                        : '—'
+                      return (
+                        <tr key={o.order_id || i} className="border-b border-[#1e293b]/60 hover:bg-[#1e293b]/30 transition-colors">
+                          <td className="px-4 py-2.5 font-mono text-white text-xs">{o.symbol}</td>
+                          <td className="px-4 py-2.5 text-[#94a3b8] text-xs">{String(o.side || '').replace('OrderSide.', '')}</td>
+                          <td className="px-4 py-2.5 text-right text-white text-xs">{o.qty}</td>
+                          <td className={`px-4 py-2.5 text-xs font-medium ${statusColor}`}>{status}</td>
+                          <td className="px-4 py-2.5 text-right text-[#94a3b8] text-xs font-mono">
+                            {o.limit_price != null ? `$${Number(o.limit_price).toFixed(2)}` : '—'}
+                          </td>
+                          <td className="px-4 py-2.5 text-right text-[#94a3b8] text-xs font-mono">
+                            {o.filled_avg_price != null ? `$${Number(o.filled_avg_price).toFixed(2)}` : '—'}
+                          </td>
+                          <td className="px-4 py-2.5 text-right text-[#64748b] text-xs">{submittedAt}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
     </div>
   )
 }

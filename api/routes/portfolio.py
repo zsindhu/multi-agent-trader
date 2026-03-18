@@ -70,8 +70,18 @@ async def get_summary(request: Request):
 
 @router.post("/refresh")
 async def refresh_portfolio(request: Request):
-    """Force a portfolio sync from the broker."""
+    """Force a portfolio sync from the broker. Returns counts so you can verify positions were detected."""
     state = _get_state(request)
     if state.portfolio and state.broker:
-        await state.portfolio.sync_from_broker(state.broker)
-    return {"status": "refreshed"}
+        try:
+            await state.portfolio.sync_from_broker(state.broker)
+            return {
+                "status": "ok",
+                "stocks": len(state.portfolio.positions),
+                "options": len(state.portfolio.options),
+                "equity": state.portfolio.equity,
+                "buying_power": state.portfolio.buying_power,
+            }
+        except Exception as e:
+            return {"status": "error", "detail": str(e)}
+    return {"status": "no_portfolio"}
