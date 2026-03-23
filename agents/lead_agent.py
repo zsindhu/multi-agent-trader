@@ -128,6 +128,9 @@ class LeadAgent:
                         },
                     )
 
+        # Step 3b: Intelligence checks (earnings risk, regime override, perf pause)
+        await self._apply_intelligence_checks()
+
         # Step 4: Update assignments based on Scanner + IV + portfolio state
         await self._update_assignments()
 
@@ -293,8 +296,15 @@ class LeadAgent:
         csp_worker = self.workers.get("Cash-Secured-Puts")
         wheel_worker = self.workers.get("Wheel")
 
+        high_risk_earnings = getattr(self, "_high_risk_earnings", set())
+
         for symbol in symbols:
             if symbol in assigned:
+                continue
+
+            # Skip symbols with earnings within 7 days
+            if symbol in high_risk_earnings:
+                logger.debug(f"[Lead] {symbol} — skipped (earnings within 7 days)")
                 continue
 
             iv_rank = iv_ranks.get(symbol, -1)
@@ -369,6 +379,64 @@ class LeadAgent:
                 )
             else:
                 logger.info(f"[Lead] {name}: no symbols assigned")
+
+    # ── INTELLIGENCE CHECKS ────────────────────────────────────────
+
+    async def _apply_intelligence_checks(self):
+        """
+        Apply intelligence service checks before assignments:
+        1. Earnings risk: flag symbols with earnings in 7 days
+        2. Regime override: reduce max_positions in risk_off/crisis
+        3. Performance pause: pause workers with < 40% win rate over 30d
+        """
+        # ── Earnings risk flag (stored on self for use in _update_assignments) ──
+        self._high_risk_earnings: set[str] = set()
+        try:
+            from services.earnings_calendar import EarningsCalendarService
+            earnings_svc = EarningsCalendarService()
+            high_risk = await earnings_svc.get_high_risk_symbols()
+            self._high_risk_earnings = set(high_risk)
+            if high_risk:
+                logger.info(f"[Lead] Earnings risk symbols (skip): {', '.join(sorted(high_risk))}")
+        except Exception as e:
+            logger.debug(f"[Lead] Earnings check failed: {e}")
+
+        # ── Regime check: tighten positions in risk_off/crisis ──
+        try:
+            from services.market_regime import MarketRegimeService
+            regime_svc = MarketRegimeService(
+                broker=self.broker,
+                strategy_manager=self.strategy_manager,
+            )
+            latest = await regime_svc.get_latest()
+            regime = latest.get("regime", "neutral")
+            if regime in ("risk_off", "crisis"):
+                for worker in self.workers.values():
+                    if hasattr(worker, "max_positions") and worker.max_positions > 1:
+                        worker.max_positions = max(1, worker.max_positions - 1)
+                logger.warning(
+                    f"[Lead] {regime.upper()} regime detected — reduced max_positions by 1 on all workers"
+                )
+        except Exception as e:
+            logger.debug(f"[Lead] Regime check failed: {e}")
+
+        # ── Performance pause: pause workers with very low win rate ──
+        try:
+            from services.performance_analyst import PerformanceAnalystService
+            perf_svc = PerformanceAnalystService()
+            strategy_data = await perf_svc.get_strategy_breakdown()
+            strategies = (strategy_data.get("data") or {}).get("strategies", [])
+            for s in strategies:
+                name = s.get("agent_name")
+                win_rate = s.get("win_rate", 100)
+                closed = s.get("closed_trades", 0)
+                if closed >= 10 and win_rate < 40 and name in self.workers:
+                    self._paused_workers.add(name)
+                    logger.warning(
+                        f"[Lead] Pausing {name} — {win_rate:.0f}% win rate over {closed} closed trades"
+                    )
+        except Exception as e:
+            logger.debug(f"[Lead] Performance pause check failed: {e}")
 
     # ── WORKER PERFORMANCE EVALUATION ─────────────────────────────
 

@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     market_open: str = "09:30"
     market_close: str = "16:00"
     discord_webhook_url: Optional[str] = None
+    finnhub_api_key: str = ""
 
     model_config = {"env_file": ".env"}
 

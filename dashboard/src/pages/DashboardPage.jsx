@@ -15,6 +15,8 @@ import {
   fetchPortfolioSummary, fetchPortfolio, refreshPortfolio,
   fetchAgentStatus, fetchPerformance, fetchAgentPerformance,
   fetchTradeHistory, fetchLatestExecutions,
+  fetchIntelligenceRegime, fetchIntelligenceEarnings,
+  fetchIntelligenceRecommendations, fetchIntelligenceNews,
 } from '../api'
 
 const fmt = (n) =>
@@ -45,25 +47,31 @@ export default function DashboardPage() {
   const [agentMetrics, setAgentMetrics] = useState({})
   const [trades, setTrades] = useState([])
   const [execLogs, setExecLogs] = useState([])
+  const [intelligence, setIntelligence] = useState({})
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [equityRange, setEquityRange] = useState('1M')
 
   const load = async () => {
     try {
-      const [s, full, status, perf, history, executions] = await Promise.all([
+      const [s, full, status, perf, history, executions, regime, earnings, recs, news] = await Promise.all([
         fetchPortfolioSummary().catch(() => null),
         fetchPortfolio().catch(() => ({ options: [], positions: [] })),
         fetchAgentStatus().catch(() => ({ workers: [], risk: {} })),
         fetchPerformance().catch(() => null),
         fetchTradeHistory({ limit: 200 }).catch(() => ({ trades: [] })),
         fetchLatestExecutions(15).catch(() => []),
+        fetchIntelligenceRegime().catch(() => null),
+        fetchIntelligenceEarnings(14).catch(() => []),
+        fetchIntelligenceRecommendations().catch(() => []),
+        fetchIntelligenceNews(8).catch(() => []),
       ])
       setSummary(s)
       setOptions(full.options || [])
       setAgentStatus(status)
       setTrades(history?.trades || [])
       setExecLogs(executions || [])
+      setIntelligence({ regime, earnings: earnings || [], recommendations: recs || [], news: news || [] })
 
       // Fetch per-agent metrics
       const metrics = {}
@@ -260,6 +268,9 @@ export default function DashboardPage() {
       {/* Active Positions */}
       <ActivePositions options={options} />
 
+      {/* Intelligence */}
+      <IntelligenceSection intel={intelligence} options={options} />
+
       {/* Recent Activity */}
       {execLogs.length > 0 && (
         <Card
@@ -322,6 +333,109 @@ export default function DashboardPage() {
         </Card>
       )}
     </div>
+  )
+}
+
+// ── IntelligenceSection ────────────────────────────────────────────
+
+const REGIME_COLOR = {
+  risk_on: 'green',
+  neutral: 'blue',
+  risk_off: 'yellow',
+  crisis: 'red',
+  unknown: 'gray',
+}
+
+function IntelligenceSection({ intel, options }) {
+  const regime = intel.regime || {}
+  const earnings = intel.earnings || []
+  const recs = intel.recommendations || []
+  const news = intel.news || []
+
+  // Only show earnings warnings for symbols we hold
+  const heldSymbols = new Set(options.map(o => o.symbol))
+  const relevantEarnings = earnings.filter(e => heldSymbols.has(e.symbol))
+
+  if (!regime.regime && !relevantEarnings.length && !recs.length) return null
+
+  return (
+    <Card title="Market Intelligence" subtitle="Macro signals · Earnings risks · Recommendations">
+      <div className="space-y-4">
+        {/* Regime banner */}
+        {regime.regime && regime.regime !== 'unknown' && (
+          <div className="flex items-start gap-3 p-3 bg-[#0a0f1e] rounded-lg border border-[#1e293b]">
+            <Badge variant={REGIME_COLOR[regime.regime] || 'gray'}>
+              {regime.regime?.replace('_', '-').toUpperCase()}
+            </Badge>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-[#94a3b8] leading-relaxed">{regime.summary}</p>
+              {regime.breadth_pct != null && (
+                <div className="mt-2">
+                  <div className="flex items-center justify-between text-xs text-[#64748b] mb-1">
+                    <span>Market breadth (% above 50MA)</span>
+                    <span className={regime.breadth_pct > 55 ? 'text-emerald-400' : regime.breadth_pct < 40 ? 'text-red-400' : 'text-amber-400'}>
+                      {regime.breadth_pct?.toFixed(0)}%
+                    </span>
+                  </div>
+                  <div className="h-1.5 bg-[#1e293b] rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${regime.breadth_pct > 55 ? 'bg-emerald-500' : regime.breadth_pct < 40 ? 'bg-red-500' : 'bg-amber-500'}`}
+                      style={{ width: `${Math.min(regime.breadth_pct || 0, 100)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Earnings warnings for held positions */}
+        {relevantEarnings.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-[#94a3b8]">Earnings Risk — Open Positions</p>
+            {relevantEarnings.map(e => (
+              <div key={e.id || e.symbol} className="flex items-center gap-2 text-xs px-3 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                <span className="font-medium text-amber-400">{e.symbol}</span>
+                <span className="text-[#64748b]">earnings in</span>
+                <span className={e.risk_level === 'high_risk' ? 'text-red-400 font-medium' : 'text-amber-400'}>
+                  {e.days_until}d ({e.event_date})
+                </span>
+                <Badge variant={e.risk_level === 'high_risk' ? 'red' : 'yellow'} >
+                  {e.risk_level === 'high_risk' ? 'High Risk' : 'Approaching'}
+                </Badge>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Recommendations */}
+        {recs.length > 0 && recs[0] !== 'Not enough closed trade data for recommendations yet.' && (
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-[#94a3b8]">Performance Insights</p>
+            {recs.map((rec, i) => (
+              <p key={i} className="text-xs text-[#64748b] pl-3 border-l border-[#334155]">{rec}</p>
+            ))}
+          </div>
+        )}
+
+        {/* News headlines */}
+        {news.length > 0 && (
+          <div className="space-y-1">
+            <p className="text-xs font-medium text-[#94a3b8]">Market Headlines</p>
+            {news.slice(0, 5).map((n, i) => (
+              <div key={i} className="flex items-start gap-2 text-xs">
+                <span className="text-[#475569] shrink-0 mt-0.5">{n.source}</span>
+                {n.url ? (
+                  <a href={n.url} target="_blank" rel="noreferrer" className="text-[#94a3b8] hover:text-white transition-colors line-clamp-1">{n.headline}</a>
+                ) : (
+                  <span className="text-[#94a3b8] line-clamp-1">{n.headline}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Card>
   )
 }
 

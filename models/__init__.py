@@ -18,6 +18,10 @@ from .journal_entry import JournalEntry
 from .wheel_state import WheelStateRecord
 from .proposal import TradeProposal
 from .execution_log import ExecutionLog
+from .regime_snapshot import RegimeSnapshot
+from .earnings_event import EarningsEvent
+from .performance_insight import PerformanceInsight
+from .news_headline import NewsHeadline
 
 __all__ = [
     "Base",
@@ -29,4 +33,8 @@ __all__ = [
     "WheelStateRecord",
     "TradeProposal",
     "ExecutionLog",
+    "RegimeSnapshot",
+    "EarningsEvent",
+    "PerformanceInsight",
+    "NewsHeadline",
 ]

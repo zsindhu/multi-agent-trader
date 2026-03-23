@@ -19,6 +19,10 @@ from data.options_chain import OptionsChainAnalyzer
 from services.alpaca_broker import AlpacaBroker
 from services.logger_service import PerformanceLogger
 from services.notifier import Notifier
+from services.market_regime import MarketRegimeService
+from services.earnings_calendar import EarningsCalendarService
+from services.performance_analyst import PerformanceAnalystService
+from services.news_feed import NewsFeedService
 from agents.scanner import ScannerAgent
 from agents.trade_journal import TradeJournalAgent
 from agents.lead_agent import LeadAgent
@@ -45,10 +49,14 @@ class AppState:
         self.trade_journal: Optional[TradeJournalAgent] = None
         self.scanner: Optional[ScannerAgent] = None
         self.notifier: Optional[Notifier] = None
-        self.broker_is_paper: bool = True  # Track current broker mode
+        self.broker_is_paper: bool = True
         self.lead_agent: Optional[LeadAgent] = None
-        self.auto_approve: bool = False  # Always False by default — never auto-trade
-        self.account_status: dict = {}  # Cached from last startup verification
+        self.auto_approve: bool = False
+        self.account_status: dict = {}
+        self.regime_service: Optional[MarketRegimeService] = None
+        self.earnings_service: Optional[EarningsCalendarService] = None
+        self.performance_service: Optional[PerformanceAnalystService] = None
+        self.news_service: Optional[NewsFeedService] = None
 
     async def initialize(self):
         """Create and wire all services."""
@@ -115,6 +123,16 @@ class AppState:
             strategy_manager=self.strategy_manager,
             notifier=self.notifier,
         )
+
+        # ── Intelligence services ────────────────────────────────────────
+        self.regime_service = MarketRegimeService(
+            broker=self.broker,
+            scanner=self.scanner,
+            strategy_manager=self.strategy_manager,
+        )
+        self.earnings_service = EarningsCalendarService()
+        self.performance_service = PerformanceAnalystService()
+        self.news_service = NewsFeedService()
 
         # Sync portfolio
         try:

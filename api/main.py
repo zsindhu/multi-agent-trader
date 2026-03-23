@@ -20,7 +20,7 @@ from loguru import logger
 
 from config.settings import settings as app_settings
 from api.state import AppState
-from api.routes import portfolio, trades, agents, scanner, backtest, settings, proposals, account, executions
+from api.routes import portfolio, trades, agents, scanner, backtest, settings, proposals, account, executions, intelligence
 
 
 # ── Background Scanner ──────────────────────────────────────────────
@@ -111,6 +111,7 @@ app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
 app.include_router(proposals.router, prefix="/api/proposals", tags=["Proposals"])
 app.include_router(account.router, prefix="/api/account", tags=["Account"])
 app.include_router(executions.router, prefix="/api/executions", tags=["Executions"])
+app.include_router(intelligence.router, prefix="/api/intelligence", tags=["Intelligence"])
 
 
 # ── Health ──────────────────────────────────────────────────────────

@@ -23,6 +23,10 @@ from agents.lead_agent import LeadAgent
 from services.alpaca_broker import AlpacaBroker
 from services.logger_service import PerformanceLogger
 from services.notifier import Notifier
+from services.market_regime import MarketRegimeService
+from services.earnings_calendar import EarningsCalendarService
+from services.performance_analyst import PerformanceAnalystService
+from services.news_feed import NewsFeedService
 from core.broker import Broker
 from core.risk_manager import RiskManager
 from core.portfolio import Portfolio
@@ -32,8 +36,8 @@ from data.options_chain import OptionsChainAnalyzer
 from config.settings import settings
 
 
-async def run_scanner_cycle(scanner: ScannerAgent):
-    """Run a full Scanner cycle: scan → evaluate → persist to DB."""
+async def run_scanner_cycle(scanner: ScannerAgent, regime_service: "MarketRegimeService" = None):
+    """Run a full Scanner cycle: scan → evaluate → persist to DB. Then refresh regime."""
     try:
         logger.info("[Main] ── Scanner cycle starting ──")
         raw = await scanner.scan()
@@ -42,6 +46,12 @@ async def run_scanner_cycle(scanner: ScannerAgent):
         logger.info(f"[Main] ── Scanner cycle done — {len(scored)} opportunities ──")
     except Exception as e:
         logger.error(f"[Main] Scanner cycle failed: {e}")
+
+    if regime_service:
+        try:
+            await regime_service.compute()
+        except Exception as e:
+            logger.warning(f"[Main] Regime compute failed: {e}")
 
 
 async def main(mode: str = "paper"):
@@ -70,6 +80,12 @@ async def main(mode: str = "paper"):
         market_feed=market_feed,
         options_chain=options_chain,
     )
+
+    # ── Intelligence Services ──────────────────────────────────────
+    regime_service = MarketRegimeService(broker=broker, scanner=scanner, strategy_manager=strategy_manager)
+    earnings_service = EarningsCalendarService()
+    performance_service = PerformanceAnalystService()
+    news_service = NewsFeedService()
 
     # ── Worker Agents (fully injected) ────────────────────────────
     worker_cc = CoveredCallWorker(
@@ -132,8 +148,8 @@ async def main(mode: str = "paper"):
         f"(VIX≈{strategy_manager.vix_level:.1f})"
     )
 
-    # ── Run initial Scanner cycle before first trade cycle ────────
-    await run_scanner_cycle(scanner)
+    # ── Run initial Scanner + Regime cycle before first trade cycle ──
+    await run_scanner_cycle(scanner, regime_service)
 
     # ── Scheduled Execution Loop ──────────────────────────────────
     scheduler = AsyncIOScheduler()
@@ -141,15 +157,59 @@ async def main(mode: str = "paper"):
     # Lead Agent: runs every N minutes (default 15)
     scheduler.add_job(lead.run_cycle, "interval", minutes=settings.scan_interval_minutes)
 
-    # Scanner Agent: runs 2x daily at market open (9:35 ET) and midday (12:30 ET)
+    # Scanner + Regime: runs 2x daily at market open (9:35 ET) and midday (12:30 ET)
     scheduler.add_job(
         run_scanner_cycle,
         "cron",
-        args=[scanner],
+        args=[scanner, regime_service],
         hour="9,12",
         minute="35,30",
         timezone="US/Eastern",
         id="scanner_morning",
+    )
+
+    # Earnings + News: fetch before market open (8:00 AM and 9:00 AM ET)
+    async def _refresh_earnings():
+        symbols = [o["symbol"] for o in await scanner.get_top_opportunities()] or []
+        await earnings_service.refresh(symbols[:50])
+
+    async def _refresh_news_morning():
+        symbols = [o["symbol"] for o in await scanner.get_top_opportunities()] or []
+        await news_service.refresh(symbols[:20])
+
+    scheduler.add_job(
+        _refresh_earnings,
+        "cron",
+        hour="8",
+        minute="0",
+        timezone="US/Eastern",
+        id="earnings_refresh",
+    )
+    scheduler.add_job(
+        _refresh_news_morning,
+        "cron",
+        hour="9",
+        minute="0",
+        timezone="US/Eastern",
+        id="news_morning",
+    )
+    scheduler.add_job(
+        _refresh_news_morning,
+        "cron",
+        hour="12",
+        minute="0",
+        timezone="US/Eastern",
+        id="news_midday",
+    )
+
+    # Performance analytics: runs after market close (4:30 PM ET)
+    scheduler.add_job(
+        performance_service.compute_all,
+        "cron",
+        hour="16",
+        minute="30",
+        timezone="US/Eastern",
+        id="performance_daily",
     )
 
     # Daily summary at market close (4:05 PM ET)
