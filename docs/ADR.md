@@ -178,6 +178,62 @@ The SDK is still used for order placement, account queries, and options chain da
 
 ---
 
+## ADR-013: Autonomous Execution Architecture (Agents Service)
+
+**Status:** Accepted
+**Date:** 2026-03
+
+**Context:** The proposal system (ADR-011) was designed for human-in-the-loop review, but the intended production behavior is fully autonomous execution — agents should scan, evaluate, and trade without operator intervention every cycle.
+
+**Decision:** Retained two separate services in `docker-compose.yml`:
+
+1. **`agents` service** — runs `main.py` on a scheduler (APScheduler), calling `lead.run_cycle()` → workers → `broker.submit_option_order()` directly. This service is fully autonomous: no proposal layer, no approval gate.
+2. **`app` service** — runs FastAPI + the React dashboard. Serves the proposal/approve workflow for manual overrides and provides the monitoring UI.
+
+The `agents` service uses `buying_power` from the Alpaca account as its capital signal, falling back to `cash` when `buying_power` is zero (common when all cash is committed as options collateral). The risk manager gates every trade on collateral availability.
+
+**Consequences:** The system executes trades automatically. The dashboard is a monitoring and override tool, not an execution gate. Operators who want human-in-the-loop control can use the `app`-side proposal API, but the `agents` service will continue executing in parallel.
+
+---
+
+## ADR-014: ExecutionLog — Trade Reasoning Audit Trail
+
+**Status:** Accepted
+**Date:** 2026-03
+
+**Context:** Trades were executing autonomously but there was no record of *why* — what delta, DTE, IV rank, or annualized return triggered the decision. Post-hoc analysis was impossible. When the dashboard showed no positions, there was no way to diagnose whether the agents were reasoning correctly.
+
+**Decision:** Added `models/execution_log.py` — a new `execution_logs` table that every worker writes to immediately after a successful order submission. Each row captures:
+
+- **Decision inputs:** `delta`, `dte`, `iv_rank_at_entry`, `scanner_score`, `stock_price_at_entry`, `probability_of_profit`, `annualized_return`
+- **Trade details:** `symbol`, `option_symbol`, `action`, `contract_type`, `strike`, `expiration`, `premium`, `collateral_required`, `break_even_price`
+- **Plain-English rationale:** A human-readable `rationale` string built by static methods on `BaseAgent` (`build_csp_rationale`, `build_cc_rationale`, `build_wheel_rationale`) — e.g. *"Sold GDX $80P expiring Apr 10 — IV rank 72 (elevated), delta -0.28 gives 72% PoP, annualized return 41.3% on $8,000 collateral. Break-even $78.65 (1.7% below current $80.02)."*
+- **Order outcome:** `order_id`, `order_status`, `fill_price`
+
+The dashboard "Recent Activity" feed (`GET /api/executions/latest`) surfaces the last 15 entries with expandable detail panels.
+
+**Consequences:** Every autonomous trade decision is auditable. Operators can review exactly what the agent saw and why it traded. The rationale strings are designed to be readable without domain expertise.
+
+---
+
+## ADR-015: Performance Metrics — Open vs Closed Trade Distinction
+
+**Status:** Accepted
+**Date:** 2026-03
+
+**Context:** `get_agent_metrics()` in `services/logger_service.py` originally filtered on `Trade.closed_at IS NOT NULL`, meaning metrics were empty until positions expired or were closed. With 30–45 DTE options, the dashboard showed zero trades for weeks after the system started.
+
+**Decision:** Split metrics into two tiers:
+
+1. **Entry-based metrics** (all trades, open + closed): `total_trades`, `total_premium_collected` — available immediately when a trade is opened
+2. **Realized metrics** (closed trades only): `wins`, `losses`, `win_rate`, `total_pnl`, `avg_days_held`, `sharpe_ratio`, `max_drawdown` — populated as positions close
+
+`log_trade()` now sets `closed_at = datetime.utcnow()` automatically when `trade_type` is `buy_to_close`, `assignment`, `expired`, or `wheel_cycle_complete`, so close events are correctly timestamped without requiring changes to worker code.
+
+**Consequences:** The dashboard shows meaningful data (trade count, premium) from day one. Win rate and P&L populate progressively as positions close. No schema change required — `closed_at` column already existed in the `trades` table.
+
+---
+
 ## ADR-010: Active Positions Summary Component
 
 **Status:** Accepted  
