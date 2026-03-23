@@ -5,7 +5,13 @@ const BASE = '/api';
 
 async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...options.headers },
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache',
+      'Pragma': 'no-cache',
+      ...options.headers,
+    },
+    cache: 'no-store',
     ...options,
   });
   if (!res.ok) {
@@ -98,6 +104,13 @@ export const rejectBatch = (batchId) =>
 // ── Account ────────────────────────────────────────────────────
 export const fetchAccountStatus = () => request('/account/status');
 export const fetchAlpacaOrders = (limit = 30) => request(`/account/orders?limit=${limit}`);
+
+// ── Executions (auto-trade activity feed) ──────────────────────
+export const fetchLatestExecutions = (limit = 10) => request(`/executions/latest?limit=${limit}`);
+export const fetchExecutions = (params = {}) => {
+  const q = new URLSearchParams(params).toString();
+  return request(`/executions${q ? `?${q}` : ''}`);
+};
 
 // ── Health ─────────────────────────────────────────────────────
 export const fetchHealth = () => request('/health');

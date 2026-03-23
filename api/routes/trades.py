@@ -143,3 +143,26 @@ async def get_symbol_stats(request: Request, symbol: str):
         return {}
 
     return await state.trade_journal.get_symbol_stats(symbol.upper())
+
+
+@router.get("/debug/counts")
+async def get_trade_counts():
+    """Diagnostic: raw row counts from database tables. Use to verify data is being written."""
+    from sqlalchemy import func, select
+    from core.database import AsyncSessionLocal
+    from models.trade import Trade
+    from models.journal_entry import JournalEntry
+    from models.proposal import TradeProposal
+    from models.opportunity import ScannerOpportunity
+
+    async with AsyncSessionLocal() as session:
+        counts = {}
+        for label, model in [
+            ("trades_in_db", Trade),
+            ("journal_entries_in_db", JournalEntry),
+            ("proposals_in_db", TradeProposal),
+            ("opportunities_in_db", ScannerOpportunity),
+        ]:
+            r = await session.execute(select(func.count(model.id)))
+            counts[label] = r.scalar()
+    return counts

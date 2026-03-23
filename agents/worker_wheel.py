@@ -22,6 +22,8 @@ from sqlalchemy import select
 from agents.base_agent import BaseAgent
 from core.broker import Broker
 from core.database import AsyncSessionLocal
+from models.execution_log import ExecutionLog
+from core.database import AsyncSessionLocal
 from core.portfolio import Portfolio
 from core.risk_manager import RiskManager
 from data.market_feed import MarketFeed
@@ -501,6 +503,54 @@ class WheelWorker(BaseAgent):
                         annualized_return_at_entry=trade.get("annualized_return"),
                         probability_of_profit=trade.get("probability_of_profit"),
                     )
+
+                # Log execution reasoning to DB
+                try:
+                    effective_cost = None
+                    if trade.get("wheel_state") == "selling_calls" and trade["symbol"] in self.cost_basis:
+                        cb = self.cost_basis[trade["symbol"]]
+                        effective_cost = cb.get("original_cost", 0) - cb.get("total_premium", 0)
+                    rationale = self.build_wheel_rationale(
+                        symbol=trade["symbol"],
+                        strike=trade["strike"],
+                        expiration=trade["expiration"],
+                        contract_type=trade["contract_type"],
+                        delta=trade.get("delta", 0),
+                        dte=trade.get("dte", 0),
+                        premium=trade["limit_price"],
+                        iv_rank=trade.get("iv_rank", 0),
+                        stock_price=trade.get("current_price", 0),
+                        annualized_return=trade.get("annualized_return", 0),
+                        wheel_state=trade.get("wheel_state", ""),
+                        qty=trade["qty"],
+                        effective_cost=effective_cost,
+                    )
+                    collateral = trade["strike"] * 100 * abs(trade["qty"]) if trade["contract_type"] == "put" else None
+                    async with AsyncSessionLocal() as db:
+                        db.add(ExecutionLog(
+                            agent_name=self.name,
+                            symbol=trade["symbol"],
+                            option_symbol=trade["option_symbol"],
+                            action="open",
+                            contract_type=trade["contract_type"],
+                            strike=trade["strike"],
+                            expiration=trade["expiration"],
+                            delta=trade.get("delta"),
+                            dte=trade.get("dte"),
+                            premium=trade["limit_price"],
+                            annualized_return=trade.get("annualized_return"),
+                            probability_of_profit=trade.get("probability_of_profit"),
+                            collateral_required=collateral,
+                            iv_rank_at_entry=trade.get("iv_rank"),
+                            scanner_score=trade.get("score"),
+                            stock_price_at_entry=trade.get("current_price"),
+                            rationale=rationale,
+                            order_id=trade.get("order_id"),
+                            order_status="submitted",
+                        ))
+                        await db.commit()
+                except Exception as log_err:
+                    logger.warning(f"[{self.name}] Failed to write execution log: {log_err}")
 
                 # Assign option in portfolio
                 if self.portfolio:

@@ -15,11 +15,12 @@ from typing import Optional
 import yaml
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from loguru import logger
 
 from config.settings import settings as app_settings
 from api.state import AppState
-from api.routes import portfolio, trades, agents, scanner, backtest, settings, proposals, account
+from api.routes import portfolio, trades, agents, scanner, backtest, settings, proposals, account, executions
 
 
 # ── Background Scanner ──────────────────────────────────────────────
@@ -71,6 +72,21 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+class NoCacheAPIMiddleware(BaseHTTPMiddleware):
+    """Prevent browsers from caching any /api/ response."""
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
+
+
+# Must be added BEFORE CORSMiddleware (Starlette runs middleware LIFO)
+app.add_middleware(NoCacheAPIMiddleware)
+
 # CORS — allow the Vite dev server
 app.add_middleware(
     CORSMiddleware,
@@ -94,6 +110,7 @@ app.include_router(backtest.router, prefix="/api/backtest", tags=["Backtest"])
 app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
 app.include_router(proposals.router, prefix="/api/proposals", tags=["Proposals"])
 app.include_router(account.router, prefix="/api/account", tags=["Account"])
+app.include_router(executions.router, prefix="/api/executions", tags=["Executions"])
 
 
 # ── Health ──────────────────────────────────────────────────────────
@@ -195,4 +212,7 @@ if os.path.exists(_dashboard_dist):
         file_path = os.path.join(_dashboard_dist, path)
         if os.path.isfile(file_path):
             return FileResponse(file_path)
-        return FileResponse(os.path.join(_dashboard_dist, "index.html"))
+        # Never cache index.html — it references hashed JS/CSS bundles
+        resp = FileResponse(os.path.join(_dashboard_dist, "index.html"))
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return resp

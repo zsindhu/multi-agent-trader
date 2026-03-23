@@ -2,6 +2,7 @@
 Portfolio Routes — Account overview, positions, options.
 """
 from fastapi import APIRouter, Request
+from loguru import logger
 
 from api.state import AppState
 
@@ -51,6 +52,23 @@ async def get_summary(request: Request):
     short_options = [o for o in options if o.get("is_short")]
     long_options = [o for o in options if not o.get("is_short")]
 
+    # Augment with historical performance from the perf logger
+    hist = {}
+    if state.perf_logger:
+        try:
+            ps = await state.perf_logger.get_portfolio_summary()
+            hist = {
+                "total_trades": ps.get("total_trades", 0),
+                "total_realized_pnl": ps.get("total_pnl", 0),
+                "avg_win_rate": ps.get("avg_win_rate", 0),
+                "total_premium_all_time": ps.get("total_premium", 0),
+            }
+        except Exception as e:
+            logger.warning(f"[Summary] perf_logger unavailable: {e}")
+
+    open_premium = snapshot.get("total_premium_collected", 0)
+    all_time_premium = hist.get("total_premium_all_time", 0)
+
     return {
         "equity": snapshot.get("equity", 0),
         "cash": snapshot.get("cash", 0),
@@ -59,12 +77,13 @@ async def get_summary(request: Request):
         "total_stock_value": total_stock_value,
         "total_unrealized_pnl": total_unrealized,
         "total_option_pnl": total_option_pnl,
-        "total_premium_collected": snapshot.get("total_premium_collected", 0),
+        "total_premium_collected": open_premium + all_time_premium,
         "stock_positions": len(positions),
         "short_options": len(short_options),
         "long_options": len(long_options),
         "regime": snapshot.get("regime", {}),
         "last_updated": snapshot.get("last_updated", ""),
+        **hist,
     }
 
 

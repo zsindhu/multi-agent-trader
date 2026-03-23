@@ -17,6 +17,7 @@ from .opportunity import ScannerOpportunity
 from .journal_entry import JournalEntry
 from .wheel_state import WheelStateRecord
 from .proposal import TradeProposal
+from .execution_log import ExecutionLog
 
 __all__ = [
     "Base",
@@ -27,4 +28,5 @@ __all__ = [
     "JournalEntry",
     "WheelStateRecord",
     "TradeProposal",
+    "ExecutionLog",
 ]

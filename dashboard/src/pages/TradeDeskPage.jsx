@@ -144,7 +144,11 @@ export default function TradeDeskPage() {
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    load()
+    const interval = setInterval(load, 60_000)
+    return () => clearInterval(interval)
+  }, [load])
 
   // ── Scanner actions ──────────────────────────────────────────────
   const handleRunScan = async () => {

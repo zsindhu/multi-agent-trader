@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  DollarSign, TrendingUp, Wallet, Star, RefreshCw, Bot, Crosshair,
+  DollarSign, TrendingUp, Wallet, Star, RefreshCw, Bot, Crosshair, ChevronDown, ChevronRight, Activity,
 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -14,7 +14,7 @@ import ActivePositions from '../components/ActivePositions'
 import {
   fetchPortfolioSummary, fetchPortfolio, refreshPortfolio,
   fetchAgentStatus, fetchPerformance, fetchAgentPerformance,
-  fetchTradeHistory,
+  fetchTradeHistory, fetchLatestExecutions,
 } from '../api'
 
 const fmt = (n) =>
@@ -44,23 +44,26 @@ export default function DashboardPage() {
   const [agentStatus, setAgentStatus] = useState(null)
   const [agentMetrics, setAgentMetrics] = useState({})
   const [trades, setTrades] = useState([])
+  const [execLogs, setExecLogs] = useState([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [equityRange, setEquityRange] = useState('1M')
 
   const load = async () => {
     try {
-      const [s, full, status, perf, history] = await Promise.all([
+      const [s, full, status, perf, history, executions] = await Promise.all([
         fetchPortfolioSummary(),
         fetchPortfolio(),
         fetchAgentStatus(),
         fetchPerformance(),
         fetchTradeHistory({ limit: 200 }),
+        fetchLatestExecutions(15).catch(() => []),
       ])
       setSummary(s)
       setOptions(full.options || [])
       setAgentStatus(status)
       setTrades(history?.trades || [])
+      setExecLogs(executions || [])
 
       // Fetch per-agent metrics
       const metrics = {}
@@ -76,7 +79,11 @@ export default function DashboardPage() {
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    const interval = setInterval(load, 30_000)
+    return () => clearInterval(interval)
+  }, [])
   useEffect(() => {
     const handler = () => { setLoading(true); load() }
     window.addEventListener('trading-mode-changed', handler)
@@ -253,6 +260,21 @@ export default function DashboardPage() {
       {/* Active Positions */}
       <ActivePositions options={options} />
 
+      {/* Recent Activity */}
+      {execLogs.length > 0 && (
+        <Card
+          title="Recent Activity"
+          subtitle="Latest autonomous executions"
+          action={<Activity size={14} className="text-[#64748b]" />}
+        >
+          <div className="space-y-2">
+            {execLogs.map(log => (
+              <ExecutionLogEntry key={log.id} log={log} />
+            ))}
+          </div>
+        </Card>
+      )}
+
       {/* Agent Status */}
       {workers.length > 0 && (
         <Card title="Agent Status" subtitle="Worker performance overview">
@@ -298,6 +320,103 @@ export default function DashboardPage() {
             })}
           </div>
         </Card>
+      )}
+    </div>
+  )
+}
+
+// ── ExecutionLogEntry ──────────────────────────────────────────────
+
+const AGENT_LABEL = {
+  'Covered-Calls': 'CC',
+  'Cash-Secured-Puts': 'CSP',
+  'Wheel': 'Wheel',
+  'Scanner': 'Scan',
+  'Trade-Journal': 'TJ',
+}
+
+function execSummary(log) {
+  const type = log.contract_type === 'put' ? 'P' : log.contract_type === 'call' ? 'C' : ''
+  const strike = log.strike ? `$${log.strike.toFixed(0)}` : ''
+  const expFmt = log.expiration
+    ? new Date(log.expiration + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })
+    : ''
+  const premStr = log.premium != null ? ` for $${log.premium.toFixed(2)}` : ''
+  const stratLabel = AGENT_LABEL[log.agent_name] || log.agent_name
+  const verb = log.action === 'close' ? 'Closed' : 'Sold'
+  return `${stratLabel} ${verb} ${log.symbol} ${strike}${type}${expFmt ? ` exp ${expFmt}` : ''}${premStr}`
+}
+
+function ExecutionLogEntry({ log }) {
+  const [open, setOpen] = useState(false)
+  const badgeVariant = AGENT_BADGE[log.agent_name] || 'gray'
+  const label = AGENT_LABEL[log.agent_name] || log.agent_name
+  const ts = log.created_at
+    ? new Date(log.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    : ''
+  const statusColor =
+    log.order_status === 'filled' ? 'text-emerald-400' :
+    log.order_status === 'rejected' ? 'text-red-400' :
+    log.order_status === 'canceled' ? 'text-amber-400' : 'text-[#94a3b8]'
+
+  return (
+    <div className="bg-[#0a0f1e] border border-[#1e293b] rounded-lg overflow-hidden">
+      {/* Summary row */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-[#1e293b]/40 transition-colors"
+      >
+        {open ? <ChevronDown size={12} className="text-[#64748b] shrink-0" /> : <ChevronRight size={12} className="text-[#64748b] shrink-0" />}
+        <Badge variant={badgeVariant}>{label}</Badge>
+        <span className="text-sm text-white flex-1 truncate">{execSummary(log)}</span>
+        <span className={`text-xs shrink-0 ${statusColor}`}>{log.order_status || 'submitted'}</span>
+        <span className="text-xs text-[#64748b] shrink-0 ml-2">{ts}</span>
+      </button>
+
+      {/* Expanded detail */}
+      {open && (
+        <div className="px-4 pb-3 border-t border-[#1e293b] pt-3 space-y-3">
+          {/* Rationale */}
+          {log.rationale && (
+            <p className="text-xs text-[#94a3b8] leading-relaxed">{log.rationale}</p>
+          )}
+
+          {/* Metrics grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-6 gap-y-1 text-xs">
+            {log.delta != null && (
+              <><span className="text-[#64748b]">Delta</span><span className="text-white">{log.delta.toFixed(2)}</span></>
+            )}
+            {log.dte != null && (
+              <><span className="text-[#64748b]">DTE</span><span className="text-white">{log.dte}</span></>
+            )}
+            {log.annualized_return != null && (
+              <><span className="text-[#64748b]">Ann. Return</span><span className="text-emerald-400">{log.annualized_return.toFixed(1)}%</span></>
+            )}
+            {log.probability_of_profit != null && (
+              <><span className="text-[#64748b]">PoP</span><span className="text-white">{log.probability_of_profit.toFixed(0)}%</span></>
+            )}
+            {log.collateral_required != null && (
+              <><span className="text-[#64748b]">Collateral</span><span className="text-white">${log.collateral_required.toLocaleString()}</span></>
+            )}
+            {log.break_even_price != null && (
+              <><span className="text-[#64748b]">Break-even</span><span className="text-white">${log.break_even_price.toFixed(2)}</span></>
+            )}
+            {log.iv_rank_at_entry != null && (
+              <><span className="text-[#64748b]">IV Rank</span><span className="text-white">{log.iv_rank_at_entry.toFixed(0)}</span></>
+            )}
+            {log.stock_price_at_entry != null && (
+              <><span className="text-[#64748b]">Stock price</span><span className="text-white">${log.stock_price_at_entry.toFixed(2)}</span></>
+            )}
+            {log.fill_price != null && (
+              <><span className="text-[#64748b]">Fill price</span><span className="text-white">${log.fill_price.toFixed(2)}</span></>
+            )}
+          </div>
+
+          {/* Order ID */}
+          {log.order_id && (
+            <p className="text-xs text-[#475569]">Order ID: {log.order_id}</p>
+          )}
+        </div>
       )}
     </div>
   )

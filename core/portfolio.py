@@ -99,6 +99,15 @@ class Portfolio:
             # Sync positions
             raw_positions = await broker.get_positions()
 
+            logger.info(f"[Portfolio] Raw positions from Alpaca: {len(raw_positions)}")
+            for pos in raw_positions:
+                logger.info(
+                    f"[Portfolio]   {pos['symbol']} | qty={pos['qty']} | "
+                    f"asset_class={pos.get('asset_class', 'MISSING')} | "
+                    f"symlen={len(pos['symbol'])} | side={pos.get('side', '?')} | "
+                    f"avg_cost={pos.get('avg_cost', '?')}"
+                )
+
             # Preserve agent assignments from existing positions
             old_assignments = {s: p.assigned_to for s, p in self.positions.items()}
             old_option_assignments = {o.option_symbol: o.assigned_to for o in self.options}
@@ -110,28 +119,44 @@ class Portfolio:
             for pos in raw_positions:
                 symbol = pos["symbol"]
                 asset_class = pos.get("asset_class", "us_equity")
+                qty = int(pos["qty"])
 
-                if "option" in asset_class.lower() or len(symbol) > 10:
-                    # This is an option position
-                    # Parse underlying from option symbol (simplified)
+                # Robust option detection:
+                # - Alpaca SDK returns AssetClass as a str-enum, value is "us_option"
+                # - OCC symbols are 21 chars (e.g. AAPL240119P00150000)
+                # - Options end in digits (strike), stocks don't
+                is_option = (
+                    "option" in asset_class.lower()
+                    or len(symbol) > 12
+                    or any(c.isdigit() for c in symbol[-6:])
+                )
+
+                if is_option:
                     underlying = self._parse_underlying(symbol)
+                    # For short options (qty < 0), premium_collected = credit received
+                    premium_collected = pos["avg_cost"] * abs(qty) * 100 if qty < 0 else 0.0
                     opt = OptionsPosition(
                         symbol=underlying,
                         option_symbol=symbol,
                         contract_type=self._parse_contract_type(symbol),
                         strike=self._parse_strike(symbol),
                         expiration=self._parse_expiration(symbol),
-                        quantity=pos["qty"],
+                        quantity=qty,
                         entry_price=pos["avg_cost"],
                         current_price=pos["current_price"],
+                        premium_collected=premium_collected,
                         assigned_to=old_option_assignments.get(symbol, ""),
                     )
                     new_options.append(opt)
+                    logger.info(
+                        f"[Portfolio]   → classified as OPTION: {underlying} "
+                        f"{opt.contract_type} ${opt.strike} exp {opt.expiration}"
+                    )
                 else:
                     # Stock position
                     new_positions[symbol] = Position(
                         symbol=symbol,
-                        quantity=pos["qty"],
+                        quantity=qty,
                         avg_cost=pos["avg_cost"],
                         current_price=pos["current_price"],
                         unrealized_pnl=pos.get("unrealized_pl", 0.0),
