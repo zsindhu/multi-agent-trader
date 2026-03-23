@@ -93,7 +93,9 @@ class Portfolio:
             # Sync account info
             account = await broker.get_account()
             self.cash = account["cash"]
-            self.buying_power = account["buying_power"]
+            # Alpaca options accounts often return buying_power=0.0 (margin-style field);
+            # for cash-secured puts the usable collateral is the cash balance.
+            self.buying_power = account["buying_power"] or account["cash"]
             self.equity = account["equity"]
 
             # Sync positions

@@ -135,8 +135,11 @@ class PerformanceLogger:
                 return {
                     "agent": agent_name,
                     "total_trades": 0,
+                    "wins": 0,
+                    "losses": 0,
                     "win_rate": 0.0,
-                    "total_premium": 0.0,
+                    "total_premium_collected": 0.0,
+                    "total_pnl": 0.0,
                     "avg_days_held": 0.0,
                     "avg_return_per_trade": 0.0,
                     "sharpe_ratio": 0.0,

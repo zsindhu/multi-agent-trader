@@ -52,11 +52,11 @@ export default function DashboardPage() {
   const load = async () => {
     try {
       const [s, full, status, perf, history, executions] = await Promise.all([
-        fetchPortfolioSummary(),
-        fetchPortfolio(),
-        fetchAgentStatus(),
-        fetchPerformance(),
-        fetchTradeHistory({ limit: 200 }),
+        fetchPortfolioSummary().catch(() => null),
+        fetchPortfolio().catch(() => ({ options: [], positions: [] })),
+        fetchAgentStatus().catch(() => ({ workers: [], risk: {} })),
+        fetchPerformance().catch(() => null),
+        fetchTradeHistory({ limit: 200 }).catch(() => ({ trades: [] })),
         fetchLatestExecutions(15).catch(() => []),
       ])
       setSummary(s)
