@@ -40,6 +40,7 @@ class PerformanceLogger:
         notes: Optional[str] = None,
     ) -> Trade:
         """Record a trade execution to the database."""
+        closing_types = {"buy_to_close", "assignment", "expired", "wheel_cycle_complete"}
         async with AsyncSessionLocal() as session:
             trade = Trade(
                 agent_name=agent_name,
@@ -55,6 +56,7 @@ class PerformanceLogger:
                 status=status,
                 pnl=pnl,
                 notes=notes,
+                closed_at=datetime.utcnow() if trade_type in closing_types else None,
             )
             session.add(trade)
             await session.commit()
@@ -121,16 +123,15 @@ class PerformanceLogger:
         """
         async with AsyncSessionLocal() as session:
             cutoff_date = datetime.utcnow() - timedelta(days=lookback_days)
-            
-            # Get closed trades
+
+            # All trades (open + closed) within lookback window
             stmt = select(Trade).where(
                 Trade.agent_name == agent_name,
-                Trade.closed_at.isnot(None),
-                Trade.closed_at >= cutoff_date
+                Trade.created_at >= cutoff_date,
             )
             result = await session.execute(stmt)
             trades = list(result.scalars().all())
-            
+
             if not trades:
                 return {
                     "agent": agent_name,
@@ -145,27 +146,29 @@ class PerformanceLogger:
                     "sharpe_ratio": 0.0,
                     "max_drawdown": 0.0,
                 }
-            
-            # Calculate metrics
+
+            # Entry-based metrics (all trades — includes open positions)
             total_trades = len(trades)
-            wins = sum(1 for t in trades if t.pnl and t.pnl > 0)
-            losses = sum(1 for t in trades if t.pnl and t.pnl < 0)
-            win_rate = (wins / total_trades * 100) if total_trades > 0 else 0.0
-            
             total_premium = sum(t.premium or 0 for t in trades)
-            total_pnl = sum(t.pnl or 0 for t in trades)
-            avg_return_per_trade = total_pnl / total_trades if total_trades > 0 else 0.0
+
+            # Realized P&L only from closed trades
+            closed = [t for t in trades if t.closed_at is not None]
+            wins = sum(1 for t in closed if t.pnl and t.pnl > 0)
+            losses = sum(1 for t in closed if t.pnl and t.pnl < 0)
+            win_rate = (wins / len(closed) * 100) if closed else 0.0
+            total_pnl = sum(t.pnl or 0 for t in closed)
+            avg_return_per_trade = total_pnl / len(closed) if closed else 0.0
             
-            # Calculate days held (simplified - use created_at to closed_at)
+            # Days held and risk metrics — closed trades only
             days_held_list = []
-            for t in trades:
+            for t in closed:
                 if t.created_at and t.closed_at:
                     days = (t.closed_at - t.created_at).days
                     days_held_list.append(days)
             avg_days_held = sum(days_held_list) / len(days_held_list) if days_held_list else 0.0
-            
+
             # Sharpe ratio (simplified - would need daily returns for proper calculation)
-            returns = [t.pnl or 0 for t in trades]
+            returns = [t.pnl or 0 for t in closed]
             if len(returns) > 1:
                 mean_return = sum(returns) / len(returns)
                 variance = sum((r - mean_return) ** 2 for r in returns) / len(returns)
@@ -173,9 +176,9 @@ class PerformanceLogger:
                 sharpe_ratio = (mean_return / std_dev * (252 ** 0.5)) if std_dev > 0 else 0.0
             else:
                 sharpe_ratio = 0.0
-            
+
             # Max drawdown (simplified - would need equity curve)
-            pnl_list = [t.pnl or 0 for t in trades]
+            pnl_list = [t.pnl or 0 for t in closed]
             cumulative = []
             running_total = 0
             for pnl in pnl_list:
