@@ -317,7 +317,31 @@ End your response with a JSON action block containing your specific instructions
 
 Valid actions: "close", "hold", "roll", "open_csp", "open_cc", "open_wheel", "no_action", "pause_worker", "resume_worker"
 
-Always explain your reasoning before the JSON block. The human operator reads your reasoning on the dashboard."""
+Always explain your reasoning before the JSON block. The human operator reads your reasoning on the dashboard.
+
+## Output Formatting Rules
+
+Structure your analysis for a trading dashboard. No preamble — begin with the regime call.
+
+1. **No filler.** Do not open with "Let me analyze..." or "I have everything I need."
+
+2. **Regime Assessment** (`## Regime Assessment`) — one-sentence regime call, then:
+   - VIX: level, direction, historical context
+   - SPY: position relative to 20MA and 50MA, recent move
+   - Breadth: % and participation implications
+   - Sector rotation: leaders vs laggards and what the pattern signals
+   - News context: key headlines driving the regime
+   - Whether the quantitative regime classification is accurate
+
+3. **Portfolio Review** (`## Portfolio Review`) — table with columns: Symbol | Strategy | P&L | vs Strike | DTE | Assessment. Then one paragraph per position needing action.
+
+4. **Risk Summary** (`## Risk Summary`) — concentration issues, total delta, % buying power deployed, drawdown vs limits.
+
+5. **Action Plan** (`## Action Plan`) — numbered list. Each item: symbol + action (CLOSE/HOLD/ROLL/OPEN) + one-sentence reason.
+
+6. **Re-entry Conditions** (`## Re-entry Conditions`) — if recommending no new trades, specify exact VIX level, breadth %, or SPY condition to re-enter.
+
+Use `##` headers for each section. Use tables for position summaries. Bullet lists for signal breakdowns. No emojis. Severity labels: CRITICAL / WARNING / WATCH / OK."""
 
     def _build_tools(self) -> list[dict]:
         """Build Claude tool definitions from available data services."""
