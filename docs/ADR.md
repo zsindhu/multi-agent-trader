@@ -234,6 +234,74 @@ The dashboard "Recent Activity" feed (`GET /api/executions/latest`) surfaces the
 
 ---
 
+## ADR-016: Intelligence Services — Data Producers for Contextual Decisions
+
+**Status:** Accepted
+**Date:** 2026-03
+
+**Context:** The Lead Agent made assignment and position management decisions using only IV rank and VIX regime. It had no awareness of upcoming earnings events, sector rotation, macro breadth, credit stress, historical performance patterns, or qualitative news signals. These blind spots led to situations like selling puts before earnings (high gap risk) and opening new positions in clearly deteriorating market conditions.
+
+**Decision:** Added four autonomous data-producer services that compute and persist context to the database on a schedule. No agent logic was put in these services — they are pure data producers:
+
+1. **`MarketRegimeService`** (`services/market_regime.py`) — computes a multi-signal regime snapshot each cycle: VIX proxy level + direction, market breadth (% of scanner universe above 50-day MA), SPY trend (20/50-day MA cross), sector rotation (5-day returns across 11 SPDR ETFs), and credit stress (HYG vs TLT divergence). Classifies regime into: `risk_on`, `neutral`, `risk_off`, `crisis`. Stored in `regime_snapshots` table.
+
+2. **`EarningsCalendarService`** (`services/earnings_calendar.py`) — fetches earnings dates from Finnhub for all symbols in the scanner universe. Flags symbols with earnings within 7 days as `high_risk`. Stored in `earnings_events` table. Used by `_apply_intelligence_checks()` to prevent selling puts before announcements.
+
+3. **`PerformanceAnalystService`** (`services/performance_analyst.py`) — queries the `trades` and `journal_entries` tables and computes 7 analytical lenses: overall win rate, strategy breakdown, optimal delta range, regime correlation, symbol-level scorecard, open position health (flags deeply underwater or ITM near-expiry), and rule-based recommendations. Stores results as JSON blobs in `performance_insights` table.
+
+4. **`NewsFeedService`** (`services/news_feed.py`) — fetches Finnhub general + company-specific headlines. Deduplicates by headline text. Auto-prunes entries older than 48 hours. Stored in `news_headlines` table.
+
+All four services are initialized in `AppState` and `main.py`. Four new intelligence API routes were added under `/api/intelligence/`. The dashboard's DashboardPage shows the regime badge, earnings warnings, recommendations, and top headlines.
+
+**Consequences:** The system has rich context before making decisions. Earnings avoidance is automatic. Regime awareness allows proactive position-size reduction before conditions deteriorate. Performance analytics surface optimal parameters from live trading data. News provides qualitative color for unexpected moves.
+
+---
+
+## ADR-017: LLM-Powered Lead Agent — Claude as the Reasoning Engine
+
+**Status:** Accepted
+**Date:** 2026-03
+
+**Context:** The Lead Agent's decision logic was entirely rule-based: if IV rank > 30 and near support → assign to CSP worker. This worked for simple cases but couldn't reason about tradeoffs. It couldn't weigh an earnings event against an attractive IV rank, notice that a losing streak in one strategy should change position sizing, or synthesize regime + breadth + sector rotation + news into a coherent view. The intelligence services (ADR-016) produced rich context but nothing consumed it holistically.
+
+**Decision:** Replaced the Lead Agent's core decision loop with Claude (`claude-sonnet-4-6`) via the Anthropic API's tool use (function calling). The original rule-based logic remains intact as `_rule_based_cycle()` and activates automatically when no API key is configured.
+
+**Architecture:**
+
+```
+LLMService → Claude API (multi-turn tool-use loop, max 10 turns)
+    ↑ tool results
+LeadAgent._execute_tool() → regime_service, scanner, portfolio, earnings, news, perf_service
+    ↓ JSON action list
+LeadAgent._execute_action() → workers (targeted open/close/roll, or pause/resume)
+```
+
+**Tool definitions** (9 tools Claude can call per cycle):
+- `get_regime` — current macro regime (VIX, breadth, SPY trend, sectors, credit stress)
+- `get_regime_detail` — drill into a specific metric
+- `get_scanner_top` — top N scored opportunities from the Scanner
+- `get_open_positions` — all open options with P&L and DTE
+- `get_position_detail` / `get_symbol_history` — trading history for a symbol
+- `get_performance` — overall win rate, strategy breakdown, delta analysis
+- `get_earnings_upcoming` — earnings within N days
+- `get_news` — recent headlines (market-wide or symbol-specific)
+
+**Action dispatch** — Claude outputs a structured JSON block at the end of its reasoning. `_execute_action()` validates and dispatches each action:
+- `close` / `roll` — finds the owning worker via `_find_worker_for_position()` and calls the new public `close_position()` / `roll_position()` methods added to all three workers
+- `open_csp` / `open_cc` / `open_wheel` — sets `worker.assigned_securities = [symbol]` then calls targeted `scan → evaluate → execute` (not `run_cycle()`, which would re-run position management)
+- `pause_worker` / `resume_worker` — toggles `is_active` on the named worker
+- `no_action` / `hold` — logs and returns
+
+**Hard constraints** enforced in `_validate_new_position()` before any open action: buying power ≥ $5,000, worker below `max_positions`, drawdown within limit.
+
+**Claude's reasoning** is persisted to `execution_logs` (agent="Lead-Agent", action="cycle_decision") after every cycle. The dashboard "Lead Agent Thinking" card surfaces the latest summary + expandable full reasoning text.
+
+**Cost**: ~3,000 input + 800 output tokens per cycle ≈ $0.02/cycle. 26 cycles/market day ≈ $0.52/day at Sonnet 4.6 pricing.
+
+**Consequences:** The Lead Agent can reason across all available context simultaneously — regime, open positions, performance history, earnings risk, news — and produce nuanced decisions that rule-based logic cannot. The rule-based fallback ensures the system never stops trading if the API is unavailable. Every reasoning step is auditable via the execution log.
+
+---
+
 ## ADR-010: Active Positions Summary Component
 
 **Status:** Accepted  

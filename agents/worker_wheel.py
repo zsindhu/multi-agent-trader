@@ -665,6 +665,22 @@ class WheelWorker(BaseAgent):
 
         return None
 
+    # ── Public close/roll (called by Lead Agent in LLM mode) ──────
+
+    async def close_position(self, option_symbol: str, reason: str = ""):
+        """Public: close a specific position by option symbol."""
+        pos = next(
+            (p for p in self.portfolio.options if p.option_symbol == option_symbol),
+            None,
+        )
+        if pos is None:
+            return None
+        return await self._close_position(pos, reason=reason, note=reason)
+
+    async def roll_position(self, option_symbol: str, reason: str = ""):
+        """Public: roll a specific position — Wheel closes and lets next scan re-enter."""
+        return await self.close_position(option_symbol, reason=f"roll: {reason}")
+
     async def _close_position(self, pos, reason: str, note: str = "") -> dict:
         """Buy to close a wheel option position."""
         try:

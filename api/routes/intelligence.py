@@ -6,6 +6,9 @@ Read-only endpoints — no writes from the API layer.
 """
 from fastapi import APIRouter, Request, Query
 from typing import Optional
+from sqlalchemy import select
+from core.database import AsyncSessionLocal
+from models.execution_log import ExecutionLog
 
 router = APIRouter()
 
@@ -155,3 +158,37 @@ async def get_news_for_symbol(request: Request, symbol: str, n: int = Query(10, 
     if not state.news_service:
         return []
     return await state.news_service.get_for_symbol(symbol.upper(), n=n)
+
+
+# ── Lead Agent Reasoning ──────────────────────────────────────────────
+
+@router.get("/reasoning")
+async def get_lead_reasoning(request: Request, limit: int = Query(5, ge=1, le=20)):
+    """
+    Return the most recent Lead Agent cycle reasoning entries.
+
+    Each entry contains:
+    - summary: one-line decision summary
+    - reasoning: full Claude reasoning text
+    - timestamp: ISO8601 UTC timestamp
+    """
+    async with AsyncSessionLocal() as session:
+        stmt = (
+            select(ExecutionLog)
+            .where(
+                ExecutionLog.agent_name == "Lead-Agent",
+                ExecutionLog.action == "cycle_decision",
+            )
+            .order_by(ExecutionLog.created_at.desc())
+            .limit(limit)
+        )
+        result = await session.execute(stmt)
+        logs = result.scalars().all()
+    return [
+        {
+            "summary": log.order_status,
+            "reasoning": log.rationale,
+            "timestamp": log.created_at.isoformat() if log.created_at else None,
+        }
+        for log in logs
+    ]

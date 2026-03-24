@@ -118,6 +118,7 @@ export const fetchIntelligenceEarnings = (days = 14) => request(`/intelligence/e
 export const fetchIntelligencePerformance = () => request('/intelligence/performance');
 export const fetchIntelligenceRecommendations = () => request('/intelligence/performance/recommendations');
 export const fetchIntelligenceNews = (n = 10) => request(`/intelligence/news/market?n=${n}`);
+export const fetchLeadAgentReasoning = (limit = 3) => request(`/intelligence/reasoning?limit=${limit}`);
 
 // ── Health ─────────────────────────────────────────────────────
 export const fetchHealth = () => request('/health');

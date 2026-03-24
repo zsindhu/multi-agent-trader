@@ -34,12 +34,20 @@ from core.risk_manager import RiskManager
 from core.strategy import StrategyManager
 from core.database import AsyncSessionLocal
 from data.market_feed import MarketFeed
+from models.execution_log import ExecutionLog
 from models.proposal import TradeProposal
 from services.logger_service import PerformanceLogger
 from services.notifier import Notifier
+from config.settings import settings
 
 if TYPE_CHECKING:
     from agents.scanner import ScannerAgent
+    from agents.trade_journal import TradeJournalAgent
+    from services.llm_service import LLMService
+    from services.market_regime import MarketRegimeService
+    from services.earnings_calendar import EarningsCalendarService
+    from services.performance_analyst import PerformanceAnalystService
+    from services.news_feed import NewsFeedService
 
 
 def _load_fallback_watchlist() -> list[str]:
@@ -74,6 +82,13 @@ class LeadAgent:
         scanner: Optional["ScannerAgent"] = None,
         strategy_manager: Optional[StrategyManager] = None,
         notifier: Optional[Notifier] = None,
+        # Phase B — LLM + intelligence services
+        llm_service: Optional["LLMService"] = None,
+        regime_service: Optional["MarketRegimeService"] = None,
+        earnings_service: Optional["EarningsCalendarService"] = None,
+        performance_service: Optional["PerformanceAnalystService"] = None,
+        news_service: Optional["NewsFeedService"] = None,
+        trade_journal: Optional["TradeJournalAgent"] = None,
     ):
         self.workers = {w.name: w for w in workers}
         self.risk_manager = risk_manager
@@ -85,6 +100,14 @@ class LeadAgent:
         self.strategy_manager = strategy_manager
         self.notifier = notifier
 
+        # Phase B services
+        self.llm_service = llm_service
+        self.regime_service = regime_service
+        self.earnings_service = earnings_service
+        self.performance_service = performance_service
+        self.news_service = news_service
+        self.trade_journal = trade_journal
+
         # Fallback watchlist (used only when scanner hasn't produced results)
         self._fallback_watchlist = _load_fallback_watchlist()
 
@@ -93,9 +116,52 @@ class LeadAgent:
         self._paused_workers: set[str] = set()
 
     async def run_cycle(self):
-        """Execute one full orchestration cycle."""
+        """
+        Execute one full orchestration cycle.
+
+        Uses Claude (via LLMService) when an API key is configured.
+        Falls back to rule-based logic otherwise.
+        """
         logger.info("[Lead] ═══════════════════════════════════════════")
         logger.info("[Lead] Starting orchestration cycle...")
+
+        # Always sync portfolio first
+        if self.portfolio and self.broker:
+            await self.portfolio.sync_from_broker(self.broker)
+
+        # LLM path
+        if self.llm_service and self.llm_service.is_enabled:
+            portfolio_summary = {
+                "equity": self.portfolio.equity if self.portfolio else 0,
+                "cash": self.portfolio.cash if self.portfolio else 0,
+                "buying_power": self.portfolio.buying_power if self.portfolio else 0,
+                "open_positions": len(self.portfolio.options) if self.portfolio else 0,
+                "trading_mode": settings.trading_mode,
+            }
+            decision = await self.llm_service.get_cycle_decision(
+                tools=self._build_tools(),
+                tool_executor=self._execute_tool,
+                portfolio_summary=portfolio_summary,
+                system_prompt=self._build_system_prompt(),
+            )
+            logger.info(f"[Lead] LLM decision: {decision['summary']}")
+            logger.info(f"[Lead] LLM actions: {len(decision['actions'])}")
+            await self._store_cycle_reasoning(decision)
+            for action in decision["actions"]:
+                try:
+                    await self._execute_action(action)
+                except Exception as e:
+                    logger.error(f"[Lead] Action failed: {action} — {e}")
+            await self._evaluate_worker_performance()
+            logger.info("[Lead] ═══════════════════════════════════════════")
+            return {}
+
+        # Rule-based path
+        logger.info("[Lead] No LLM configured — using rule-based decisions")
+        return await self._rule_based_cycle()
+
+    async def _rule_based_cycle(self):
+        """Original rule-based orchestration cycle (fallback when no LLM key)."""
 
         # Step 1: Sync portfolio from broker
         if self.portfolio and self.broker:
@@ -195,6 +261,429 @@ class LeadAgent:
         logger.info("[Lead] ═══════════════════════════════════════════")
 
         return results
+
+    # ── LLM MODE METHODS ──────────────────────────────────────────
+
+    def _build_system_prompt(self) -> str:
+        """Return the Lead Agent system prompt for Claude."""
+        max_pos = getattr(
+            next(iter(self.workers.values()), None),
+            "max_positions",
+            5,
+        )
+        max_pct = int(settings.max_position_pct * 100)
+        return f"""You are the Lead Agent for Premium Trader, an automated options premium selling system. You are the portfolio manager — you decide what trades to make and when.
+
+## Your Role
+You analyze market conditions, evaluate opportunities, manage existing positions, and produce specific trading instructions for your worker agents. You have three workers:
+- Cash-Secured-Puts: Sells OTM puts to collect premium. Needs cash as collateral.
+- Covered-Calls: Sells OTM calls against shares we hold. Needs 100+ shares.
+- Wheel: Runs a full cycle — sells puts, gets assigned shares, sells calls, gets called away, repeats.
+
+## Your Tools
+You have access to market regime data, scanner opportunities, open positions, performance analytics, earnings calendar, and news. USE THEM. Always check the regime and open positions before making decisions.
+
+## Hard Constraints (never violate these)
+- NEVER sell puts on a symbol with earnings within 7 days
+- NEVER deploy more than 80% of available buying power
+- NEVER have more than {max_pos} positions open per worker
+- NEVER exceed {max_pct}% of equity in a single position
+- Paper trading mode — this is real-time simulation with real market data
+
+## Decision Framework
+1. First: Check the market regime. In risk-off or crisis, be very conservative or sit out entirely.
+2. Second: Review open positions. Manage what you have before opening anything new.
+3. Third: Check performance insights. Are we doing well? What's working? What isn't?
+4. Fourth: Only then consider new positions from the Scanner results.
+5. Fifth: Check earnings before any new position.
+
+## Position Management Rules
+- If a position has captured > 70% of max premium: close it (take profit)
+- If a position is ITM with < 5 DTE: roll it or close it
+- If a position is > 50% underwater: evaluate whether to hold, roll, or close based on context
+- If the overall portfolio drawdown exceeds 5%: close the worst performer and pause new entries
+
+## Output Format
+End your response with a JSON action block containing your specific instructions:
+
+```json
+[
+  {{"action": "close", "symbol": "AMD", "option_symbol": "AMD240425P00140000", "reason": "Earnings in 4 days, position underwater"}},
+  {{"action": "hold", "symbol": "SPY", "option_symbol": "SPY240418P00560000", "reason": "18 DTE, only 8% underwater, no catalysts"}},
+  {{"action": "open_csp", "symbol": "IWM", "delta": -0.20, "dte_target": 30, "contracts": 1, "reason": "Top Scanner pick, ETF, no earnings risk, risk-on regime"}},
+  {{"action": "no_action", "reason": "Risk-off regime, preserving capital until breadth recovers above 50%"}}
+]
+```
+
+Valid actions: "close", "hold", "roll", "open_csp", "open_cc", "open_wheel", "no_action", "pause_worker", "resume_worker"
+
+Always explain your reasoning before the JSON block. The human operator reads your reasoning on the dashboard."""
+
+    def _build_tools(self) -> list[dict]:
+        """Build Claude tool definitions from available data services."""
+        return [
+            {
+                "name": "get_regime",
+                "description": (
+                    "Get the current market regime assessment including VIX level, "
+                    "market breadth, sector rotation, SPY trend, and credit stress. "
+                    "Call this first to understand the macro environment."
+                ),
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "get_regime_detail",
+                "description": (
+                    "Get detailed data for a specific regime metric. Use when you need "
+                    "to drill deeper into breadth, sectors, or VIX."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "metric": {
+                            "type": "string",
+                            "enum": ["breadth", "sectors", "vix", "credit", "spy_trend"],
+                            "description": "Which metric to get detail on",
+                        }
+                    },
+                    "required": ["metric"],
+                },
+            },
+            {
+                "name": "get_scanner_top",
+                "description": (
+                    "Get the top N scored trading opportunities from the Scanner. "
+                    "Returns symbols with IV rank, momentum, liquidity, and composite scores."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "n": {
+                            "type": "integer",
+                            "description": "Number of opportunities (default 10)",
+                            "default": 10,
+                        }
+                    },
+                    "required": [],
+                },
+            },
+            {
+                "name": "get_open_positions",
+                "description": (
+                    "Get all currently open option positions with health metrics: "
+                    "symbol, strategy, entry price, current price, P&L, DTE remaining, "
+                    "distance from break-even, profit target progress."
+                ),
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
+            {
+                "name": "get_position_detail",
+                "description": (
+                    "Get our full trading history and win rate for a specific symbol. "
+                    "Shows how we've performed on this name before."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "symbol": {
+                            "type": "string",
+                            "description": "The underlying symbol",
+                        }
+                    },
+                    "required": ["symbol"],
+                },
+            },
+            {
+                "name": "get_performance",
+                "description": (
+                    "Get performance analytics: overall win rate, per-strategy breakdown, "
+                    "optimal delta range, regime correlation. Shows what's working."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "days": {
+                            "type": "integer",
+                            "description": "Lookback period in days (default 30)",
+                            "default": 30,
+                        }
+                    },
+                    "required": [],
+                },
+            },
+            {
+                "name": "get_earnings_upcoming",
+                "description": (
+                    "Get symbols with earnings announcements in the next N days. "
+                    "NEVER sell puts on a stock with earnings within 7 days."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "days": {
+                            "type": "integer",
+                            "description": "Days ahead to check (default 14)",
+                            "default": 14,
+                        }
+                    },
+                    "required": [],
+                },
+            },
+            {
+                "name": "get_news",
+                "description": (
+                    "Get recent market headlines for qualitative context. "
+                    "Use to understand WHY the market is moving."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "symbol": {
+                            "type": "string",
+                            "description": "Optional: get news for a specific symbol",
+                        },
+                        "n": {
+                            "type": "integer",
+                            "description": "Number of headlines (default 10)",
+                            "default": 10,
+                        },
+                    },
+                    "required": [],
+                },
+            },
+            {
+                "name": "get_symbol_history",
+                "description": (
+                    "Get our trading history and win rate for a specific symbol. "
+                    "Shows how we've performed on this name before."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "symbol": {
+                            "type": "string",
+                            "description": "The symbol to look up",
+                        }
+                    },
+                    "required": ["symbol"],
+                },
+            },
+        ]
+
+    async def _execute_tool(self, tool_name: str, tool_input: dict) -> dict:
+        """Execute a tool call and return the result."""
+        if tool_name == "get_regime":
+            if self.regime_service:
+                return await self.regime_service.get_latest()
+            return {"error": "Regime service not available"}
+
+        if tool_name == "get_regime_detail":
+            if self.regime_service:
+                return await self.regime_service.get_regime_detail(tool_input["metric"])
+            return {"error": "Regime service not available"}
+
+        if tool_name == "get_scanner_top":
+            if self.scanner:
+                n = tool_input.get("n", 10)
+                return {"opportunities": await self.scanner.get_top_opportunities(n=n)}
+            return {"error": "Scanner not available"}
+
+        if tool_name == "get_open_positions":
+            if self.portfolio:
+                await self.portfolio.sync_from_broker(self.broker)
+                positions = [
+                    {
+                        "symbol": opt.symbol,
+                        "option_symbol": opt.option_symbol,
+                        "contract_type": opt.contract_type,
+                        "strike": opt.strike,
+                        "expiration": opt.expiration,
+                        "quantity": opt.quantity,
+                        "entry_price": opt.entry_price,
+                        "current_price": opt.current_price,
+                        "pnl": opt.pnl,
+                        "pnl_pct": opt.pnl_pct,
+                        "assigned_to": opt.assigned_to,
+                    }
+                    for opt in self.portfolio.options
+                ]
+                return {"positions": positions, "count": len(positions)}
+            return {"positions": [], "count": 0}
+
+        if tool_name == "get_position_detail":
+            symbol = tool_input.get("symbol", "")
+            if self.trade_journal:
+                return await self.trade_journal.get_symbol_stats(symbol)
+            return {"error": "Trade journal not available"}
+
+        if tool_name == "get_performance":
+            if self.performance_service:
+                days = tool_input.get("days", 30)
+                return await self.performance_service.get_summary(days=days)
+            return {"error": "Performance service not available"}
+
+        if tool_name == "get_earnings_upcoming":
+            if self.earnings_service:
+                days = tool_input.get("days", 14)
+                return await self.earnings_service.get_upcoming(days_ahead=days)
+            return {"error": "Earnings service not available"}
+
+        if tool_name == "get_news":
+            if self.news_service:
+                symbol = tool_input.get("symbol")
+                n = tool_input.get("n", 10)
+                if symbol:
+                    return {"headlines": await self.news_service.get_for_symbol(symbol, n=n)}
+                return {"headlines": await self.news_service.get_recent(n=n)}
+            return {"error": "News service not available"}
+
+        if tool_name == "get_symbol_history":
+            symbol = tool_input.get("symbol", "")
+            if self.trade_journal:
+                return await self.trade_journal.get_symbol_stats(symbol)
+            return {"error": "Trade journal not available"}
+
+        return {"error": f"Unknown tool: {tool_name}"}
+
+    async def _execute_action(self, action: dict):
+        """Validate and execute a single action from Claude's decision."""
+        action_type = action.get("action", "")
+        symbol = action.get("symbol", "")
+        reason = action.get("reason", "")
+
+        logger.info(f"[Lead] Action: {action_type} {symbol} — {reason}")
+
+        if action_type in ("no_action", "hold"):
+            return
+
+        if action_type == "close":
+            option_symbol = action.get("option_symbol")
+            if option_symbol:
+                worker = self._find_worker_for_position(option_symbol)
+                if worker:
+                    await worker.close_position(option_symbol, reason=reason)
+                else:
+                    logger.warning(f"[Lead] No worker found for position {option_symbol}")
+            return
+
+        if action_type == "roll":
+            option_symbol = action.get("option_symbol")
+            if option_symbol:
+                worker = self._find_worker_for_position(option_symbol)
+                if worker:
+                    await worker.roll_position(option_symbol, reason=reason)
+                else:
+                    logger.warning(f"[Lead] No worker found for position {option_symbol}")
+            return
+
+        if action_type in ("open_csp", "open_cc", "open_wheel"):
+            if not symbol:
+                logger.warning(f"[Lead] {action_type} missing symbol — skipped")
+                return
+            if not self._validate_new_position(action):
+                logger.warning(f"[Lead] Blocked {action_type} {symbol} — validation failed")
+                return
+            worker_map = {
+                "open_csp": "Cash-Secured-Puts",
+                "open_cc": "Covered-Calls",
+                "open_wheel": "Wheel",
+            }
+            worker_name = worker_map[action_type]
+            worker = self.workers.get(worker_name)
+            if worker:
+                # Target this symbol only — use targeted scan/evaluate/execute
+                # (avoids re-running manage_positions for all existing positions)
+                prev_assigned = worker.assigned_securities
+                worker.assigned_securities = [symbol]
+                try:
+                    opportunities = await worker.scan()
+                    trades = await worker.evaluate(opportunities)
+                    await worker.execute(trades)
+                finally:
+                    worker.assigned_securities = prev_assigned
+            return
+
+        if action_type == "pause_worker":
+            worker_name = action.get("worker", "")
+            if worker_name in self.workers:
+                self.workers[worker_name].is_active = False
+                logger.info(f"[Lead] Paused {worker_name}: {reason}")
+            return
+
+        if action_type == "resume_worker":
+            worker_name = action.get("worker", "")
+            if worker_name in self.workers:
+                self.workers[worker_name].is_active = True
+                logger.info(f"[Lead] Resumed {worker_name}: {reason}")
+            return
+
+        logger.warning(f"[Lead] Unknown action type: {action_type}")
+
+    def _validate_new_position(self, action: dict) -> bool:
+        """Validate a new position against hard constraints before executing."""
+        if not self.portfolio:
+            return False
+
+        if self.portfolio.buying_power < 5000:
+            logger.warning(
+                f"[Lead] Insufficient buying power: ${self.portfolio.buying_power:,.0f}"
+            )
+            return False
+
+        action_type = action.get("action", "")
+        worker_map = {
+            "open_csp": "Cash-Secured-Puts",
+            "open_cc": "Covered-Calls",
+            "open_wheel": "Wheel",
+        }
+        worker_name = worker_map.get(action_type)
+        if worker_name:
+            worker = self.workers.get(worker_name)
+            if worker:
+                current = self.portfolio.count_open_options_for_agent(worker_name)
+                max_pos = getattr(worker, "max_positions", 5)
+                if current >= max_pos:
+                    logger.warning(
+                        f"[Lead] {worker_name} at max positions "
+                        f"({current}/{max_pos})"
+                    )
+                    return False
+
+        if self.risk_manager:
+            drawdown = self.risk_manager.get_current_drawdown()
+            if drawdown > self.risk_manager.max_drawdown:
+                logger.warning(
+                    f"[Lead] Drawdown {drawdown:.1%} exceeds limit "
+                    f"{self.risk_manager.max_drawdown:.1%}"
+                )
+                return False
+
+        return True
+
+    def _find_worker_for_position(self, option_symbol: str):
+        """Find which worker owns a specific open position."""
+        if not self.portfolio:
+            return None
+        for opt in self.portfolio.options:
+            if opt.option_symbol == option_symbol:
+                return self.workers.get(opt.assigned_to)
+        return None
+
+    async def _store_cycle_reasoning(self, decision: dict):
+        """Persist the LLM's reasoning to the execution_log table for the dashboard."""
+        try:
+            async with AsyncSessionLocal() as session:
+                log = ExecutionLog(
+                    agent_name="Lead-Agent",
+                    symbol="PORTFOLIO",
+                    action="cycle_decision",
+                    rationale=decision["reasoning"][:2000],
+                    order_status=decision["summary"][:200],
+                )
+                session.add(log)
+                await session.commit()
+        except Exception as e:
+            logger.error(f"[Lead] Failed to store cycle reasoning: {e}")
 
     # ── REGIME-ADJUSTED PARAMETERS ────────────────────────────────
 

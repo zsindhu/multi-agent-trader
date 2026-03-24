@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     market_close: str = "16:00"
     discord_webhook_url: Optional[str] = None
     finnhub_api_key: str = ""
+    anthropic_api_key: str = ""
+    llm_model: str = "claude-sonnet-4-6"
+    llm_max_tokens: int = 4096
 
     model_config = {"env_file": ".env"}
 

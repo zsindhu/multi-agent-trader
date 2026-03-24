@@ -27,6 +27,7 @@ from services.market_regime import MarketRegimeService
 from services.earnings_calendar import EarningsCalendarService
 from services.performance_analyst import PerformanceAnalystService
 from services.news_feed import NewsFeedService
+from services.llm_service import LLMService
 from core.broker import Broker
 from core.risk_manager import RiskManager
 from core.portfolio import Portfolio
@@ -86,6 +87,7 @@ async def main(mode: str = "paper"):
     earnings_service = EarningsCalendarService()
     performance_service = PerformanceAnalystService()
     news_service = NewsFeedService()
+    llm_service = LLMService()
 
     # ── Worker Agents (fully injected) ────────────────────────────
     worker_cc = CoveredCallWorker(
@@ -129,6 +131,13 @@ async def main(mode: str = "paper"):
         scanner=scanner,
         strategy_manager=strategy_manager,
         notifier=notifier,
+        # Phase B — LLM reasoning engine + intelligence services
+        llm_service=llm_service,
+        regime_service=regime_service,
+        earnings_service=earnings_service,
+        performance_service=performance_service,
+        news_service=news_service,
+        trade_journal=trade_journal,
     )
 
     # ── Sync portfolio state from broker ──────────────────────────

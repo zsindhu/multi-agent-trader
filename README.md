@@ -1,6 +1,6 @@
 # Premium Trader — Multi-Agent Options Trading System
 
-A multi-agent architecture for automated options income strategies (Covered Calls, Cash Secured Puts, The Wheel) built on Alpaca's brokerage API with a broker-agnostic abstraction layer, dynamic universe discovery, VIX regime adaptation, backtesting engine, and a full-stack React dashboard.
+A multi-agent architecture for automated options income strategies (Covered Calls, Cash Secured Puts, The Wheel) built on Alpaca's brokerage API. Features a broker-agnostic abstraction layer, dynamic universe discovery, VIX regime adaptation, four contextual intelligence services (market regime, earnings calendar, performance analytics, news feed), and a Claude-powered Lead Agent that reasons across all context via tool use before each trading cycle.
 
 ## Architecture
 
@@ -22,64 +22,72 @@ A multi-agent architecture for automated options income strategies (Covered Call
           │  OptionsChainAnalyzer (filter, score, rank contracts) │
           └──────┬────────────────────────────────────┬──────────┘
                  │                                    │
-    ┌────────────▼───────────┐           ┌────────────▼───────────┐
-    │     Scanner Agent      │           │   Lead Agent           │
-    │  Dynamic Universe      │──────────▶│   (Orchestrator)       │
-    │  Discovery · Pre-filter│  top N    │   Assignment · Risk    │
-    │  Scoring · ETF-aware   │  opps     │   Performance Rotation │
-    │  Smart Caching         │           └───┬──────┬──────┬─────┘
-    │  Runs 2x daily         │               │      │      │
-    └────────────────────────┘       ┌───────▼┐ ┌───▼───┐ ┌▼────────┐
-                                     │Covered │ │ Cash   │ │  The    │
-                                     │ Calls  │ │Secured │ │ Wheel   │
-                                     │        │ │ Puts   │ │(CSP↔CC) │
-                                     │        │ │        │ │         │
-                                     └───┬────┘ └───┬────┘ └───┬─────┘
-                                         │          │          │
-                                      ┌──▼──────────▼──────────▼──┐
-                                      │    Trade Journal Agent     │
-                                      │  Entry/Exit · Context ·   │
-                                      │  Asset Type Tracking       │
-                                      └────────────┬──────────────┘
-                                                   │
-                                      ┌────────────▼──────────────┐
-                                      │    Performance Logger      │
-                                      │  Win Rate · P&L · Sharpe  │
-                                      │  Drawdown · Premium Track  │
-                                      └────────────┬──────────────┘
-                                                   │
-                              ┌─────────────────────┼────────────────────┐
-                              │                     │                    │
-                 ┌────────────▼──────────┐ ┌────────▼──────┐ ┌──────────▼─────┐
-                 │    SQLite / Postgres   │ │  Discord      │ │  Backtester    │
-                 │  Trades · Positions    │ │  Notifier     │ │  Historical    │
-                 │  Journal · Perf        │ │  Webhooks     │ │  Replay Engine │
-                 │  Wheel State · Opps    │ └───────────────┘ └────────────────┘
-                 └───────────────────────┘
-                              │
-                 ┌────────────▼──────────────┐
-                 │   FastAPI Backend          │
-                 │   REST API · WebSocket     │
-                 │   Portfolio · Trades ·     │
-                 │   Agents · Scanner ·       │
-                 │   Backtest · Settings      │
-                 └────────────┬──────────────┘
-                              │
-                 ┌────────────▼──────────────┐
-                 │   Proposal Layer           │
-                 │   TradeProposal model      │
-                 │   status: pending →        │
-                 │   approved / rejected      │
-                 │   Batch ops · Audit trail  │
-                 └────────────┬──────────────┘
-                              │  operator approval
-                 ┌────────────▼──────────────┐
-                 │   React Dashboard (3 screens)│
-                 │   Dashboard · Trade Desk · │
-                 │   Performance              │
-                 │   Vite + Tailwind CSS      │
-                 │   Mode Toggle · ProposalCard│
-                 └───────────────────────────┘
+    ┌────────────▼───────────┐           ┌────────────▼────────────────────────────┐
+    │     Scanner Agent      │           │   Lead Agent (LLM-Powered)              │
+    │  Dynamic Universe      │──────────▶│   Claude claude-sonnet-4-6 via tool use │
+    │  Discovery · Pre-filter│  top N    │   Calls 9 tools per cycle:              │
+    │  Scoring · ETF-aware   │  opps     │   regime · scanner · positions ·        │
+    │  Smart Caching         │           │   performance · earnings · news         │
+    │  Runs 2x daily         │           │   Falls back to rule-based if no key    │
+    └────────────────────────┘           └───┬──────┬──────┬──────────────────────┘
+                                             │      │      │
+                 ┌───────────────────────────┘      │      └──────────────────────┐
+                 │                                  │                             │
+    ┌────────────▼────────────┐        ┌────────────▼────────────┐   ┌────────────▼────────┐
+    │  Intelligence Services  │        │   Worker Agents          │   │  Execution Logging  │
+    │  MarketRegimeService    │        │   CoveredCallWorker      │   │  ExecutionLog model │
+    │  EarningsCalendarService│        │   CashSecuredPutWorker   │   │  Reasoning persisted│
+    │  PerformanceAnalyst     │        │   WheelWorker            │   │  Dashboard feed     │
+    │  NewsFeedService        │        │   (targeted open/close/  │   └─────────────────────┘
+    │  Finnhub + DB-backed    │        │    roll per LLM action)  │
+    └─────────────────────────┘        └────────────┬────────────┘
+                                                    │
+                                       ┌────────────▼──────────────┐
+                                       │    Trade Journal Agent     │
+                                       │  Entry/Exit · Context ·   │
+                                       │  Asset Type Tracking       │
+                                       └────────────┬──────────────┘
+                                                    │
+                                       ┌────────────▼──────────────┐
+                                       │    Performance Logger      │
+                                       │  Win Rate · P&L · Sharpe  │
+                                       │  Drawdown · Premium Track  │
+                                       └────────────┬──────────────┘
+                                                    │
+                               ┌─────────────────────┼────────────────────┐
+                               │                     │                    │
+                  ┌────────────▼──────────┐ ┌────────▼──────┐ ┌──────────▼─────┐
+                  │    SQLite / Postgres   │ │  Discord      │ │  Backtester    │
+                  │  Trades · Positions    │ │  Notifier     │ │  Historical    │
+                  │  Journal · Perf        │ │  Webhooks     │ │  Replay Engine │
+                  │  Wheel State · Opps    │ └───────────────┘ └────────────────┘
+                  │  Regime · Earnings     │
+                  │  Insights · Headlines  │
+                  └───────────────────────┘
+                               │
+                  ┌────────────▼──────────────┐
+                  │   FastAPI Backend          │
+                  │   REST API · WebSocket     │
+                  │   Portfolio · Trades ·     │
+                  │   Agents · Scanner ·       │
+                  │   Intelligence · Backtest  │
+                  └────────────┬──────────────┘
+                               │
+                  ┌────────────▼──────────────┐
+                  │   Proposal Layer           │
+                  │   TradeProposal model      │
+                  │   status: pending →        │
+                  │   approved / rejected      │
+                  │   Batch ops · Audit trail  │
+                  └────────────┬──────────────┘
+                               │  operator approval
+                  ┌────────────▼──────────────┐
+                  │   React Dashboard (3 screens)│
+                  │   Dashboard · Trade Desk · │
+                  │   Performance              │
+                  │   Lead Agent Thinking card │
+                  │   Vite + Tailwind CSS      │
+                  └───────────────────────────┘
 ```
 
 ## What's Built
@@ -145,6 +153,22 @@ A multi-agent architecture for automated options income strategies (Covered Call
   - API client (`api.js`) with all endpoint functions
   - Vite dev proxy to FastAPI backend on `:8000`
 
+### Phase A — Intelligence Services (Data Producers) ✅
+- **`MarketRegimeService`** (`services/market_regime.py`): multi-signal regime classification — VIX proxy + direction, market breadth (% scanner universe above 50-day MA), SPY 20/50-day MA trend, 11-sector SPDR rotation, credit stress (HYG vs TLT). Outputs: `risk_on | neutral | risk_off | crisis` + confidence score. Persisted to `regime_snapshots` table. Exposed via `/api/intelligence/regime`.
+- **`EarningsCalendarService`** (`services/earnings_calendar.py`): fetches Finnhub earnings dates for all scanner symbols. Flags `high_risk` (≤7 days) and `approaching` (≤14 days). Integrates with Lead Agent's `_apply_intelligence_checks()` to prevent selling puts before announcements. Stored in `earnings_events` table.
+- **`PerformanceAnalystService`** (`services/performance_analyst.py`): 7 analytical lenses over live trade data — overall summary, strategy breakdown, delta-bucket win rates (0.10–0.30+), regime correlation, symbol scorecard, open position health flags, and rule-based text recommendations. Minimum 5 closed trades before insights activate. Stored as JSON blobs in `performance_insights` table.
+- **`NewsFeedService`** (`services/news_feed.py`): Finnhub general + company news with deduplication by headline text, 48h auto-prune, and graceful no-op when no API key is set. Stored in `news_headlines` table.
+- **Dashboard Intelligence card**: regime badge, earnings warnings, performance recommendations, and top headlines surfaced on the Dashboard page.
+- **`/api/intelligence/`** route group: 14 endpoints for regime, earnings, performance (5 sub-endpoints), recommendations, news, and `/reasoning`.
+
+### Phase B — LLM-Powered Lead Agent ✅
+- **`LLMService`** (`services/llm_service.py`): wraps the Anthropic SDK in a multi-turn tool-use loop (max 10 turns). Logs input/output tokens and estimated cost per cycle. Returns `{"reasoning", "actions", "summary"}`. Falls back gracefully on any API error.
+- **Lead Agent tool use**: 9 Claude tools defined — `get_regime`, `get_regime_detail`, `get_scanner_top`, `get_open_positions`, `get_position_detail`, `get_performance`, `get_earnings_upcoming`, `get_news`, `get_symbol_history`. Claude calls tools until it has enough context, then outputs a JSON action block.
+- **Action dispatch**: `_execute_action()` handles `close`, `roll`, `open_csp/cc/wheel`, `pause_worker`, `resume_worker`, `no_action/hold`. New public `close_position()` / `roll_position()` methods added to all three workers for targeted LLM-directed closes.
+- **Reasoning audit**: every cycle's full Claude reasoning + one-line summary stored to `execution_logs`. Dashboard "Lead Agent Thinking" card shows latest summary with expandable full reasoning.
+- **Hard constraints**: `_validate_new_position()` enforces buying power ≥ $5K, per-worker position limits, and drawdown limits before any LLM-directed open.
+- **Rule-based fallback**: existing orchestration logic renamed to `_rule_based_cycle()`. Activates automatically when `ANTHROPIC_API_KEY` is not set — system never stops trading because LLM is unavailable.
+
 ### Phase 10 — Human-in-the-Loop Proposal System + 3-Screen Dashboard ✅
 - **Trade Proposal Layer**:
   - `models/proposal.py` — `TradeProposal` model with full trade details (strike, expiry, delta, premium, collateral, annualized return, PoP, max risk, IV rank, rationale); status lifecycle: `pending → executed | rejected`
@@ -177,12 +201,13 @@ A multi-agent architecture for automated options income strategies (Covered Call
 | **8** | Backtesting Engine — historical replay, synthetic chains, CLI, compare mode | ✅ Complete |
 | **9** | Dashboard — FastAPI REST API, React + Tailwind, Scanner Workshop, Mode Toggle | ✅ Complete |
 | **10** | Human-in-the-Loop Proposals + 3-Screen Dashboard restructure | ✅ Complete |
+| **A** | Intelligence Services — MarketRegime, EarningsCalendar, PerformanceAnalyst, NewsFeed | ✅ Complete |
+| **B** | LLM-Powered Lead Agent — Claude tool use, 9 tools, action dispatch, reasoning audit | ✅ Complete |
 
 ### Remaining Work
 | Phase | Scope | Status |
 |-------|-------|--------|
-| **5** | Advanced Intelligence — earnings avoidance, sector diversification, correlation | 🔲 Planned |
-| **11** | ML Layer — IV surface modeling, regime detection, entry timing | 🔲 Planned |
+| **11** | ML Layer — IV surface modeling, entry timing optimization | 🔲 Planned |
 | **12** | Risk Hardening — Greeks monitoring, margin impact, circuit breakers | 🔲 Planned |
 
 ## Quick Start
@@ -223,6 +248,8 @@ ALPACA_SECRET_KEY=your_secret_here
 ALPACA_BASE_URL=https://paper-api.alpaca.markets   # Paper trading
 TRADING_MODE=paper                                  # paper | live
 DISCORD_WEBHOOK_URL=                                # Optional — Discord notifications
+FINNHUB_API_KEY=                                    # Optional — earnings + news (free tier)
+ANTHROPIC_API_KEY=                                  # Optional — enables LLM Lead Agent (Claude)
 ```
 
 ### Strategy Parameters (`config/strategies.yaml`)
@@ -303,7 +330,10 @@ premium-trader/
 │       ├── scanner.py         # Run scanner, preview, config tuning
 │       ├── backtest.py        # Run/status/results, compare mode, job list
 │       ├── settings.py        # Trading mode toggle (paper ↔ live)
-│       └── proposals.py       # Generate, approve, reject, modify trade proposals
+│       ├── proposals.py       # Generate, approve, reject, modify trade proposals
+│       ├── account.py         # Account status, Alpaca order history
+│       ├── executions.py      # Execution log feed (auto-trade activity)
+│       └── intelligence.py    # Regime, earnings, performance, news, reasoning (14 endpoints)
 │
 ├── core/                      # Core abstractions & business logic
 │   ├── broker.py              # Abstract Broker interface (ABC)
@@ -345,13 +375,23 @@ premium-trader/
 │   ├── opportunity.py         # Scanner-detected opportunities (+ asset_type)
 │   ├── journal_entry.py       # Detailed trade journal entries (+ asset_type)
 │   ├── wheel_state.py         # Wheel state machine persistence
-│   └── proposal.py            # TradeProposal — pending/executed/rejected proposals
+│   ├── proposal.py            # TradeProposal — pending/executed/rejected proposals
+│   ├── execution_log.py       # Per-trade reasoning audit trail (rationale, decision inputs)
+│   ├── regime_snapshot.py     # Computed market regime records
+│   ├── earnings_event.py      # Upcoming earnings per symbol
+│   ├── performance_insight.py # Serialized analytics blobs from PerformanceAnalyst
+│   └── news_headline.py       # Finnhub headlines with symbol tagging
 │
 ├── services/                  # External service integrations
 │   ├── alpaca_broker.py       # AlpacaBroker — Broker interface implementation
 │   ├── backtester.py          # BacktestBroker, BacktestEngine, BacktestResult
 │   ├── logger_service.py      # Performance logger (metrics, P&L, Sharpe)
-│   └── notifier.py            # Discord webhook notifications
+│   ├── notifier.py            # Discord webhook notifications
+│   ├── market_regime.py       # Multi-signal regime classification (VIX, breadth, sectors)
+│   ├── earnings_calendar.py   # Finnhub earnings dates; flags high-risk symbols
+│   ├── performance_analyst.py # 7-lens trade analytics + rule-based recommendations
+│   ├── news_feed.py           # Finnhub headlines with dedup + 48h auto-prune
+│   └── llm_service.py         # Claude API wrapper — multi-turn tool-use loop
 │
 ├── config/                    # Configuration
 │   ├── settings.py            # Pydantic settings (loads from .env)
@@ -404,15 +444,23 @@ premium-trader/
 | **Trade Proposals** | Human-in-the-loop approval layer | Agents never execute orders autonomously; every trade requires explicit operator approval |
 | **Dashboard Structure** | 3 screens: Dashboard / Trade Desk / Performance | Maps directly to operator workflow: monitor → decide → review |
 | **Notifications** | Discord webhooks (graceful no-op) | Non-intrusive; no crash if not configured |
+| **Intelligence Services** | 4 Finnhub-backed DB-persisted services | Regime + earnings + perf + news context computed on schedule, available to LLM tools |
+| **LLM Lead Agent** | Claude via Anthropic tool use | Holistic reasoning across all context; rule-based fallback when no API key |
+| **LLM Fallback** | `_rule_based_cycle()` activates if no key | System never stops trading because LLM is unavailable |
+| **Action Dispatch** | Targeted `scan→evaluate→execute` per symbol | LLM directs opens to specific symbols without re-running full worker cycles |
+| **Reasoning Audit** | ExecutionLog persists Claude's full reasoning | Every LLM decision is auditable; surfaced on dashboard "Lead Agent Thinking" card |
 
 ## Tech Stack
 
 - **Python 3.9+** — async/await throughout
 - **alpaca-py** — Brokerage & market data API
+- **anthropic** — Claude API SDK (LLM-powered Lead Agent)
 - **FastAPI** — REST API + WebSocket backend
 - **SQLAlchemy 2.0** — Async ORM with Alembic migrations
 - **APScheduler** — Cron + interval scheduling for agents
 - **Pydantic v2** — Settings & data validation
+- **httpx** — Async HTTP (Alpaca REST bypass + Finnhub calls)
+- **finnhub-python** — Earnings calendar + news headlines
 - **Loguru** — Structured logging
 - **React 19** — Component-based dashboard UI
 - **Vite 7** — Frontend build tool with HMR

@@ -23,6 +23,7 @@ from services.market_regime import MarketRegimeService
 from services.earnings_calendar import EarningsCalendarService
 from services.performance_analyst import PerformanceAnalystService
 from services.news_feed import NewsFeedService
+from services.llm_service import LLMService
 from agents.scanner import ScannerAgent
 from agents.trade_journal import TradeJournalAgent
 from agents.lead_agent import LeadAgent
@@ -57,6 +58,7 @@ class AppState:
         self.earnings_service: Optional[EarningsCalendarService] = None
         self.performance_service: Optional[PerformanceAnalystService] = None
         self.news_service: Optional[NewsFeedService] = None
+        self.llm_service: Optional[LLMService] = None
 
     async def initialize(self):
         """Create and wire all services."""
@@ -112,6 +114,17 @@ class AppState:
             perf_logger=self.perf_logger,
             trade_journal=self.trade_journal,
         )
+        # ── Intelligence services ────────────────────────────────────────
+        self.regime_service = MarketRegimeService(
+            broker=self.broker,
+            scanner=self.scanner,
+            strategy_manager=self.strategy_manager,
+        )
+        self.earnings_service = EarningsCalendarService()
+        self.performance_service = PerformanceAnalystService()
+        self.news_service = NewsFeedService()
+        self.llm_service = LLMService()
+
         self.lead_agent = LeadAgent(
             workers=[cc_worker, csp_worker, wheel_worker],
             risk_manager=self.risk_manager,
@@ -122,17 +135,14 @@ class AppState:
             scanner=self.scanner,
             strategy_manager=self.strategy_manager,
             notifier=self.notifier,
+            # Phase B
+            llm_service=self.llm_service,
+            regime_service=self.regime_service,
+            earnings_service=self.earnings_service,
+            performance_service=self.performance_service,
+            news_service=self.news_service,
+            trade_journal=self.trade_journal,
         )
-
-        # ── Intelligence services ────────────────────────────────────────
-        self.regime_service = MarketRegimeService(
-            broker=self.broker,
-            scanner=self.scanner,
-            strategy_manager=self.strategy_manager,
-        )
-        self.earnings_service = EarningsCalendarService()
-        self.performance_service = PerformanceAnalystService()
-        self.news_service = NewsFeedService()
 
         # Sync portfolio
         try:

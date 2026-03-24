@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  DollarSign, TrendingUp, Wallet, Star, RefreshCw, Bot, Crosshair, ChevronDown, ChevronRight, Activity,
+  DollarSign, TrendingUp, Wallet, Star, RefreshCw, Bot, Crosshair, ChevronDown, ChevronRight, Activity, Brain,
 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -17,6 +17,7 @@ import {
   fetchTradeHistory, fetchLatestExecutions,
   fetchIntelligenceRegime, fetchIntelligenceEarnings,
   fetchIntelligenceRecommendations, fetchIntelligenceNews,
+  fetchLeadAgentReasoning,
 } from '../api'
 
 const fmt = (n) =>
@@ -48,13 +49,15 @@ export default function DashboardPage() {
   const [trades, setTrades] = useState([])
   const [execLogs, setExecLogs] = useState([])
   const [intelligence, setIntelligence] = useState({})
+  const [reasoning, setReasoning] = useState([])
+  const [reasoningExpanded, setReasoningExpanded] = useState(false)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [equityRange, setEquityRange] = useState('1M')
 
   const load = async () => {
     try {
-      const [s, full, status, perf, history, executions, regime, earnings, recs, news] = await Promise.all([
+      const [s, full, status, perf, history, executions, regime, earnings, recs, news, llmReasoning] = await Promise.all([
         fetchPortfolioSummary().catch(() => null),
         fetchPortfolio().catch(() => ({ options: [], positions: [] })),
         fetchAgentStatus().catch(() => ({ workers: [], risk: {} })),
@@ -65,6 +68,7 @@ export default function DashboardPage() {
         fetchIntelligenceEarnings(14).catch(() => []),
         fetchIntelligenceRecommendations().catch(() => []),
         fetchIntelligenceNews(8).catch(() => []),
+        fetchLeadAgentReasoning(3).catch(() => []),
       ])
       setSummary(s)
       setOptions(full.options || [])
@@ -72,6 +76,7 @@ export default function DashboardPage() {
       setTrades(history?.trades || [])
       setExecLogs(executions || [])
       setIntelligence({ regime, earnings: earnings || [], recommendations: recs || [], news: news || [] })
+      setReasoning(llmReasoning || [])
 
       // Fetch per-agent metrics
       const metrics = {}
@@ -160,6 +165,53 @@ export default function DashboardPage() {
           icon={Star}
         />
       </div>
+
+      {/* Lead Agent Thinking */}
+      {(() => {
+        const latest = reasoning[0]
+        const relTime = latest
+          ? (() => {
+              const diff = Date.now() - new Date(latest.timestamp).getTime()
+              const mins = Math.floor(diff / 60_000)
+              if (mins < 1) return 'just now'
+              if (mins < 60) return `${mins}m ago`
+              return `${Math.floor(mins / 60)}h ago`
+            })()
+          : null
+        return (
+          <div className="bg-[#0f172a] border border-[#1e293b] rounded-xl p-4">
+            <div
+              className="flex items-start gap-3 cursor-pointer"
+              onClick={() => setReasoningExpanded(e => !e)}
+            >
+              <Brain size={18} className="text-[#94a3b8] mt-0.5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium text-[#94a3b8] uppercase tracking-wide">
+                    Lead Agent Thinking
+                  </span>
+                  {relTime && (
+                    <span className="text-xs text-[#475569] shrink-0">{relTime}</span>
+                  )}
+                </div>
+                <p className="mt-1 text-sm text-[#cbd5e1] leading-snug truncate">
+                  {latest?.summary || 'Waiting for first LLM cycle…'}
+                </p>
+              </div>
+              {latest && (
+                reasoningExpanded
+                  ? <ChevronDown size={14} className="text-[#475569] shrink-0 mt-1" />
+                  : <ChevronRight size={14} className="text-[#475569] shrink-0 mt-1" />
+              )}
+            </div>
+            {reasoningExpanded && latest && (
+              <pre className="mt-3 p-3 bg-[#1e293b] rounded-lg text-xs text-[#94a3b8] whitespace-pre-wrap leading-relaxed overflow-auto max-h-96">
+                {latest.reasoning}
+              </pre>
+            )}
+          </div>
+        )
+      })()}
 
       {/* Empty state CTA */}
       {isEmpty && (

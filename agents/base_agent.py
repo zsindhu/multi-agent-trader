@@ -4,6 +4,7 @@ Every agent implements: scan() -> evaluate() -> execute() -> report()
 """
 from abc import ABC, abstractmethod
 from datetime import datetime
+from typing import Optional
 from loguru import logger
 
 
@@ -34,6 +35,14 @@ class BaseAgent(ABC):
     async def manage_positions(self) -> list[dict]:
         """Monitor and manage open positions."""
         pass
+
+    async def close_position(self, option_symbol: str, reason: str = "") -> Optional[dict]:
+        """Close a specific open position by option symbol. Workers override this."""
+        return None
+
+    async def roll_position(self, option_symbol: str, reason: str = "") -> Optional[dict]:
+        """Roll a specific open position by option symbol. Workers override this."""
+        return None
 
     async def report(self) -> dict:
         return {
