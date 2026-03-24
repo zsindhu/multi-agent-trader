@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  DollarSign, TrendingUp, Wallet, Star, RefreshCw, Bot, Crosshair, ChevronDown, ChevronRight, Activity, Brain,
+  DollarSign, TrendingUp, Layers, Star, RefreshCw, Crosshair, ChevronDown, ChevronRight, Activity,
 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -11,9 +11,11 @@ import Card from '../components/Card'
 import Badge from '../components/Badge'
 import Spinner from '../components/Spinner'
 import ActivePositions from '../components/ActivePositions'
+import SystemThinking from '../components/SystemThinking'
+import MarketIntelligence from '../components/MarketIntelligence'
 import {
   fetchPortfolioSummary, fetchPortfolio, refreshPortfolio,
-  fetchAgentStatus, fetchPerformance, fetchAgentPerformance,
+  fetchAgentStatus, fetchAgentPerformance,
   fetchTradeHistory, fetchLatestExecutions,
   fetchIntelligenceRegime, fetchIntelligenceEarnings,
   fetchIntelligenceRecommendations, fetchIntelligenceNews,
@@ -50,18 +52,16 @@ export default function DashboardPage() {
   const [execLogs, setExecLogs] = useState([])
   const [intelligence, setIntelligence] = useState({})
   const [reasoning, setReasoning] = useState([])
-  const [reasoningExpanded, setReasoningExpanded] = useState(false)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [equityRange, setEquityRange] = useState('1M')
 
   const load = async () => {
     try {
-      const [s, full, status, perf, history, executions, regime, earnings, recs, news, llmReasoning] = await Promise.all([
+      const [s, full, status, history, executions, regime, earnings, recs, news, llmReasoning] = await Promise.all([
         fetchPortfolioSummary().catch(() => null),
         fetchPortfolio().catch(() => ({ options: [], positions: [] })),
         fetchAgentStatus().catch(() => ({ workers: [], risk: {} })),
-        fetchPerformance().catch(() => null),
         fetchTradeHistory({ limit: 200 }).catch(() => ({ trades: [] })),
         fetchLatestExecutions(15).catch(() => []),
         fetchIntelligenceRegime().catch(() => null),
@@ -95,7 +95,14 @@ export default function DashboardPage() {
   useEffect(() => {
     load()
     const interval = setInterval(load, 30_000)
-    return () => clearInterval(interval)
+    // Activity feed refreshes more frequently
+    const activityInterval = setInterval(async () => {
+      try {
+        const executions = await fetchLatestExecutions(15)
+        setExecLogs(executions || [])
+      } catch { /* ignore */ }
+    }, 15_000)
+    return () => { clearInterval(interval); clearInterval(activityInterval) }
   }, [])
   useEffect(() => {
     const handler = () => { setLoading(true); load() }
@@ -149,69 +156,46 @@ export default function DashboardPage() {
       </div>
 
       {/* Stat Row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Portfolio Value" value={fmt(summary?.equity)} icon={DollarSign} />
-        <StatCard label="Cash Available" value={fmt(summary?.cash)} icon={Wallet} />
-        <StatCard
-          label="Unrealized P&L"
-          value={fmt(summary?.total_unrealized_pnl)}
-          trend={summary?.total_unrealized_pnl > 0 ? 'up' : summary?.total_unrealized_pnl < 0 ? 'down' : null}
-          icon={TrendingUp}
-        />
-        <StatCard
-          label="Premium Collected"
-          value={fmt(summary?.total_premium_collected)}
-          trend="up"
-          icon={Star}
-        />
-      </div>
-
-      {/* Lead Agent Thinking */}
       {(() => {
-        const latest = reasoning[0]
-        const relTime = latest
-          ? (() => {
-              const diff = Date.now() - new Date(latest.timestamp).getTime()
-              const mins = Math.floor(diff / 60_000)
-              if (mins < 1) return 'just now'
-              if (mins < 60) return `${mins}m ago`
-              return `${Math.floor(mins / 60)}h ago`
-            })()
-          : null
+        // Mini strategy breakdown for open positions
+        const stratCounts = options.reduce((acc, o) => {
+          const s = o.strategy || o.assigned_to || 'Other'
+          const label = s.includes('Put') || s.includes('CSP') ? 'CSP'
+            : s.includes('Call') || s.includes('CC') ? 'CC'
+            : s.includes('Wheel') ? 'Wheel' : 'Other'
+          acc[label] = (acc[label] || 0) + 1
+          return acc
+        }, {})
+        const stratSummary = Object.entries(stratCounts).map(([k, v]) => `${v} ${k}`).join(' · ') || null
+
+        const dayPnl = summary?.day_pnl ?? summary?.total_unrealized_pnl
         return (
-          <div className="bg-[#0f172a] border border-[#1e293b] rounded-xl p-4">
-            <div
-              className="flex items-start gap-3 cursor-pointer"
-              onClick={() => setReasoningExpanded(e => !e)}
-            >
-              <Brain size={18} className="text-[#94a3b8] mt-0.5 shrink-0" />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-medium text-[#94a3b8] uppercase tracking-wide">
-                    Lead Agent Thinking
-                  </span>
-                  {relTime && (
-                    <span className="text-xs text-[#475569] shrink-0">{relTime}</span>
-                  )}
-                </div>
-                <p className="mt-1 text-sm text-[#cbd5e1] leading-snug truncate">
-                  {latest?.summary || 'Waiting for first LLM cycle…'}
-                </p>
-              </div>
-              {latest && (
-                reasoningExpanded
-                  ? <ChevronDown size={14} className="text-[#475569] shrink-0 mt-1" />
-                  : <ChevronRight size={14} className="text-[#475569] shrink-0 mt-1" />
-              )}
-            </div>
-            {reasoningExpanded && latest && (
-              <pre className="mt-3 p-3 bg-[#1e293b] rounded-lg text-xs text-[#94a3b8] whitespace-pre-wrap leading-relaxed overflow-auto max-h-96">
-                {latest.reasoning}
-              </pre>
-            )}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard label="Portfolio Value" value={fmt(summary?.equity)} icon={DollarSign} />
+            <StatCard
+              label="Day P&L"
+              value={fmt(dayPnl)}
+              trend={dayPnl > 0 ? 'up' : dayPnl < 0 ? 'down' : null}
+              icon={TrendingUp}
+            />
+            <StatCard
+              label="Open Positions"
+              value={options.length.toString()}
+              subtitle={stratSummary}
+              icon={Layers}
+            />
+            <StatCard
+              label="Premium Collected"
+              value={fmt(summary?.total_premium_collected)}
+              trend="up"
+              icon={Star}
+            />
           </div>
         )
       })()}
+
+      {/* System Thinking */}
+      <SystemThinking reasoning={reasoning} />
 
       {/* Empty state CTA */}
       {isEmpty && (
@@ -318,10 +302,18 @@ export default function DashboardPage() {
       </Card>
 
       {/* Active Positions */}
-      <ActivePositions options={options} />
+      <ActivePositions options={options} earnings={intelligence.earnings || []} />
 
-      {/* Intelligence */}
-      <IntelligenceSection intel={intelligence} options={options} />
+      {/* Market Intelligence */}
+      <Card title="Market Intelligence" subtitle="Macro signals · Sector rotation · Upcoming catalysts">
+        <MarketIntelligence
+          regime={intelligence.regime || {}}
+          earnings={intelligence.earnings || []}
+          recommendations={intelligence.recommendations || []}
+          news={intelligence.news || []}
+          options={options}
+        />
+      </Card>
 
       {/* Recent Activity */}
       {execLogs.length > 0 && (
@@ -388,108 +380,6 @@ export default function DashboardPage() {
   )
 }
 
-// ── IntelligenceSection ────────────────────────────────────────────
-
-const REGIME_COLOR = {
-  risk_on: 'green',
-  neutral: 'blue',
-  risk_off: 'yellow',
-  crisis: 'red',
-  unknown: 'gray',
-}
-
-function IntelligenceSection({ intel, options }) {
-  const regime = intel.regime || {}
-  const earnings = intel.earnings || []
-  const recs = intel.recommendations || []
-  const news = intel.news || []
-
-  // Only show earnings warnings for symbols we hold
-  const heldSymbols = new Set(options.map(o => o.symbol))
-  const relevantEarnings = earnings.filter(e => heldSymbols.has(e.symbol))
-
-  if (!regime.regime && !relevantEarnings.length && !recs.length) return null
-
-  return (
-    <Card title="Market Intelligence" subtitle="Macro signals · Earnings risks · Recommendations">
-      <div className="space-y-4">
-        {/* Regime banner */}
-        {regime.regime && regime.regime !== 'unknown' && (
-          <div className="flex items-start gap-3 p-3 bg-[#0a0f1e] rounded-lg border border-[#1e293b]">
-            <Badge variant={REGIME_COLOR[regime.regime] || 'gray'}>
-              {regime.regime?.replace('_', '-').toUpperCase()}
-            </Badge>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs text-[#94a3b8] leading-relaxed">{regime.summary}</p>
-              {regime.breadth_pct != null && (
-                <div className="mt-2">
-                  <div className="flex items-center justify-between text-xs text-[#64748b] mb-1">
-                    <span>Market breadth (% above 50MA)</span>
-                    <span className={regime.breadth_pct > 55 ? 'text-emerald-400' : regime.breadth_pct < 40 ? 'text-red-400' : 'text-amber-400'}>
-                      {regime.breadth_pct?.toFixed(0)}%
-                    </span>
-                  </div>
-                  <div className="h-1.5 bg-[#1e293b] rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full ${regime.breadth_pct > 55 ? 'bg-emerald-500' : regime.breadth_pct < 40 ? 'bg-red-500' : 'bg-amber-500'}`}
-                      style={{ width: `${Math.min(regime.breadth_pct || 0, 100)}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Earnings warnings for held positions */}
-        {relevantEarnings.length > 0 && (
-          <div className="space-y-1">
-            <p className="text-xs font-medium text-[#94a3b8]">Earnings Risk — Open Positions</p>
-            {relevantEarnings.map(e => (
-              <div key={e.id || e.symbol} className="flex items-center gap-2 text-xs px-3 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg">
-                <span className="font-medium text-amber-400">{e.symbol}</span>
-                <span className="text-[#64748b]">earnings in</span>
-                <span className={e.risk_level === 'high_risk' ? 'text-red-400 font-medium' : 'text-amber-400'}>
-                  {e.days_until}d ({e.event_date})
-                </span>
-                <Badge variant={e.risk_level === 'high_risk' ? 'red' : 'yellow'} >
-                  {e.risk_level === 'high_risk' ? 'High Risk' : 'Approaching'}
-                </Badge>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Recommendations */}
-        {recs.length > 0 && recs[0] !== 'Not enough closed trade data for recommendations yet.' && (
-          <div className="space-y-1">
-            <p className="text-xs font-medium text-[#94a3b8]">Performance Insights</p>
-            {recs.map((rec, i) => (
-              <p key={i} className="text-xs text-[#64748b] pl-3 border-l border-[#334155]">{rec}</p>
-            ))}
-          </div>
-        )}
-
-        {/* News headlines */}
-        {news.length > 0 && (
-          <div className="space-y-1">
-            <p className="text-xs font-medium text-[#94a3b8]">Market Headlines</p>
-            {news.slice(0, 5).map((n, i) => (
-              <div key={i} className="flex items-start gap-2 text-xs">
-                <span className="text-[#475569] shrink-0 mt-0.5">{n.source}</span>
-                {n.url ? (
-                  <a href={n.url} target="_blank" rel="noreferrer" className="text-[#94a3b8] hover:text-white transition-colors line-clamp-1">{n.headline}</a>
-                ) : (
-                  <span className="text-[#94a3b8] line-clamp-1">{n.headline}</span>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </Card>
-  )
-}
 
 // ── ExecutionLogEntry ──────────────────────────────────────────────
 

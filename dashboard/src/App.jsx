@@ -10,7 +10,8 @@ import TradeDeskPage from './pages/TradeDeskPage'
 import PerformancePage from './pages/PerformancePage'
 import TradingModeToggle from './components/TradingModeToggle'
 import ConfirmLiveModal from './components/ConfirmLiveModal'
-import { fetchTradingMode, updateTradingMode, fetchAccountStatus } from './api'
+import SystemStatusBar from './components/SystemStatusBar'
+import { fetchTradingMode, updateTradingMode, fetchAccountStatus, fetchIntelligenceRegime, fetchLeadAgentReasoning } from './api'
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
@@ -89,10 +90,12 @@ export default function App() {
   const [modeLoading, setModeLoading] = useState(false)
   const [showLiveConfirm, setShowLiveConfirm] = useState(false)
   const [accountStatus, setAccountStatus] = useState(null)
+  const [regime, setRegime] = useState({})
+  const [lastReasoningAt, setLastReasoningAt] = useState(null)
 
   const isLive = tradingMode === 'live'
 
-  // Fetch current trading mode and account status on mount
+  // Fetch current trading mode, account status, and regime on mount
   useEffect(() => {
     fetchTradingMode()
       .then((data) => setTradingMode(data.trading_mode))
@@ -100,6 +103,21 @@ export default function App() {
     fetchAccountStatus()
       .then(setAccountStatus)
       .catch(() => setAccountStatus({ connection: 'failed', options_enabled: false, warnings: [] }))
+    fetchIntelligenceRegime()
+      .then(setRegime)
+      .catch(() => {})
+    fetchLeadAgentReasoning(1)
+      .then(data => { if (data?.[0]?.timestamp) setLastReasoningAt(data[0].timestamp) })
+      .catch(() => {})
+
+    // Refresh regime every 60s (lightweight)
+    const regimeInterval = setInterval(() => {
+      fetchIntelligenceRegime().then(setRegime).catch(() => {})
+      fetchLeadAgentReasoning(1).then(data => {
+        if (data?.[0]?.timestamp) setLastReasoningAt(data[0].timestamp)
+      }).catch(() => {})
+    }, 60_000)
+    return () => clearInterval(regimeInterval)
   }, [])
 
   // Handle mode switch request from toggle
@@ -187,18 +205,26 @@ export default function App() {
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top header bar */}
         <header
-          className={`flex items-center justify-end gap-3 px-6 py-3 border-b transition-colors duration-300 ${
+          className={`flex items-center gap-4 px-6 py-3 border-b transition-colors duration-300 ${
             isLive
               ? 'bg-red-500/[0.03] border-red-500/15'
               : 'bg-[#0f172a] border-[#1e293b]'
           }`}
         >
-          <AlpacaStatusBadge status={accountStatus} />
-          <TradingModeToggle
-            mode={tradingMode}
-            onSwitch={handleModeSwitch}
-            loading={modeLoading}
+          <SystemStatusBar
+            accountStatus={accountStatus}
+            regime={regime}
+            tradingMode={tradingMode}
+            lastReasoningAt={lastReasoningAt}
           />
+          <div className="ml-auto flex items-center gap-3">
+            <AlpacaStatusBadge status={accountStatus} />
+            <TradingModeToggle
+              mode={tradingMode}
+              onSwitch={handleModeSwitch}
+              loading={modeLoading}
+            />
+          </div>
         </header>
 
         {/* Page content */}

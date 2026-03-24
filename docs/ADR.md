@@ -304,7 +304,7 @@ LeadAgent._execute_action() → workers (targeted open/close/roll, or pause/resu
 
 ## ADR-010: Active Positions Summary Component
 
-**Status:** Accepted  
+**Status:** Accepted
 **Date:** 2025-06
 
 **Context:** The Portfolio page showed aggregate stats (total P&L, premium collected, position counts) but gave no visibility into *which* underlyings had open trades or which agent managed them. Users had to navigate to the Positions page for that detail.
@@ -314,3 +314,38 @@ LeadAgent._execute_action() → workers (targeted open/close/roll, or pause/resu
 The Portfolio page now fetches both `fetchPortfolioSummary()` and `fetchPortfolio()` in parallel to get the full options array alongside the aggregate stats.
 
 **Consequences:** Glanceable at-a-glance visibility into active positions without leaving the Portfolio view. Compact enough to not clutter the dashboard. The collapse/expand state prevents visual overload when there are many positions.
+
+---
+
+## ADR-018: Phase C — Intelligence-First Dashboard Redesign
+
+**Status:** Accepted
+**Date:** 2026-03
+
+**Context:** The dashboard surfaced portfolio and trade data but gave no visibility into the system's reasoning or market context. Operators could see *what* happened but not *why*. The intelligence services (ADR-016) and LLM Lead Agent (ADR-017) produced rich data — regime snapshots, earnings risk, performance analytics, Claude's cycle reasoning — but very little of it reached the UI. Breadth was also permanently showing 100% due to a NULL-handling bug in the regime service.
+
+**Decision:** Redesigned all three dashboard screens to surface the system's intelligence as first-class information. Core changes:
+
+**Bug fix:** `services/market_regime.py` `_get_breadth()` was counting `NULL` `distance_from_50ma` values as "above 50MA" via `(None or 0) >= 0`. Fixed by filtering to non-null records before computing the percentage.
+
+**New components** (8 created, all in `dashboard/src/components/`):
+- `SystemStatusBar` — sticky header bar showing connection, mode, market hours (ET), regime badge, VIX, breadth %, and last cycle time. Fetched at the App level and refreshed every 60 seconds.
+- `SystemThinking` — AI reasoning card with purple/indigo accent (distinguishes AI-generated content from raw data). Shows latest Lead Agent summary prominently; full reasoning expandable. Empty state for rule-based mode.
+- `PositionHealthBar` — 3-zone horizontal gauge showing where current price sits relative to strike and break-even. Green (safe OTM), amber (approaching strike), red (ITM). Uses proportional zones from strike ±10%.
+- `ActivityFeed` — color-coded chronological event feed. Border colors encode event type: purple (Lead Agent decisions), emerald (new trades), red (closes/alerts), amber (regime changes). Polls every 15 seconds independently of the 30-second main poll.
+- `MarketIntelligence` — two-column card: left = regime detail (breadth bar, SPY trend, credit stress), right = sector rotation ranked list with horizontal bar chart. Upcoming catalysts (earnings ≤7 days) highlight held symbols. Falls back to muted "Phase A services not configured" text.
+- `RegimeCorrelationChart` — `React.memo`-wrapped Recharts bar chart of win rate by regime (color-coded: emerald/blue/amber/red). Lazy-loadable.
+- `DeltaAnalysisChart` — `React.memo`-wrapped bar chart of win rate by delta bucket with avg return in tooltip. Lazy-loadable.
+- `SymbolScorecard` — `React.memo`-wrapped sortable table of per-symbol P&L, win rate, trade count, avg premium. Click any column header to sort; P&L-tinted rows.
+
+**Dashboard page** (`/`): Stat cards updated — "Day P&L" replaces cash, "Open Positions" shows count + mini strategy breakdown (e.g. "2 CSP · 1 CC"). `ActivePositions` enhanced with DTE display, earnings ⚠️ flag, and `PositionHealthBar` per position. Activity feed polls 15s separately. `IntelligenceSection` replaced with `MarketIntelligence`.
+
+**Trade Desk** (`/trade-desk`): Added AI Decision Queue showing the last 3 Lead Agent reasoning entries as expandable cards above the scanner. Scanner table gained two columns: earnings flag (⚠️ if earnings within 14 days) and regime signal (green/red dot). Manual Trade Entry collapsible form added — symbol, strategy, delta slider, DTE slider — queues a note for the Lead Agent on next cycle.
+
+**Performance** (`/performance`): New "Insights" tab (default tab) with lazy-loaded regime correlation + delta analysis charts, symbol scorecard, and What's Working recommendations. The existing Trades/Journal/Backtest tabs are unchanged.
+
+**App-level intelligence**: `App.jsx` now fetches regime and last reasoning timestamp on mount and refreshes every 60 seconds, passing data to `SystemStatusBar` in the header.
+
+**API additions** (`dashboard/src/api.js`): Added `fetchIntelligenceStrategyBreakdown`, `fetchIntelligenceDeltaAnalysis`, `fetchIntelligenceRegimeCorrelation`, `fetchIntelligenceSymbolScorecard`, `fetchIntelligenceRegimeHistory`. No new backend endpoints were needed — all are served by the existing `api/routes/intelligence.py`.
+
+**Consequences:** Operators see regime, VIX, breadth, and last cycle time without navigating anywhere. The "System Assessment" card makes Claude's reasoning visible in plain English on the main screen. Active positions show safety at a glance via the health bar. The Performance Insights tab turns raw performance data into actionable analysis. Every intelligence section degrades gracefully when Phase A/B services aren't configured.

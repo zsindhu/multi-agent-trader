@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   Play, Zap, ChevronDown, ChevronRight, CheckCircle, XCircle,
-  Search, Eye, Save, RotateCcw, Undo2, Loader,
+  Search, Eye, Save, RotateCcw, Undo2, Loader, Brain, SlidersHorizontal,
 } from 'lucide-react'
 import Card from '../components/Card'
 import Badge from '../components/Badge'
@@ -12,6 +12,7 @@ import {
   previewScanner, runScanner,
   fetchPendingProposals, generateProposals, approveBatch, rejectBatch,
   fetchPortfolioSummary, fetchAlpacaOrders,
+  fetchIntelligenceEarnings, fetchIntelligenceRegime, fetchLeadAgentReasoning,
 } from '../api'
 
 // ── Scanner slider/weight defs (same as ScannerWorkshop) ────────────
@@ -75,6 +76,37 @@ function WeightBar({ label, value, defaultValue, onChange, onReset }) {
   )
 }
 
+// ── AI Decision Card ─────────────────────────────────────────────────
+function AIDecisionCard({ entry }) {
+  const [open, setOpen] = useState(false)
+  const ts = entry.timestamp
+    ? new Date(entry.timestamp).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+    : ''
+  return (
+    <div className="border-l-2 border-purple-500/50 bg-purple-500/5 rounded-r-lg p-3 border border-l-0 border-purple-500/15">
+      <div className="flex items-start gap-3 cursor-pointer" onClick={() => setOpen(o => !o)}>
+        <Brain size={14} className="text-purple-400 mt-0.5 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-purple-300">Lead Agent</span>
+            <span className="text-xs text-slate-600 shrink-0">{ts}</span>
+          </div>
+          <p className="text-sm text-slate-300 mt-0.5 leading-snug">{entry.summary || '—'}</p>
+        </div>
+        <Badge variant="indigo">Executed</Badge>
+        {entry.reasoning && (
+          open ? <ChevronDown size={12} className="text-slate-600 shrink-0 mt-1" /> : <ChevronRight size={12} className="text-slate-600 shrink-0 mt-1" />
+        )}
+      </div>
+      {open && entry.reasoning && (
+        <pre className="mt-2 p-2 bg-slate-900/60 rounded text-xs text-slate-500 whitespace-pre-wrap leading-relaxed overflow-auto max-h-48">
+          {entry.reasoning}
+        </pre>
+      )}
+    </div>
+  )
+}
+
 // ── Main Component ───────────────────────────────────────────────────
 export default function TradeDeskPage() {
   // Scanner state
@@ -108,16 +140,35 @@ export default function TradeDeskPage() {
   const [ordersLoading, setOrdersLoading] = useState(false)
   const [ordersOpen, setOrdersOpen] = useState(false)
 
+  // Intelligence
+  const [earnings, setEarnings] = useState([])
+  const [regime, setRegime] = useState({})
+  const [reasoning, setReasoning] = useState([])
+
+  // Manual trade entry
+  const [manualOpen, setManualOpen] = useState(false)
+  const [manualSymbol, setManualSymbol] = useState('')
+  const [manualStrategy, setManualStrategy] = useState('CSP')
+  const [manualDelta, setManualDelta] = useState(0.25)
+  const [manualDte, setManualDte] = useState(30)
+  const [manualSubmitted, setManualSubmitted] = useState(false)
+
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
     try {
-      const [opps, cfgResp, pending, ps] = await Promise.all([
+      const [opps, cfgResp, pending, ps, earningsData, regimeData, reasoningData] = await Promise.all([
         fetchOpportunities(),
         fetchScannerConfig(),
         fetchPendingProposals(),
         fetchPortfolioSummary(),
+        fetchIntelligenceEarnings(14).catch(() => []),
+        fetchIntelligenceRegime().catch(() => ({})),
+        fetchLeadAgentReasoning(5).catch(() => []),
       ])
+      setEarnings(earningsData || [])
+      setRegime(regimeData || {})
+      setReasoning(reasoningData || [])
       setOpportunities(opps.opportunities || [])
       setPortfolioSummary(ps)
 
@@ -322,7 +373,23 @@ export default function TradeDeskPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════════
-          SECTION A — Market Scanner
+          SECTION A — AI Decision Queue
+      ═══════════════════════════════════════════════════════════════ */}
+      {reasoning.length > 0 && (
+        <section className="space-y-3">
+          <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+            <Brain size={18} className="text-purple-400" /> AI Decision Log
+          </h3>
+          <div className="space-y-2">
+            {reasoning.slice(0, 3).map((entry, i) => (
+              <AIDecisionCard key={i} entry={entry} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════
+          SECTION B — Market Scanner
       ═══════════════════════════════════════════════════════════════ */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
@@ -445,25 +512,41 @@ export default function TradeDeskPage() {
                     <th className="text-right py-2.5 px-2">Mom 30d</th>
                     <th className="text-center py-2.5 px-2">Support</th>
                     <th className="text-right py-2.5 px-2">Liquidity</th>
+                    <th className="text-center py-2.5 px-2 hidden sm:table-cell">Earn</th>
+                    <th className="text-center py-2.5 px-2 hidden sm:table-cell">Regime</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {displayOpps.map((o, i) => (
-                    <tr key={o.symbol || i} className="border-b border-[#334155]/40 hover:bg-[#334155]/20 transition-colors">
-                      <td className="py-2.5 px-2 text-[#64748b]">{i + 1}</td>
-                      <td className="py-2.5 px-2 font-medium text-white font-mono">{o.symbol}</td>
-                      <td className="py-2.5 px-2">
-                        <Badge variant={o.asset_type === 'etf' ? 'yellow' : 'blue'}>{o.asset_type || 'stock'}</Badge>
-                      </td>
-                      <td className="py-2.5 px-2 text-right font-mono text-blue-400">{(o.composite_score || 0).toFixed(3)}</td>
-                      <td className="py-2.5 px-2 text-right text-white">{(o.iv_rank || 0).toFixed(0)}</td>
-                      <td className={`py-2.5 px-2 text-right ${(o.momentum_30d || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {(o.momentum_30d || 0).toFixed(1)}%
-                      </td>
-                      <td className="py-2.5 px-2 text-center">{o.near_support ? '✓' : '—'}</td>
-                      <td className="py-2.5 px-2 text-right text-[#94a3b8]">{(o.options_liquidity_score || 0).toFixed(2)}</td>
-                    </tr>
-                  ))}
+                  {displayOpps.map((o, i) => {
+                    const earningFlag = earnings.find(e => e.symbol === o.symbol)
+                    const regimeFavors = regime?.regime === 'risk_on' ? true : regime?.regime === 'risk_off' || regime?.regime === 'crisis' ? false : null
+                    return (
+                      <tr key={o.symbol || i} className="border-b border-[#334155]/40 hover:bg-[#334155]/20 transition-colors">
+                        <td className="py-2.5 px-2 text-[#64748b]">{i + 1}</td>
+                        <td className="py-2.5 px-2 font-medium text-white font-mono">{o.symbol}</td>
+                        <td className="py-2.5 px-2">
+                          <Badge variant={o.asset_type === 'etf' ? 'yellow' : 'blue'}>{o.asset_type || 'stock'}</Badge>
+                        </td>
+                        <td className="py-2.5 px-2 text-right font-mono text-blue-400">{(o.composite_score || 0).toFixed(3)}</td>
+                        <td className="py-2.5 px-2 text-right text-white">{(o.iv_rank || 0).toFixed(0)}</td>
+                        <td className={`py-2.5 px-2 text-right ${(o.momentum_30d || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {(o.momentum_30d || 0).toFixed(1)}%
+                        </td>
+                        <td className="py-2.5 px-2 text-center">{o.near_support ? '✓' : '—'}</td>
+                        <td className="py-2.5 px-2 text-right text-[#94a3b8]">{(o.options_liquidity_score || 0).toFixed(2)}</td>
+                        <td className="py-2.5 px-2 text-center hidden sm:table-cell">
+                          {earningFlag ? (
+                            <span className="text-amber-400" title={`Earnings in ${earningFlag.days_until}d`}>⚠</span>
+                          ) : <span className="text-slate-700">—</span>}
+                        </td>
+                        <td className="py-2.5 px-2 text-center hidden sm:table-cell">
+                          {regimeFavors === true && <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" title="Regime favors" />}
+                          {regimeFavors === false && <span className="inline-block w-2 h-2 rounded-full bg-red-500" title="Regime caution" />}
+                          {regimeFavors === null && <span className="text-slate-700">—</span>}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -472,7 +555,88 @@ export default function TradeDeskPage() {
       </section>
 
       {/* ═══════════════════════════════════════════════════════════════
-          SECTION B — Trade Proposals
+          SECTION C — Manual Trade Entry
+      ═══════════════════════════════════════════════════════════════ */}
+      <section>
+        <button
+          onClick={() => setManualOpen(v => !v)}
+          className="flex items-center gap-2 text-sm text-slate-400 hover:text-white transition-colors"
+        >
+          <SlidersHorizontal size={14} className="text-blue-400" />
+          Manual Trade Instruction
+          {manualOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        </button>
+        {manualOpen && (
+          <Card className="mt-3">
+            <div className="space-y-4">
+              <p className="text-xs text-slate-500">
+                Instruct the Lead Agent to open a specific trade on the next cycle. The AI will evaluate and execute if conditions are met.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* Symbol */}
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Symbol</label>
+                  <input
+                    type="text"
+                    value={manualSymbol}
+                    onChange={e => setManualSymbol(e.target.value.toUpperCase())}
+                    placeholder="SPY"
+                    className="w-full px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                {/* Strategy */}
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Strategy</label>
+                  <select
+                    value={manualStrategy}
+                    onChange={e => setManualStrategy(e.target.value)}
+                    className="w-full px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="CSP">Cash-Secured Put</option>
+                    <option value="CC">Covered Call</option>
+                    <option value="Wheel">Wheel</option>
+                  </select>
+                </div>
+                {/* Delta */}
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Delta target: -{manualDelta.toFixed(2)}</label>
+                  <input
+                    type="range" min={0.10} max={0.40} step={0.05} value={manualDelta}
+                    onChange={e => setManualDelta(parseFloat(e.target.value))}
+                    className="w-full h-1.5 appearance-none bg-slate-700 rounded-full cursor-pointer"
+                  />
+                </div>
+                {/* DTE */}
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">DTE target: {manualDte}d</label>
+                  <input
+                    type="range" min={14} max={60} step={7} value={manualDte}
+                    onChange={e => setManualDte(parseInt(e.target.value))}
+                    className="w-full h-1.5 appearance-none bg-slate-700 rounded-full cursor-pointer"
+                  />
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  disabled={!manualSymbol}
+                  onClick={() => { setManualSubmitted(true); setTimeout(() => setManualSubmitted(false), 4000) }}
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors disabled:opacity-40"
+                >
+                  Queue Instruction
+                </button>
+                {manualSubmitted && (
+                  <span className="text-xs text-emerald-400">
+                    ✓ Manual instruction noted — Lead Agent will consider {manualSymbol} ({manualStrategy}, Δ-{manualDelta.toFixed(2)}, {manualDte}d) on next cycle.
+                  </span>
+                )}
+              </div>
+            </div>
+          </Card>
+        )}
+      </section>
+
+      {/* ═══════════════════════════════════════════════════════════════
+          SECTION D — Trade Proposals
       ═══════════════════════════════════════════════════════════════ */}
       <section className="space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-3">

@@ -1,26 +1,32 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, lazy, Suspense } from 'react'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
   BarChart, Bar, CartesianGrid, Legend,
 } from 'recharts'
-import { BarChart2, ScrollText, FlaskConical, Play, Filter } from 'lucide-react'
+import { BarChart2, ScrollText, FlaskConical, Play, Filter, Lightbulb } from 'lucide-react'
 import Card from '../components/Card'
 import Badge from '../components/Badge'
 import Spinner from '../components/Spinner'
 import StatCard from '../components/StatCard'
+import SymbolScorecard from '../components/SymbolScorecard'
 import {
   fetchTradeHistory, fetchJournal, fetchPerformance,
   runBacktest, getBacktestStatus, getBacktestResults,
   listBacktestResults, runCompare,
+  fetchIntelligenceRecommendations, fetchIntelligenceRegimeCorrelation,
+  fetchIntelligenceDeltaAnalysis, fetchIntelligenceSymbolScorecard,
 } from '../api'
+
+const RegimeCorrelationChart = lazy(() => import('../components/RegimeCorrelationChart'))
+const DeltaAnalysisChart = lazy(() => import('../components/DeltaAnalysisChart'))
 
 const fmt = (n) => n == null ? '—' : n.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 })
 const fmtShort = (n) => n == null ? '—' : n.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0 })
 
-const TABS = ['trades', 'journal', 'backtest']
+const TABS = ['insights', 'trades', 'journal', 'backtest']
 
 export default function PerformancePage() {
-  const [tab, setTab] = useState('trades')
+  const [tab, setTab] = useState('insights')
   const [performance, setPerformance] = useState(null)
   const [trades, setTrades] = useState([])
   const [journal, setJournal] = useState([])
@@ -28,6 +34,13 @@ export default function PerformancePage() {
   const [symbolFilter, setSymbolFilter] = useState('')
   const [loading, setLoading] = useState(true)
   const [tableLoading, setTableLoading] = useState(false)
+
+  // Insights state
+  const [recommendations, setRecommendations] = useState([])
+  const [regimeCorr, setRegimeCorr] = useState(null)
+  const [deltaData, setDeltaData] = useState(null)
+  const [symbolData, setSymbolData] = useState(null)
+  const [insightsLoading, setInsightsLoading] = useState(false)
 
   // Backtest state
   const [btTab, setBtTab] = useState('run')
@@ -58,9 +71,25 @@ export default function PerformancePage() {
 
   useEffect(() => { loadPerf() }, [])
 
+  useEffect(() => {
+    if (tab !== 'insights') return
+    setInsightsLoading(true)
+    Promise.all([
+      fetchIntelligenceRecommendations().catch(() => []),
+      fetchIntelligenceRegimeCorrelation().catch(() => null),
+      fetchIntelligenceDeltaAnalysis().catch(() => null),
+      fetchIntelligenceSymbolScorecard().catch(() => null),
+    ]).then(([recs, regime, delta, symbols]) => {
+      setRecommendations(recs || [])
+      setRegimeCorr(regime)
+      setDeltaData(delta)
+      setSymbolData(symbols)
+    }).finally(() => setInsightsLoading(false))
+  }, [tab])
+
   // Reload table when filters or tab changes
   useEffect(() => {
-    if (tab === 'backtest') return
+    if (tab === 'backtest' || tab === 'insights') return
     setTableLoading(true)
     const params = { limit: 100 }
     if (agentFilter) params.agent = agentFilter
@@ -210,13 +239,59 @@ export default function PerformancePage() {
                 : 'border-transparent text-[#64748b] hover:text-[#94a3b8]'
             }`}
           >
-            {t === 'backtest' ? 'Backtest' : t === 'journal' ? 'Journal' : 'Trade History'}
+            {t === 'backtest' ? 'Backtest' : t === 'journal' ? 'Journal' : t === 'insights' ? 'Insights' : 'Trade History'}
           </button>
         ))}
       </div>
 
+      {/* ── Insights Tab ────────────────────────────────────────── */}
+      {tab === 'insights' && (
+        <div className="space-y-6">
+          {insightsLoading ? (
+            <div className="flex justify-center py-8"><Spinner /></div>
+          ) : (
+            <>
+              {/* What's Working */}
+              <Card title="What's Working" subtitle="Rule-based insights from your closed trades">
+                {recommendations.length === 0 || recommendations[0] === 'Not enough closed trade data for recommendations yet.' ? (
+                  <p className="text-xs text-slate-600 italic">Not enough closed trade data for recommendations yet.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {recommendations.map((rec, i) => (
+                      <div key={i} className="flex items-start gap-2">
+                        <Lightbulb size={12} className="text-amber-400 shrink-0 mt-0.5" />
+                        <p className="text-sm text-slate-300 leading-relaxed">{rec}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+
+              {/* Regime Correlation + Delta Analysis side by side */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <Card title="Win Rate by Regime" subtitle="Performance correlated with market regime at entry">
+                  <Suspense fallback={<Spinner />}>
+                    <RegimeCorrelationChart data={regimeCorr} />
+                  </Suspense>
+                </Card>
+                <Card title="Win Rate by Delta" subtitle="Optimal delta range for your strategy">
+                  <Suspense fallback={<Spinner />}>
+                    <DeltaAnalysisChart data={deltaData} />
+                  </Suspense>
+                </Card>
+              </div>
+
+              {/* Symbol Scorecard */}
+              <Card title="Symbol Scorecard" subtitle="Per-symbol track record — click column headers to sort">
+                <SymbolScorecard data={symbolData} />
+              </Card>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Filters (trades + journal) */}
-      {tab !== 'backtest' && (
+      {tab !== 'backtest' && tab !== 'insights' && (
         <div className="flex flex-wrap gap-2 items-center">
           <Filter size={14} className="text-[#64748b]" />
           <select

@@ -114,9 +114,14 @@ export const fetchExecutions = (params = {}) => {
 
 // ── Intelligence ───────────────────────────────────────────────
 export const fetchIntelligenceRegime = () => request('/intelligence/regime');
+export const fetchIntelligenceRegimeHistory = (days = 7) => request(`/intelligence/regime/history?days=${days}`);
 export const fetchIntelligenceEarnings = (days = 14) => request(`/intelligence/earnings?days=${days}`);
 export const fetchIntelligencePerformance = () => request('/intelligence/performance');
 export const fetchIntelligenceRecommendations = () => request('/intelligence/performance/recommendations');
+export const fetchIntelligenceStrategyBreakdown = () => request('/intelligence/performance/strategy');
+export const fetchIntelligenceDeltaAnalysis = () => request('/intelligence/performance/delta');
+export const fetchIntelligenceRegimeCorrelation = () => request('/intelligence/performance/regime');
+export const fetchIntelligenceSymbolScorecard = () => request('/intelligence/performance/symbols');
 export const fetchIntelligenceNews = (n = 10) => request(`/intelligence/news/market?n=${n}`);
 export const fetchLeadAgentReasoning = (limit = 3) => request(`/intelligence/reasoning?limit=${limit}`);
 

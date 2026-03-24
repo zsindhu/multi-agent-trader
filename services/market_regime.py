@@ -221,8 +221,11 @@ class MarketRegimeService:
                 opps = list(result.scalars().all())
 
             if opps:
-                above_50ma = sum(1 for o in opps if (o.distance_from_50ma or 0) >= 0)
-                breadth_pct = (above_50ma / len(opps)) * 100
+                valid_opps = [o for o in opps if o.distance_from_50ma is not None]
+                if not valid_opps:
+                    return 50.0, "stable"
+                above_50ma = sum(1 for o in valid_opps if o.distance_from_50ma >= 0)
+                breadth_pct = (above_50ma / len(valid_opps)) * 100
                 trend = self._breadth_trend(breadth_pct)
                 logger.debug(f"[Regime] Breadth from scanner: {breadth_pct:.0f}% ({len(opps)} symbols)")
                 return round(breadth_pct, 1), trend
