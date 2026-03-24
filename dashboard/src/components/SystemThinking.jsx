@@ -1,5 +1,30 @@
 import { useState } from 'react'
 import { Brain, ChevronDown, ChevronRight } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+
+const mdComponents = {
+  h1: ({children}) => <h1 className="text-base font-bold text-white mt-3 mb-1.5">{children}</h1>,
+  h2: ({children}) => <h2 className="text-sm font-bold text-white mt-3 mb-1">{children}</h2>,
+  h3: ({children}) => <h3 className="text-sm font-semibold text-slate-200 mt-2 mb-1">{children}</h3>,
+  p: ({children}) => <p className="text-sm text-slate-300 mb-2 leading-relaxed">{children}</p>,
+  strong: ({children}) => <strong className="text-white font-semibold">{children}</strong>,
+  em: ({children}) => <em className="text-slate-300 italic">{children}</em>,
+  ul: ({children}) => <ul className="list-disc list-inside space-y-0.5 text-sm text-slate-300 mb-2 pl-1">{children}</ul>,
+  ol: ({children}) => <ol className="list-decimal list-inside space-y-0.5 text-sm text-slate-300 mb-2 pl-1">{children}</ol>,
+  li: ({children}) => <li className="text-slate-300">{children}</li>,
+  table: ({children}) => <table className="w-full text-xs border-collapse my-2">{children}</table>,
+  thead: ({children}) => <thead className="bg-slate-900/60">{children}</thead>,
+  th: ({children}) => <th className="text-left text-slate-400 px-2 py-1 border-b border-slate-700 font-medium">{children}</th>,
+  td: ({children}) => <td className="text-slate-300 px-2 py-1 border-b border-slate-800">{children}</td>,
+  hr: () => <hr className="border-slate-700 my-3" />,
+  blockquote: ({children}) => (
+    <blockquote className="border-l-2 border-amber-500 pl-3 py-0.5 text-amber-200/80 bg-amber-500/5 rounded-r my-2">
+      {children}
+    </blockquote>
+  ),
+  code: ({children}) => <code className="bg-slate-900 text-emerald-400 px-1 py-0.5 rounded text-xs font-mono">{children}</code>,
+  pre: ({children}) => <pre className="bg-slate-900/60 rounded p-2 my-2 overflow-auto text-xs">{children}</pre>,
+}
 
 function relativeTime(isoString) {
   if (!isoString) return null
@@ -46,9 +71,9 @@ export default function SystemThinking({ reasoning }) {
         )}
       </div>
       {expanded && latest && (
-        <pre className="mt-3 p-3 bg-[#0f172a] rounded-lg text-xs text-slate-400 whitespace-pre-wrap leading-relaxed overflow-auto max-h-96">
-          {latest.reasoning}
-        </pre>
+        <div className="mt-3 p-3 bg-[#0f172a]/80 rounded-lg overflow-auto max-h-96 border border-purple-500/10">
+          <ReactMarkdown components={mdComponents}>{latest.reasoning}</ReactMarkdown>
+        </div>
       )}
     </div>
   )

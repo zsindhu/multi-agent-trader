@@ -11,6 +11,7 @@ import PerformancePage from './pages/PerformancePage'
 import TradingModeToggle from './components/TradingModeToggle'
 import ConfirmLiveModal from './components/ConfirmLiveModal'
 import SystemStatusBar from './components/SystemStatusBar'
+import ErrorBoundary from './components/ErrorBoundary'
 import { fetchTradingMode, updateTradingMode, fetchAccountStatus, fetchIntelligenceRegime, fetchLeadAgentReasoning } from './api'
 
 const navItems = [
@@ -234,9 +235,9 @@ export default function App() {
           }`}
         >
           <Routes>
-            <Route path="/" element={<DashboardPage />} />
-            <Route path="/trade-desk" element={<TradeDeskPage />} />
-            <Route path="/performance" element={<PerformancePage />} />
+            <Route path="/" element={<ErrorBoundary><DashboardPage /></ErrorBoundary>} />
+            <Route path="/trade-desk" element={<ErrorBoundary><TradeDeskPage /></ErrorBoundary>} />
+            <Route path="/performance" element={<ErrorBoundary><PerformancePage /></ErrorBoundary>} />
           </Routes>
         </main>
       </div>
