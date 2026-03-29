@@ -127,3 +127,8 @@ export const fetchLeadAgentReasoning = (limit = 3) => request(`/intelligence/rea
 
 // ── Health ─────────────────────────────────────────────────────
 export const fetchHealth = () => request('/health');
+
+// ── Diagnostics ────────────────────────────────────────────────
+export const fetchDiagnosticsHealth = () => request('/diagnostics/health');
+export const fetchDiagnosticsDbCounts = () => request('/diagnostics/db-counts');
+export const fetchLlmUsage = () => request('/diagnostics/llm-usage');

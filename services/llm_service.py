@@ -9,7 +9,7 @@ returns an empty-actions dict — the Lead Agent falls back to rule-based logic.
 """
 import json
 import re
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, date, timezone, timedelta
 from typing import Optional
 
 import anthropic
@@ -27,6 +27,8 @@ class LLMService:
     structured decision dict.
     """
 
+    MAX_DAILY_COST = 1.00  # Hard cap: $1/day
+
     def __init__(self):
         self._enabled = bool(settings.anthropic_api_key)
         if self._enabled:
@@ -42,6 +44,11 @@ class LLMService:
                 "[LLM] No ANTHROPIC_API_KEY configured — "
                 "Lead Agent will fall back to rule-based decisions"
             )
+        # Daily usage tracking (resets at UTC midnight)
+        self._daily_input_tokens: int = 0
+        self._daily_output_tokens: int = 0
+        self._daily_cost: float = 0.0
+        self._cost_reset_date: date = datetime.utcnow().date()
 
     @property
     def is_enabled(self) -> bool:
@@ -77,6 +84,19 @@ class LLMService:
                 "summary": "Rule-based mode (no ANTHROPIC_API_KEY)",
             }
 
+        # Daily spending cap
+        self._reset_daily_if_needed()
+        if self._daily_cost >= self.MAX_DAILY_COST:
+            logger.warning(
+                f"[LLM] Daily cost cap ${self.MAX_DAILY_COST:.2f} reached "
+                f"(${self._daily_cost:.3f} spent today). Falling back to rules."
+            )
+            return {
+                "reasoning": f"Daily LLM cost limit (${self.MAX_DAILY_COST:.2f}) reached — rule-based mode for rest of day.",
+                "actions": [],
+                "summary": f"Cost limit reached (${self._daily_cost:.3f} / ${self.MAX_DAILY_COST:.2f})",
+            }
+
         try:
             now_et = datetime.now(timezone(timedelta(hours=-4)))
             user_message = (
@@ -103,6 +123,7 @@ class LLMService:
                     messages=messages,
                 )
 
+                self._track_usage(response.usage.input_tokens, response.usage.output_tokens)
                 total_input_tokens += response.usage.input_tokens
                 total_output_tokens += response.usage.output_tokens
 
@@ -145,7 +166,8 @@ class LLMService:
                     logger.info(
                         f"[LLM] Cycle complete — "
                         f"{total_input_tokens} in / {total_output_tokens} out tokens "
-                        f"(~${(total_input_tokens * 3 + total_output_tokens * 15) / 1_000_000:.4f})"
+                        f"| Daily: {self._daily_input_tokens} in / {self._daily_output_tokens} out "
+                        f"| Est. cost today: ${self._daily_cost:.4f}"
                     )
                     return self._parse_decision(final_text)
 
@@ -170,6 +192,32 @@ class LLMService:
                 "actions": [],
                 "summary": "LLM error — rule-based fallback active",
             }
+
+    def _reset_daily_if_needed(self) -> None:
+        today = datetime.utcnow().date()
+        if today != self._cost_reset_date:
+            self._daily_input_tokens = 0
+            self._daily_output_tokens = 0
+            self._daily_cost = 0.0
+            self._cost_reset_date = today
+
+    def _track_usage(self, input_tokens: int, output_tokens: int) -> None:
+        self._reset_daily_if_needed()
+        self._daily_input_tokens += input_tokens
+        self._daily_output_tokens += output_tokens
+        # claude-sonnet-4-6: $3/M input, $15/M output
+        self._daily_cost += (input_tokens / 1_000_000) * 3.0 + (output_tokens / 1_000_000) * 15.0
+
+    def get_usage_stats(self) -> dict:
+        self._reset_daily_if_needed()
+        return {
+            "enabled": self._enabled,
+            "daily_input_tokens": self._daily_input_tokens,
+            "daily_output_tokens": self._daily_output_tokens,
+            "daily_cost_usd": round(self._daily_cost, 4),
+            "daily_cost_limit_usd": self.MAX_DAILY_COST,
+            "reset_date": self._cost_reset_date.isoformat(),
+        }
 
     def _parse_decision(self, text: str) -> dict:
         """

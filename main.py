@@ -8,9 +8,26 @@ Strategy regime detection refreshes each cycle. Discord notifications fire on tr
 """
 import asyncio
 import argparse
+from datetime import datetime, timezone, timedelta
 
 from loguru import logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+
+def _is_market_hours() -> bool:
+    """True if US equities markets are currently open (ET, weekdays 9:30–16:00)."""
+    now = datetime.now(timezone(timedelta(hours=-4)))  # ET (approx; ignores DST edge)
+    if now.weekday() >= 5:
+        return False
+    t = now.hour * 60 + now.minute
+    return 570 <= t <= 960  # 9:30 = 570, 16:00 = 960
+
+
+def _is_key_cycle_time() -> bool:
+    """Full LLM analysis runs at 3 key times: open (9:35), midday (12:30), near-close (15:45)."""
+    now = datetime.now(timezone(timedelta(hours=-4)))
+    t = now.hour * 60 + now.minute
+    return any(abs(t - target) < 8 for target in [575, 750, 945])
 
 from agents import (
     CoveredCallWorker,
@@ -163,8 +180,24 @@ async def main(mode: str = "paper"):
     # ── Scheduled Execution Loop ──────────────────────────────────
     scheduler = AsyncIOScheduler()
 
-    # Lead Agent: runs every N minutes (default 15)
-    scheduler.add_job(lead.run_cycle, "interval", minutes=settings.scan_interval_minutes)
+    # Lead Agent: market-hours gated wrapper
+    # Full LLM cycle: 3x/day at key times (open, midday, near-close)
+    # Market hours non-key: rule-based position management only (no LLM)
+    # Off-hours: portfolio sync only (no LLM, no trading)
+    async def lead_cycle_wrapper():
+        if not _is_market_hours():
+            try:
+                await lead.portfolio.sync_from_broker(lead.broker)
+                logger.debug("[Scheduler] Off-hours sync complete.")
+            except Exception as e:
+                logger.debug(f"[Scheduler] Off-hours sync skipped: {e}")
+            return
+        if _is_key_cycle_time():
+            await lead.run_cycle()
+        else:
+            await lead._rule_based_cycle()
+
+    scheduler.add_job(lead_cycle_wrapper, "interval", minutes=settings.scan_interval_minutes)
 
     # Scanner + Regime: runs 2x daily at market open (9:35 ET) and midday (12:30 ET)
     scheduler.add_job(

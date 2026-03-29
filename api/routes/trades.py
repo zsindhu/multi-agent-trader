@@ -1,10 +1,13 @@
 """
-Trades Routes — Trade history, journal entries, performance metrics.
+Trades Routes — Trade history, journal entries, performance metrics, CSV exports.
 """
+import csv
+import io
 from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Request, Query
+from fastapi.responses import StreamingResponse
 
 from api.state import AppState
 from services.logger_service import PerformanceLogger
@@ -143,6 +146,51 @@ async def get_symbol_stats(request: Request, symbol: str):
         return {}
 
     return await state.trade_journal.get_symbol_stats(symbol.upper())
+
+
+@router.get("/export")
+async def export_trades_csv():
+    """Download all trades as CSV."""
+    from sqlalchemy import select
+    from core.database import AsyncSessionLocal
+    from models.trade import Trade
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(select(Trade).order_by(Trade.created_at.desc()).limit(10000))
+        rows = result.scalars().all()
+    output = io.StringIO()
+    cols = [c.name for c in Trade.__table__.columns]
+    writer = csv.writer(output)
+    writer.writerow(cols)
+    for r in rows:
+        writer.writerow([getattr(r, c, '') for c in cols])
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=trades.csv"},
+    )
+
+
+@router.get("/journal/export")
+async def export_journal_csv(request: Request):
+    """Download full trade journal as CSV."""
+    from models.journal_entry import JournalEntry
+    state = _get_state(request)
+    entries = []
+    if state.trade_journal:
+        entries = await state.trade_journal.get_full_journal(limit=10000)
+    output = io.StringIO()
+    cols = [c.name for c in JournalEntry.__table__.columns]
+    writer = csv.writer(output)
+    writer.writerow(cols)
+    for e in entries:
+        writer.writerow([getattr(e, c, '') for c in cols])
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=trade_journal.csv"},
+    )
 
 
 @router.get("/debug/counts")

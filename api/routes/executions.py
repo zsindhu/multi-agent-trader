@@ -4,8 +4,11 @@ Executions Routes — Auto-trade execution history with full reasoning.
 Every trade executed autonomously by the agents is logged here with a
 plain-English rationale explaining why it was taken.
 """
+import csv
+import io
 from typing import Optional
 from fastapi import APIRouter, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select, desc
 
 from core.database import AsyncSessionLocal
@@ -53,6 +56,28 @@ async def get_latest_executions(limit: int = 10):
         )
         logs = list(result.scalars().all())
     return [_log_to_dict(e) for e in logs]
+
+
+@router.get("/export")
+async def export_executions_csv():
+    """Download all execution logs as CSV."""
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(ExecutionLog).order_by(desc(ExecutionLog.created_at)).limit(10000)
+        )
+        logs = result.scalars().all()
+    output = io.StringIO()
+    cols = [c.name for c in ExecutionLog.__table__.columns]
+    writer = csv.writer(output)
+    writer.writerow(cols)
+    for log in logs:
+        writer.writerow([getattr(log, c, '') for c in cols])
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=execution_logs.csv"},
+    )
 
 
 @router.get("")
