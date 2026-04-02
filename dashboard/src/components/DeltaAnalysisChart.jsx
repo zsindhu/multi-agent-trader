@@ -17,7 +17,7 @@ const CustomTooltip = ({ active, payload, label }) => {
 }
 
 function DeltaAnalysisChart({ data }) {
-  if (!data || data.length === 0) {
+  if (!data || !Array.isArray(data) || data.length === 0) {
     return (
       <p className="text-xs text-slate-600 italic py-4 text-center">
         Need at least 10 closed trades for delta analysis.

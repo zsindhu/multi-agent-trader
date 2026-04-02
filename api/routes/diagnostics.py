@@ -31,7 +31,7 @@ async def get_system_health(request: Request):
 
     # Alpaca broker
     try:
-        checks["alpaca"] = "ok" if (state.broker and state.broker._client) else "not_configured"
+        checks["alpaca"] = "ok" if (state.broker and hasattr(state.broker, 'trading') and state.broker.trading) else "not_configured"
     except Exception as e:
         checks["alpaca"] = f"error: {e}"
 

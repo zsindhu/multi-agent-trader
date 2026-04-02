@@ -19,7 +19,7 @@ function SymbolScorecard({ data }) {
   const [sortKey, setSortKey] = useState('total_pnl')
   const [sortDir, setSortDir] = useState('desc')
 
-  if (!data || data.length === 0) {
+  if (!data || !Array.isArray(data) || data.length === 0) {
     return (
       <p className="text-xs text-slate-600 italic py-4 text-center">
         No closed trades recorded yet.

@@ -28,7 +28,7 @@ const CustomTooltip = ({ active, payload, label }) => {
 }
 
 function RegimeCorrelationChart({ data }) {
-  if (!data || data.length === 0) {
+  if (!data || !Array.isArray(data) || data.length === 0) {
     return (
       <p className="text-xs text-slate-600 italic py-4 text-center">
         Not enough trade data yet for regime analysis.

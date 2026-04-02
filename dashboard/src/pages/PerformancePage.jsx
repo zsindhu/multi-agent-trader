@@ -80,10 +80,10 @@ export default function PerformancePage() {
       fetchIntelligenceDeltaAnalysis().catch(() => null),
       fetchIntelligenceSymbolScorecard().catch(() => null),
     ]).then(([recs, regime, delta, symbols]) => {
-      setRecommendations(recs || [])
-      setRegimeCorr(regime)
-      setDeltaData(delta)
-      setSymbolData(symbols)
+      setRecommendations(Array.isArray(recs) ? recs : [])
+      setRegimeCorr(Array.isArray(regime) ? regime : null)
+      setDeltaData(Array.isArray(delta) ? delta : null)
+      setSymbolData(Array.isArray(symbols) ? symbols : null)
     }).finally(() => setInsightsLoading(false))
   }, [tab])
 

@@ -91,7 +91,7 @@ async def get_delta_analysis(request: Request):
     """Win rate by delta bucket — identifies optimal delta range."""
     state = _get_state(request)
     if not state.performance_service:
-        return {}
+        return []
     return await state.performance_service.get_delta_analysis()
 
 
@@ -100,7 +100,7 @@ async def get_regime_correlation(request: Request):
     """Win rate correlated with market regime at trade entry."""
     state = _get_state(request)
     if not state.performance_service:
-        return {}
+        return []
     return await state.performance_service.get_regime_correlation()
 
 
@@ -109,7 +109,7 @@ async def get_symbol_scorecard(request: Request):
     """Per-symbol track record sorted by total P&L."""
     state = _get_state(request)
     if not state.performance_service:
-        return {}
+        return []
     return await state.performance_service.get_symbol_scorecard()
 
 
