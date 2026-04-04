@@ -349,3 +349,132 @@ The Portfolio page now fetches both `fetchPortfolioSummary()` and `fetchPortfoli
 **API additions** (`dashboard/src/api.js`): Added `fetchIntelligenceStrategyBreakdown`, `fetchIntelligenceDeltaAnalysis`, `fetchIntelligenceRegimeCorrelation`, `fetchIntelligenceSymbolScorecard`, `fetchIntelligenceRegimeHistory`. No new backend endpoints were needed — all are served by the existing `api/routes/intelligence.py`.
 
 **Consequences:** Operators see regime, VIX, breadth, and last cycle time without navigating anywhere. The "System Assessment" card makes Claude's reasoning visible in plain English on the main screen. Active positions show safety at a glance via the health bar. The Performance Insights tab turns raw performance data into actionable analysis. Every intelligence section degrades gracefully when Phase A/B services aren't configured.
+
+---
+
+## ADR-019: Order Reconciliation Service
+
+**Status:** Accepted
+**Date:** 2026-04
+
+**Context:** All 21 trades opened by the system showed `status="submitted"` in the database indefinitely. The system never checked whether orders actually filled, at what price, or whether Alpaca rejected them. The LLM was making position management decisions based on stale "submitted" state rather than confirmed fills.
+
+**Decision:** Added `services/order_reconciler.py` — an `OrderReconciler` service that runs at the **start** of every Lead Agent cycle, before portfolio sync and before any LLM calls.
+
+Behavior:
+1. Queries `trades` table for all records where `status="submitted"`
+2. Calls `broker.get_order(order_id)` for each to fetch real Alpaca status
+3. Updates the record: `status` (filled/rejected/cancelled), `price` (fill price), and appends fill details to `notes`
+4. Logs warnings on rejections with the reject reason
+5. Returns a summary dict `{reconciled, filled, rejected, pending, errors}`
+
+Also detects **position disappearances** via `detect_position_changes()`: compares the set of option symbols in the current portfolio against the previous cycle. Positions that vanished are inferred as expired (if expiry date has passed) or closed externally. Expirations are logged to the trade journal as `expired_worthless`.
+
+Two new methods added to `AlpacaBroker`:
+- `get_order(order_id)` — fetches a single order by ID with fill details, reject reason, and timestamps
+- `close_option_position(option_symbol)` — calls Alpaca's `close_position` endpoint to submit a market-order close
+
+**Wiring:** `OrderReconciler` initialized in `main.py` and injected into `LeadAgent`. `run_cycle()` calls `reconciler.reconcile()` before `portfolio.sync_from_broker()`.
+
+**Consequences:** The LLM always sees confirmed fill status before making decisions. Rejected orders are surfaced immediately rather than silently persisting as "submitted" forever. Expiration detection closes the journal loop for positions that expire worthless between cycles.
+
+---
+
+## ADR-020: LLM-First Position Management with Emergency Safe Mode
+
+**Status:** Accepted
+**Date:** 2026-04
+
+**Context:** Workers had hardcoded `manage_positions()` methods with fixed profit targets (50% for CSP, 80% for CC). These rules preempted the LLM — Claude might decide to let a 55%-profit position run because the regime was favorable, but the worker would close it anyway. "Take profit at 50%" is the wrong rule in many contexts.
+
+**Decision:** The LLM manages all positions. Hardcoded rules are removed from the primary code path and replaced with an emergency-only safe mode.
+
+**LLM path (normal operation):** Claude receives all open positions via `get_open_positions` with P&L, DTE, distance from break-even, and regime context. It decides for each position: hold, close, or roll. Its JSON action block is executed by `_execute_action()` which routes to the appropriate worker's `close_position()` or `roll_position()` method.
+
+**Safe mode (`_safe_mode_cycle()`):** Activates only when the LLM is unavailable (credits depleted, API error, or `is_enabled=False`). Two conditions only:
+1. DTE ≤ 2 AND position appears ITM → close to avoid assignment
+2. P&L < -300% of premium → circuit breaker close
+
+Safe mode **never opens new positions**. It logs its reasoning to `execution_logs` so operators can see it activated and why.
+
+**Fallback chain in `run_cycle()`:**
+1. Reconcile orders
+2. Sync portfolio
+3. Detect position changes
+4. Try LLM → on success, execute actions
+5. On LLM exception or credits depleted → safe mode
+6. On no API key configured → original rule-based cycle
+
+**Consequences:** Claude drives position management with full context. The 50%/80% profit rules are emergency parameters only. Safe mode prevents runaway losses and assignment risk when the LLM is offline, without pretending to make intelligent decisions.
+
+---
+
+## ADR-021: Comprehensive Trade Journal — Entry Context, Exit Tracking, and Worker Execution Logging
+
+**Status:** Accepted
+**Date:** 2026-04
+
+**Context:** The trade journal had three critical gaps:
+1. **Zero exits logged** — 21 trades opened, zero exit records. `log_exit()` existed but workers weren't calling it consistently, and when called, it didn't compute P&L or return % automatically.
+2. **Missing entry context** — VIX level, 20MA distance, 50MA distance, scanner score, and sector were all NULL in every journal entry. Workers weren't passing this data to `log_entry()`.
+3. **Workers not logging to execution_log** — all 548 execution log entries were from "Lead-Agent". The Activity Feed showed only Claude's thinking, not actual trade opens and closes.
+
+**Decision:**
+
+**`log_exit()` overhaul** (`agents/trade_journal.py`): Added `exit_price` parameter. When provided, computes:
+- `realized_pnl = (entry_price - exit_price) * qty * 100` (for short options)
+- `return_pct = realized_pnl / (strike * 100 * qty) * 100` (return as % of collateral)
+- `days_held` — computed from `entry_at` when not provided
+- Special case: `exit_reason="expired_worthless"` → full premium is profit
+
+**Entry context enrichment** (all three workers): Before calling `trade_journal.log_entry()`, workers now gather:
+- `vix_level` — from `strategy_manager.get_regime_summary()["vix_level"]`
+- `scanner_composite_score`, `distance_from_20ma`, `distance_from_50ma` — from `scanner.get_opportunity_by_symbol(symbol)` (new method on `ScannerAgent`, DB-backed with in-memory cache)
+
+`strategy_manager` and `scanner` added as optional constructor params on all three workers. `main.py` passes them.
+
+**Worker execution logging on close**: `_close_position()` in all three workers now writes to `ExecutionLog` with `action="close_profit"` or `"close_stop_loss"`, the close price, exit stock price, exit IV rank, and a P&L rationale string.
+
+**Exit context on close**: `_close_position()` fetches current stock price and IV rank at exit time and passes them to `log_exit()` alongside `exit_price`.
+
+**Consequences:** The journal now captures a complete picture: entry conditions (what the market looked like when we entered) and exit conditions (what changed). Workers appear in the Activity Feed for every trade action. Return % is computed against collateral (correct denominator for options premium selling), not against premium received.
+
+---
+
+## ADR-022: Evolving Knowledge Base — Strategy Playbook and Strategy Insights
+
+**Status:** Accepted
+**Date:** 2026-04
+
+**Context:** The LLM starts fresh every cycle. It has no memory of what it discovered in previous cycles beyond raw trade data it must re-query. If it notices "GDX puts lose money in high VIX" on Monday, it must rediscover that Tuesday by re-querying the same journal entries. There was no mechanism for the system to accumulate and act on its own learnings over time.
+
+**Decision:** Two-layer persistent knowledge system, both queryable by the LLM via tools.
+
+**Layer A: Strategy Playbook** (`models/playbook_entry.py`, table `playbook_entries`):
+- Qualitative, narrative entries written by the LLM itself during cycles
+- Fields: `category` (lesson_learned / parameter_adjustment / symbol_note / regime_observation / strategy_rule / market_insight), `content` (plain English), `source`, `confidence` (0–1), `validated` (confirmed by data), `trades_supporting`, `active`
+- The LLM reads the full playbook at the start of every cycle via `get_playbook` tool
+- The LLM writes new entries via `add_playbook_entry` tool when it discovers patterns
+
+**Layer B: Strategy Insights** (`models/strategy_insight.py`, table `strategy_insights`):
+- Structured, enforceable rules extracted from playbook + trade data
+- Fields: `insight_type`, `rule` (human-readable), `parameters` (JSON), `confidence`, `supporting_trades`, `contradicting_trades`, `win_rate_with`, `win_rate_without`
+- Intended to be populated and validated by the Performance Analyst (weekly run)
+- Higher authority than playbook — validated by actual trade outcomes
+
+**Three new LLM tools** added to `LeadAgent._build_tools()` and `_execute_tool()`:
+- `get_playbook(category?, limit?)` — returns active entries, newest first
+- `add_playbook_entry(category, content, confidence?)` — creates new entry with `source="lead_agent"`
+- `get_strategy_insights(insight_type?, min_confidence?)` — returns validated rules above confidence threshold
+
+**System prompt update**: Instructs Claude to call `get_playbook()` then `get_strategy_insights()` as its first two tool calls every cycle, before checking regime or positions. When closing a losing trade, always add a playbook entry. When discovering a pattern, add it with supporting data.
+
+**Migration:** `alembic/versions/b1c2d3e4f5a6_add_knowledge_base_tables.py` — adds both tables with appropriate indexes.
+
+**Learning flywheel:**
+1. LLM writes observations to playbook during trading
+2. Performance Analyst (weekly) validates observations against trade journal
+3. Validated observations become `strategy_insights` with enforcement confidence
+4. LLM reads both every cycle — each cycle builds on accumulated knowledge
+
+**Consequences:** The system accumulates institutional memory across cycles. Early cycles start with an empty playbook; by week 2 the LLM is reading its own prior observations about symbols, regimes, and parameter choices. The Performance Analyst's validation step prevents confirmation bias — insights must be supported by trade data to gain confidence.

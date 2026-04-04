@@ -737,6 +737,48 @@ class ScannerAgent(BaseAgent):
                 for r in rows
             ]
 
+    async def get_opportunity_by_symbol(self, symbol: str) -> Optional[dict]:
+        """
+        Return the most recent ScannerOpportunity record for a specific symbol.
+
+        Used by workers to enrich trade entries with scanner context (score,
+        MA distances, etc.) at the time of execution.
+
+        Returns:
+            Opportunity dict or None if not found.
+        """
+        # Check in-memory cache first
+        if self._latest_opportunities:
+            for opp in self._latest_opportunities:
+                if opp.get("symbol") == symbol:
+                    return opp
+
+        # Fall back to DB
+        async with AsyncSessionLocal() as session:
+            stmt = (
+                select(ScannerOpportunity)
+                .where(ScannerOpportunity.symbol == symbol)
+                .order_by(desc(ScannerOpportunity.scanned_at))
+                .limit(1)
+            )
+            result = await session.execute(stmt)
+            row = result.scalar_one_or_none()
+            if not row:
+                return None
+            return {
+                "symbol": row.symbol,
+                "asset_type": row.asset_type,
+                "iv_rank": row.iv_rank,
+                "momentum_30d": row.momentum_30d,
+                "distance_from_20ma": row.distance_from_20ma,
+                "distance_from_50ma": row.distance_from_50ma,
+                "options_liquidity_score": row.options_liquidity_score,
+                "near_support": row.near_support,
+                "composite_score": row.composite_score,
+                "avg_daily_volume": row.avg_daily_volume,
+                "scanned_at": row.scanned_at.isoformat() if row.scanned_at else None,
+            }
+
     def get_asset_type(self, symbol: str) -> str:
         """Get asset type (stock/etf) for a symbol."""
         return self._asset_type_map.get(symbol, "stock")

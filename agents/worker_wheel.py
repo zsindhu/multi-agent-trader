@@ -23,9 +23,9 @@ from agents.base_agent import BaseAgent
 from core.broker import Broker
 from core.database import AsyncSessionLocal
 from models.execution_log import ExecutionLog
-from core.database import AsyncSessionLocal
 from core.portfolio import Portfolio
 from core.risk_manager import RiskManager
+from core.strategy import StrategyManager
 from data.market_feed import MarketFeed
 from data.options_chain import OptionsChainAnalyzer
 from models.wheel_state import WheelStateRecord
@@ -64,6 +64,8 @@ class WheelWorker(BaseAgent):
         options_chain: Optional[OptionsChainAnalyzer] = None,
         perf_logger: Optional[PerformanceLogger] = None,
         trade_journal: Optional[TradeJournalAgent] = None,
+        strategy_manager: Optional[StrategyManager] = None,
+        scanner=None,
     ):
         super().__init__(name="Wheel", agent_type="wheel")
         self.broker = broker
@@ -73,6 +75,8 @@ class WheelWorker(BaseAgent):
         self.options_chain = options_chain
         self.perf_logger = perf_logger
         self.trade_journal = trade_journal
+        self.strategy_manager = strategy_manager
+        self.scanner = scanner
 
         # Strategy parameters
         self.params = _load_strategy_params()
@@ -483,6 +487,28 @@ class WheelWorker(BaseAgent):
                               f"delta={trade['delta']:.2f}, DTE={trade['dte']}",
                     )
 
+                # Gather additional entry context
+                vix_level = None
+                if self.strategy_manager:
+                    try:
+                        regime = self.strategy_manager.get_regime_summary()
+                        vix_level = regime.get("vix_level")
+                    except Exception:
+                        pass
+
+                scanner_score = None
+                distance_from_20ma = None
+                distance_from_50ma = None
+                if self.scanner:
+                    try:
+                        opp_data = await self.scanner.get_opportunity_by_symbol(trade["symbol"])
+                        if opp_data:
+                            scanner_score = opp_data.get("composite_score")
+                            distance_from_20ma = opp_data.get("distance_from_20ma")
+                            distance_from_50ma = opp_data.get("distance_from_50ma")
+                    except Exception:
+                        pass
+
                 # Log to trade journal
                 if self.trade_journal:
                     await self.trade_journal.log_entry(
@@ -498,6 +524,10 @@ class WheelWorker(BaseAgent):
                         premium=trade["limit_price"],
                         iv_rank=trade.get("iv_rank"),
                         stock_price=trade.get("current_price"),
+                        vix_level=vix_level,
+                        distance_from_20ma=distance_from_20ma,
+                        distance_from_50ma=distance_from_50ma,
+                        scanner_composite_score=scanner_score,
                         delta_at_entry=trade.get("delta"),
                         dte_at_entry=trade.get("dte"),
                         annualized_return_at_entry=trade.get("annualized_return"),
@@ -702,7 +732,17 @@ class WheelWorker(BaseAgent):
                 f"P&L: ${realized_pnl:.2f}"
             )
 
-            # Log
+            # Gather exit context
+            iv_rank_exit = None
+            stock_price_exit = None
+            if self.market_feed:
+                try:
+                    iv_rank_exit = await self.market_feed.get_iv_rank(pos.symbol)
+                    stock_price_exit = await self.market_feed.get_current_price(pos.symbol)
+                except Exception:
+                    pass
+
+            # Log to performance logger
             if self.perf_logger:
                 await self.perf_logger.log_trade(
                     agent_name=self.name,
@@ -719,17 +759,38 @@ class WheelWorker(BaseAgent):
                     notes=f"Wheel close: {reason}. {note}",
                 )
 
+            # Log exit to journal with full context
             if self.trade_journal:
-                iv_rank = await self.market_feed.get_iv_rank(pos.symbol) if self.market_feed else None
-                stock_price = await self.market_feed.get_current_price(pos.symbol) if self.market_feed else None
-
                 await self.trade_journal.log_exit(
                     option_symbol=pos.option_symbol,
-                    exit_stock_price=stock_price,
-                    exit_iv_rank=iv_rank,
+                    exit_price=buy_price,
+                    exit_stock_price=stock_price_exit,
+                    exit_iv_rank=iv_rank_exit,
                     exit_reason=reason,
-                    realized_pnl=realized_pnl,
                 )
+
+            # Log to execution_log
+            try:
+                action_label = "close_profit" if realized_pnl >= 0 else "close_stop_loss"
+                async with AsyncSessionLocal() as db:
+                    db.add(ExecutionLog(
+                        agent_name=self.name,
+                        symbol=pos.symbol,
+                        option_symbol=pos.option_symbol,
+                        action=action_label,
+                        contract_type=pos.contract_type,
+                        strike=pos.strike,
+                        expiration=pos.expiration,
+                        premium=buy_price,
+                        stock_price_at_entry=stock_price_exit,
+                        iv_rank_at_entry=iv_rank_exit,
+                        order_id=order.get("order_id"),
+                        order_status="submitted",
+                        rationale=f"Wheel close: {reason}. P&L: ${realized_pnl:.2f}. {note}",
+                    ))
+                    await db.commit()
+            except Exception as log_err:
+                logger.warning(f"[{self.name}] Failed to write close execution log: {log_err}")
 
             return {
                 "action": "close",

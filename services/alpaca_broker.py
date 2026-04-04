@@ -529,6 +529,55 @@ class AlpacaBroker(Broker):
             logger.error(f"Failed to fetch tradable assets: {e}")
             raise
 
+    async def get_order(self, order_id: str) -> dict:
+        """
+        Fetch a single order by ID and return its current status and fill details.
+
+        Returns:
+            Dict with id, symbol, status, side, qty, filled_avg_price, filled_at,
+            submitted_at, reject_reason, order_type, limit_price
+        """
+        await self._rate_limiter.acquire()
+        try:
+            order = self.trading.get_order_by_id(order_id)
+            return {
+                "id": str(order.id),
+                "symbol": order.symbol,
+                "status": str(order.status).split(".")[-1].lower(),
+                "side": str(order.side).split(".")[-1].lower(),
+                "qty": int(order.qty) if order.qty else 0,
+                "filled_qty": int(order.filled_qty) if order.filled_qty else 0,
+                "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
+                "filled_at": str(order.filled_at) if order.filled_at else None,
+                "submitted_at": str(order.submitted_at) if order.submitted_at else None,
+                "reject_reason": str(order.reject_reason) if order.reject_reason else None,
+                "order_type": str(order.type).split(".")[-1].lower(),
+                "limit_price": float(order.limit_price) if order.limit_price else None,
+            }
+        except Exception as e:
+            logger.error(f"Failed to fetch order {order_id}: {e}")
+            raise
+
+    async def close_option_position(self, option_symbol: str) -> dict:
+        """
+        Close an open option position by submitting a market order via the close_position endpoint.
+
+        Returns:
+            Dict with order_id, status, filled_avg_price
+        """
+        await self._rate_limiter.acquire()
+        try:
+            order = self.trading.close_position(option_symbol)
+            logger.info(f"[AlpacaBroker] Closed position {option_symbol} — Order {order.id}")
+            return {
+                "order_id": str(order.id),
+                "status": str(order.status).split(".")[-1].lower(),
+                "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
+            }
+        except Exception as e:
+            logger.error(f"Failed to close position {option_symbol}: {e}")
+            raise
+
     # ── Batch Historical Bars ─────────────────────────────────────────
 
     async def get_historical_bars_batch(

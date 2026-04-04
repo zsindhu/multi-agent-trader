@@ -45,6 +45,7 @@ from services.earnings_calendar import EarningsCalendarService
 from services.performance_analyst import PerformanceAnalystService
 from services.news_feed import NewsFeedService
 from services.llm_service import LLMService
+from services.order_reconciler import OrderReconciler
 from core.broker import Broker
 from core.risk_manager import RiskManager
 from core.portfolio import Portfolio
@@ -106,6 +107,13 @@ async def main(mode: str = "paper"):
     news_service = NewsFeedService()
     llm_service = LLMService()
 
+    # ── Order Reconciler (runs before every LLM cycle) ────────────
+    order_reconciler = OrderReconciler(
+        broker=broker,
+        trade_journal=trade_journal,
+        portfolio=portfolio,
+    )
+
     # ── Worker Agents (fully injected) ────────────────────────────
     worker_cc = CoveredCallWorker(
         broker=broker,
@@ -115,6 +123,8 @@ async def main(mode: str = "paper"):
         options_chain=options_chain,
         perf_logger=perf_logger,
         trade_journal=trade_journal,
+        strategy_manager=strategy_manager,
+        scanner=scanner,
     )
 
     worker_csp = CashSecuredPutWorker(
@@ -125,6 +135,8 @@ async def main(mode: str = "paper"):
         options_chain=options_chain,
         perf_logger=perf_logger,
         trade_journal=trade_journal,
+        strategy_manager=strategy_manager,
+        scanner=scanner,
     )
 
     worker_wheel = WheelWorker(
@@ -135,6 +147,8 @@ async def main(mode: str = "paper"):
         options_chain=options_chain,
         perf_logger=perf_logger,
         trade_journal=trade_journal,
+        strategy_manager=strategy_manager,
+        scanner=scanner,
     )
 
     # ── Lead Agent (orchestrator) — receives Scanner, Strategy, Notifier ──
@@ -155,6 +169,8 @@ async def main(mode: str = "paper"):
         performance_service=performance_service,
         news_service=news_service,
         trade_journal=trade_journal,
+        # Phase C — Order reconciliation
+        order_reconciler=order_reconciler,
     )
 
     # ── Sync portfolio state from broker ──────────────────────────

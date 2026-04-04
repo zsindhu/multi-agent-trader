@@ -48,6 +48,7 @@ if TYPE_CHECKING:
     from services.earnings_calendar import EarningsCalendarService
     from services.performance_analyst import PerformanceAnalystService
     from services.news_feed import NewsFeedService
+    from services.order_reconciler import OrderReconciler
 
 
 def _load_fallback_watchlist() -> list[str]:
@@ -89,6 +90,8 @@ class LeadAgent:
         performance_service: Optional["PerformanceAnalystService"] = None,
         news_service: Optional["NewsFeedService"] = None,
         trade_journal: Optional["TradeJournalAgent"] = None,
+        # Phase C — Order reconciliation
+        order_reconciler: Optional["OrderReconciler"] = None,
     ):
         self.workers = {w.name: w for w in workers}
         self.risk_manager = risk_manager
@@ -108,6 +111,9 @@ class LeadAgent:
         self.news_service = news_service
         self.trade_journal = trade_journal
 
+        # Phase C — Order reconciler
+        self.order_reconciler = order_reconciler
+
         # Fallback watchlist (used only when scanner hasn't produced results)
         self._fallback_watchlist = _load_fallback_watchlist()
 
@@ -119,17 +125,37 @@ class LeadAgent:
         """
         Execute one full orchestration cycle.
 
-        Uses Claude (via LLMService) when an API key is configured.
-        Falls back to rule-based logic otherwise.
+        Order:
+        1. Reconcile submitted orders (update fills/rejections)
+        2. Sync portfolio from broker (now reflects real state)
+        3. LLM path: full Claude analysis with playbook + knowledge base
+        4. Safe mode fallback: only closes extreme positions if LLM unavailable
+        5. Rule-based fallback: only when no LLM key configured at all
         """
         logger.info("[Lead] ═══════════════════════════════════════════")
         logger.info("[Lead] Starting orchestration cycle...")
 
-        # Always sync portfolio first
+        # Step 1: Reconcile orders FIRST — LLM needs actual fill status
+        if self.order_reconciler:
+            try:
+                reconcile_summary = await self.order_reconciler.reconcile()
+                logger.info(f"[Lead] Reconciler: {reconcile_summary}")
+            except Exception as e:
+                logger.warning(f"[Lead] Order reconciliation failed: {e}")
+
+        # Step 2: Sync portfolio from broker (now reflects filled orders)
         if self.portfolio and self.broker:
             await self.portfolio.sync_from_broker(self.broker)
 
-        # LLM path
+        # Step 3: Detect position changes (expirations, assignments)
+        if self.order_reconciler and self.portfolio:
+            try:
+                current_syms = {opt.option_symbol for opt in self.portfolio.options}
+                await self.order_reconciler.detect_position_changes(current_syms)
+            except Exception as e:
+                logger.warning(f"[Lead] Position change detection failed: {e}")
+
+        # Step 4: LLM path
         if self.llm_service and self.llm_service.is_enabled:
             portfolio_summary = {
                 "equity": self.portfolio.equity if self.portfolio else 0,
@@ -138,27 +164,120 @@ class LeadAgent:
                 "open_positions": len(self.portfolio.options) if self.portfolio else 0,
                 "trading_mode": settings.trading_mode,
             }
-            decision = await self.llm_service.get_cycle_decision(
-                tools=self._build_tools(),
-                tool_executor=self._execute_tool,
-                portfolio_summary=portfolio_summary,
-                system_prompt=self._build_system_prompt(),
-            )
-            logger.info(f"[Lead] LLM decision: {decision['summary']}")
-            logger.info(f"[Lead] LLM actions: {len(decision['actions'])}")
-            await self._store_cycle_reasoning(decision)
-            for action in decision["actions"]:
-                try:
-                    await self._execute_action(action)
-                except Exception as e:
-                    logger.error(f"[Lead] Action failed: {action} — {e}")
-            await self._evaluate_worker_performance()
-            logger.info("[Lead] ═══════════════════════════════════════════")
-            return {}
+            try:
+                decision = await self.llm_service.get_cycle_decision(
+                    tools=self._build_tools(),
+                    tool_executor=self._execute_tool,
+                    portfolio_summary=portfolio_summary,
+                    system_prompt=self._build_system_prompt(),
+                )
+                logger.info(f"[Lead] LLM decision: {decision['summary']}")
+                logger.info(f"[Lead] LLM actions: {len(decision['actions'])}")
+                await self._store_cycle_reasoning(decision)
+                for action in decision["actions"]:
+                    try:
+                        await self._execute_action(action)
+                    except Exception as e:
+                        logger.error(f"[Lead] Action failed: {action} — {e}")
+                await self._evaluate_worker_performance()
+                logger.info("[Lead] ═══════════════════════════════════════════")
+                return {}
+            except Exception as e:
+                logger.error(f"[Lead] LLM cycle failed: {e} — falling back to safe mode")
+                return await self._safe_mode_cycle()
 
-        # Rule-based path
+        # LLM key configured but service returned is_enabled=False → safe mode
+        if self.llm_service and not self.llm_service.is_enabled:
+            logger.warning("[Lead] LLM credits depleted — entering safe mode")
+            return await self._safe_mode_cycle()
+
+        # Step 5: No LLM key at all → rule-based
         logger.info("[Lead] No LLM configured — using rule-based decisions")
         return await self._rule_based_cycle()
+
+    async def _safe_mode_cycle(self):
+        """
+        Emergency fallback — ONLY runs when LLM is unavailable.
+
+        Extremely conservative: only acts on 2 truly extreme situations.
+        NEVER opens new positions.
+        """
+        logger.warning("[Lead] SAFE MODE — LLM unavailable, minimal position management only")
+
+        if not self.portfolio:
+            return {}
+
+        actions_taken = []
+
+        for opt in list(self.portfolio.options):
+            try:
+                dte = self._calculate_dte(opt.expiration)
+                is_itm = self._is_itm(opt)
+
+                # Condition 1: Expiring within 2 days AND in-the-money → close to avoid assignment
+                if dte is not None and dte <= 2 and is_itm:
+                    worker = self._find_worker_for_position(opt.option_symbol)
+                    if worker:
+                        result = await worker.close_position(
+                            opt.option_symbol,
+                            reason="Safe mode: expiring ITM in 2 days",
+                        )
+                        actions_taken.append(result)
+                        logger.warning(
+                            f"[Lead] Safe mode close: {opt.option_symbol} "
+                            f"(DTE={dte}, ITM)"
+                        )
+                    continue
+
+                # Condition 2: Lost more than 300% of premium → circuit breaker
+                if opt.pnl_pct is not None and opt.pnl_pct < -3.0:
+                    worker = self._find_worker_for_position(opt.option_symbol)
+                    if worker:
+                        result = await worker.close_position(
+                            opt.option_symbol,
+                            reason="Safe mode: catastrophic loss circuit breaker (>300%)",
+                        )
+                        actions_taken.append(result)
+                        logger.warning(
+                            f"[Lead] Safe mode close: {opt.option_symbol} "
+                            f"(P&L {opt.pnl_pct:.0%})"
+                        )
+
+            except Exception as e:
+                logger.error(f"[Lead] Safe mode error for {opt.option_symbol}: {e}")
+
+        await self._store_cycle_reasoning({
+            "reasoning": (
+                "LLM unavailable — safe mode active. Only closing positions at extreme risk "
+                "(expiring ITM within 2 days or catastrophic >300% loss). "
+                "No new trades. Add Anthropic API credits to restore full intelligence."
+            ),
+            "actions": actions_taken,
+            "summary": f"SAFE MODE: LLM credits depleted. {len(actions_taken)} emergency closes.",
+        })
+        return {"safe_mode": True, "actions": actions_taken}
+
+    def _calculate_dte(self, expiration: str) -> Optional[int]:
+        """Calculate days to expiration from date string."""
+        try:
+            exp_date = datetime.strptime(expiration, "%Y-%m-%d")
+            return (exp_date - datetime.now()).days
+        except (ValueError, TypeError):
+            return None
+
+    def _is_itm(self, opt) -> bool:
+        """
+        Return True if the option appears to be in-the-money.
+        For short puts: stock price < strike.
+        For short calls: stock price > strike.
+        """
+        if not self.portfolio or opt.current_price is None:
+            return False
+        # Use P&L as a proxy: if position has lost significant value it's likely ITM
+        # (exact price requires a market feed call — keep safe mode lightweight)
+        if opt.pnl_pct is not None and opt.pnl_pct < -0.5:
+            return True
+        return False
 
     async def _rule_based_cycle(self):
         """Original rule-based orchestration cycle (fallback when no LLM key)."""
@@ -290,12 +409,29 @@ You have access to market regime data, scanner opportunities, open positions, pe
 - NEVER exceed {max_pct}% of equity in a single position
 - Paper trading mode — this is real-time simulation with real market data
 
+## Knowledge Base
+
+You have access to two knowledge tools that persist across cycles:
+
+1. **Strategy Playbook** (get_playbook): Your institutional memory. READ THIS EVERY CYCLE before making decisions. It contains lessons from past trades, regime observations, symbol-specific notes, and parameter adjustments. Past you wrote these entries to help future you make better decisions.
+
+2. **Add to Playbook** (add_playbook_entry): When you discover something important — a pattern in the data, a lesson from a losing trade, an observation about a symbol or regime — WRITE IT DOWN. Be specific. Include numbers and trade references. Future cycles will read this.
+
+3. **Strategy Insights** (get_strategy_insights): Validated rules confirmed by trade data. These have higher authority than the playbook — if an insight says "max 2 positions per symbol" with 0.9 confidence, follow it.
+
+Your first two tool calls every cycle should be get_playbook() followed by get_strategy_insights(). Learn from the past before acting on the present.
+
+When you close a losing trade, ALWAYS add a playbook entry explaining what went wrong and what to do differently. When you discover a pattern (e.g., "ETF puts outperform single-stock puts by 15%"), add it with the supporting data.
+
+The playbook is how this system gets smarter over time. Every insight you write makes the next cycle's decisions better.
+
 ## Decision Framework
-1. First: Check the market regime. In risk-off or crisis, be very conservative or sit out entirely.
-2. Second: Review open positions. Manage what you have before opening anything new.
-3. Third: Check performance insights. Are we doing well? What's working? What isn't?
-4. Fourth: Only then consider new positions from the Scanner results.
-5. Fifth: Check earnings before any new position.
+1. First: Read the playbook and strategy insights (get_playbook + get_strategy_insights).
+2. Second: Check the market regime. In risk-off or crisis, be very conservative or sit out entirely.
+3. Third: Review open positions. Manage what you have before opening anything new.
+4. Fourth: Check performance insights. Are we doing well? What's working? What isn't?
+5. Fifth: Only then consider new positions from the Scanner results.
+6. Sixth: Check earnings before any new position.
 
 ## Position Management Rules
 - If a position has captured > 70% of max premium: close it (take profit)
@@ -492,6 +628,89 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
                     "required": ["symbol"],
                 },
             },
+            {
+                "name": "get_playbook",
+                "description": (
+                    "Get the strategy playbook — accumulated lessons, observations, and rules "
+                    "from past trading. Read this at the start of every cycle to benefit from "
+                    "what we've learned. Contains qualitative insights about symbols, regimes, "
+                    "parameters, and strategy performance."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "category": {
+                            "type": "string",
+                            "description": (
+                                "Optional filter: lesson_learned, parameter_adjustment, "
+                                "symbol_note, regime_observation, strategy_rule, market_insight"
+                            ),
+                        },
+                        "limit": {"type": "integer", "default": 20},
+                    },
+                    "required": [],
+                },
+            },
+            {
+                "name": "add_playbook_entry",
+                "description": (
+                    "Add a new insight to the strategy playbook. Use this when you discover "
+                    "a pattern, learn something from a trade outcome, or want to record a "
+                    "decision for future reference. Be specific and include the data that "
+                    "supports the insight."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "category": {
+                            "type": "string",
+                            "enum": [
+                                "lesson_learned",
+                                "parameter_adjustment",
+                                "symbol_note",
+                                "regime_observation",
+                                "strategy_rule",
+                                "market_insight",
+                            ],
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": (
+                                "The insight in plain English. Be specific: include numbers, "
+                                "dates, and trade references."
+                            ),
+                        },
+                        "confidence": {
+                            "type": "number",
+                            "description": (
+                                "How confident are you? 0.0-1.0. "
+                                "Use 0.5 for preliminary observations, 0.8+ for patterns "
+                                "confirmed by multiple trades."
+                            ),
+                        },
+                    },
+                    "required": ["category", "content"],
+                },
+            },
+            {
+                "name": "get_strategy_insights",
+                "description": (
+                    "Get validated strategy rules that constrain trading decisions. "
+                    "These are structured rules derived from the playbook and confirmed by "
+                    "trade data. Higher confidence = more trades supporting the rule."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "insight_type": {
+                            "type": "string",
+                            "description": "Optional filter by type",
+                        },
+                        "min_confidence": {"type": "number", "default": 0.6},
+                    },
+                    "required": [],
+                },
+            },
         ]
 
     async def _execute_tool(self, tool_name: str, tool_input: dict) -> dict:
@@ -566,6 +785,80 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
             if self.trade_journal:
                 return await self.trade_journal.get_symbol_stats(symbol)
             return {"error": "Trade journal not available"}
+
+        if tool_name == "get_playbook":
+            from models.playbook_entry import PlaybookEntry
+            from sqlalchemy import select as sa_select
+            category = tool_input.get("category")
+            limit = tool_input.get("limit", 20)
+            async with AsyncSessionLocal() as session:
+                query = sa_select(PlaybookEntry).where(PlaybookEntry.active == True)
+                if category:
+                    query = query.where(PlaybookEntry.category == category)
+                query = query.order_by(PlaybookEntry.created_at.desc()).limit(limit)
+                result = await session.execute(query)
+                entries = result.scalars().all()
+                return {
+                    "entries": [
+                        {
+                            "id": e.id,
+                            "category": e.category,
+                            "content": e.content,
+                            "confidence": e.confidence,
+                            "validated": e.validated,
+                            "created_at": e.created_at.isoformat() if e.created_at else None,
+                        }
+                        for e in entries
+                    ],
+                    "total": len(entries),
+                }
+
+        if tool_name == "add_playbook_entry":
+            from models.playbook_entry import PlaybookEntry
+            async with AsyncSessionLocal() as session:
+                entry = PlaybookEntry(
+                    category=tool_input["category"],
+                    content=tool_input["content"],
+                    source="lead_agent",
+                    confidence=tool_input.get("confidence", 0.5),
+                )
+                session.add(entry)
+                await session.commit()
+                await session.refresh(entry)
+                logger.info(
+                    f"[Lead] Playbook entry added: [{entry.category}] {entry.content[:80]}"
+                )
+                return {"status": "added", "id": entry.id}
+
+        if tool_name == "get_strategy_insights":
+            from models.strategy_insight import StrategyInsight
+            from sqlalchemy import select as sa_select
+            insight_type = tool_input.get("insight_type")
+            min_conf = tool_input.get("min_confidence", 0.6)
+            async with AsyncSessionLocal() as session:
+                query = (
+                    sa_select(StrategyInsight)
+                    .where(StrategyInsight.active == True)
+                    .where(StrategyInsight.confidence >= min_conf)
+                )
+                if insight_type:
+                    query = query.where(StrategyInsight.insight_type == insight_type)
+                query = query.order_by(StrategyInsight.confidence.desc())
+                result = await session.execute(query)
+                insights = result.scalars().all()
+                return {
+                    "insights": [
+                        {
+                            "type": i.insight_type,
+                            "rule": i.rule,
+                            "confidence": i.confidence,
+                            "supporting_trades": i.supporting_trades,
+                            "win_rate_with": i.win_rate_with,
+                            "win_rate_without": i.win_rate_without,
+                        }
+                        for i in insights
+                    ]
+                }
 
         return {"error": f"Unknown tool: {tool_name}"}
 

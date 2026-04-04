@@ -132,6 +132,7 @@ class TradeJournalAgent(BaseAgent):
     async def log_exit(
         self,
         option_symbol: str,
+        exit_price: Optional[float] = None,
         exit_stock_price: Optional[float] = None,
         exit_iv_rank: Optional[float] = None,
         exit_reason: Optional[str] = None,
@@ -140,15 +141,17 @@ class TradeJournalAgent(BaseAgent):
     ) -> Optional[JournalEntry]:
         """
         Log a trade exit and compute performance metrics.
-        
+
         Args:
             option_symbol: Option symbol to close
+            exit_price: The option price at exit (used to compute realized_pnl when not provided)
             exit_stock_price: Stock price at exit
             exit_iv_rank: IV rank at exit
-            exit_reason: "profit_target", "stop_loss", "expired", "assigned", "rolled"
-            realized_pnl: Realized profit/loss
-            days_held: Number of days position was held
-        
+            exit_reason: "profit_target", "stop_loss", "expired", "assigned", "rolled",
+                         "expired_worthless", "safe_mode", etc.
+            realized_pnl: Pre-computed realized P&L (if provided, overrides calculation)
+            days_held: Override for days held (computed from entry_at when not provided)
+
         Returns:
             Updated JournalEntry or None if entry not found
         """
@@ -158,37 +161,59 @@ class TradeJournalAgent(BaseAgent):
                 JournalEntry.option_symbol == option_symbol,
                 JournalEntry.exit_at.is_(None)
             ).order_by(JournalEntry.entry_at.desc())
-            
+
             result = await session.execute(stmt)
             entry = result.scalar_one_or_none()
-            
+
             if not entry:
                 logger.warning(f"[Trade Journal] No open entry found for {option_symbol}")
                 return None
-            
+
+            now = datetime.utcnow()
+
+            # Compute realized_pnl from exit_price when not explicitly provided
+            # For short options: profit = (entry_price - exit_price) * qty * 100
+            if realized_pnl is None and exit_price is not None and entry.fill_price is not None:
+                qty = abs(entry.quantity) if entry.quantity else 1
+                realized_pnl = (entry.fill_price - exit_price) * qty * 100
+
+            # Expired worthless → full premium is profit
+            if realized_pnl is None and exit_reason in ("expired_worthless",):
+                qty = abs(entry.quantity) if entry.quantity else 1
+                realized_pnl = (entry.fill_price or 0) * qty * 100
+
+            # Compute days_held from entry_at when not provided
+            if days_held is None and entry.entry_at:
+                days_held = (now - entry.entry_at).days
+
+            # Compute return_pct as % of collateral (strike * 100 * qty)
+            return_pct = None
+            qty = abs(entry.quantity) if entry.quantity else 1
+            if realized_pnl is not None and entry.strike and entry.strike > 0:
+                collateral = entry.strike * 100 * qty
+                return_pct = (realized_pnl / collateral) * 100 if collateral else None
+
             # Update exit fields
             entry.exit_stock_price = exit_stock_price
             entry.exit_iv_rank = exit_iv_rank
             entry.exit_reason = exit_reason
             entry.realized_pnl = realized_pnl
             entry.days_held = days_held
-            entry.exit_at = datetime.utcnow()
-            
-            # Calculate return %
-            if entry.premium and entry.premium > 0:
-                entry.return_pct = (realized_pnl / entry.premium) * 100 if realized_pnl else None
-            
+            entry.return_pct = return_pct
+            entry.exit_at = now
+
             await session.commit()
             await session.refresh(entry)
-            
+
             # Remove from pending
             self._pending_entries.pop(option_symbol, None)
-            
+
+            pnl_str = f"${realized_pnl:.2f}" if realized_pnl is not None else "unknown"
             logger.info(
-                f"[Trade Journal] Exit logged: {option_symbol} - "
-                f"P&L: ${realized_pnl:.2f}, Reason: {exit_reason}"
+                f"[Trade Journal] Exit logged: {option_symbol} — "
+                f"P&L: {pnl_str}, Reason: {exit_reason}"
             )
-            
+
             return entry
     
     # ── Aggregated Views ─────────────────────────────────────────────────
