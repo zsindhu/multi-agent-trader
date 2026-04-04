@@ -24,6 +24,7 @@ from services.earnings_calendar import EarningsCalendarService
 from services.performance_analyst import PerformanceAnalystService
 from services.news_feed import NewsFeedService
 from services.llm_service import LLMService
+from services.order_reconciler import OrderReconciler
 from agents.scanner import ScannerAgent
 from agents.trade_journal import TradeJournalAgent
 from agents.lead_agent import LeadAgent
@@ -59,6 +60,7 @@ class AppState:
         self.performance_service: Optional[PerformanceAnalystService] = None
         self.news_service: Optional[NewsFeedService] = None
         self.llm_service: Optional[LLMService] = None
+        self.order_reconciler: Optional[OrderReconciler] = None
 
     async def initialize(self):
         """Create and wire all services."""
@@ -95,6 +97,8 @@ class AppState:
             risk_manager=self.risk_manager,
             perf_logger=self.perf_logger,
             trade_journal=self.trade_journal,
+            strategy_manager=self.strategy_manager,
+            scanner=self.scanner,
         )
         csp_worker = CashSecuredPutWorker(
             broker=self.broker,
@@ -104,6 +108,8 @@ class AppState:
             risk_manager=self.risk_manager,
             perf_logger=self.perf_logger,
             trade_journal=self.trade_journal,
+            strategy_manager=self.strategy_manager,
+            scanner=self.scanner,
         )
         wheel_worker = WheelWorker(
             broker=self.broker,
@@ -113,6 +119,8 @@ class AppState:
             risk_manager=self.risk_manager,
             perf_logger=self.perf_logger,
             trade_journal=self.trade_journal,
+            strategy_manager=self.strategy_manager,
+            scanner=self.scanner,
         )
         # ── Intelligence services ────────────────────────────────────────
         self.regime_service = MarketRegimeService(
@@ -124,6 +132,12 @@ class AppState:
         self.performance_service = PerformanceAnalystService()
         self.news_service = NewsFeedService()
         self.llm_service = LLMService()
+
+        self.order_reconciler = OrderReconciler(
+            broker=self.broker,
+            trade_journal=self.trade_journal,
+            portfolio=self.portfolio,
+        )
 
         self.lead_agent = LeadAgent(
             workers=[cc_worker, csp_worker, wheel_worker],
@@ -142,6 +156,7 @@ class AppState:
             performance_service=self.performance_service,
             news_service=self.news_service,
             trade_journal=self.trade_journal,
+            order_reconciler=self.order_reconciler,
         )
 
         # Sync portfolio
