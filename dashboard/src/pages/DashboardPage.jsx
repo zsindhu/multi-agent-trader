@@ -19,7 +19,7 @@ import {
   fetchTradeHistory, fetchLatestExecutions,
   fetchIntelligenceRegime, fetchIntelligenceEarnings,
   fetchIntelligenceRecommendations, fetchIntelligenceNews,
-  fetchLeadAgentReasoning,
+  fetchLeadAgentReasoning, fetchEquityHistory,
 } from '../api'
 
 const fmt = (n) =>
@@ -52,6 +52,7 @@ export default function DashboardPage() {
   const [execLogs, setExecLogs] = useState([])
   const [intelligence, setIntelligence] = useState({})
   const [reasoning, setReasoning] = useState([])
+  const [equityHistory, setEquityHistory] = useState([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [equityRange, setEquityRange] = useState('1M')
@@ -77,6 +78,12 @@ export default function DashboardPage() {
       setExecLogs(executions || [])
       setIntelligence({ regime, earnings: earnings || [], recommendations: recs || [], news: news || [] })
       setReasoning(llmReasoning || [])
+
+      // Fetch equity history (range-dependent)
+      try {
+        const hist = await fetchEquityHistory(equityRange)
+        setEquityHistory(Array.isArray(hist) ? hist : [])
+      } catch { /* non-critical */ }
 
       // Fetch per-agent metrics
       const metrics = {}
@@ -105,6 +112,9 @@ export default function DashboardPage() {
     return () => { clearInterval(interval); clearInterval(activityInterval) }
   }, [])
   useEffect(() => {
+    fetchEquityHistory(equityRange).then(h => setEquityHistory(Array.isArray(h) ? h : [])).catch(() => {})
+  }, [equityRange])
+  useEffect(() => {
     const handler = () => { setLoading(true); load() }
     window.addEventListener('trading-mode-changed', handler)
     return () => window.removeEventListener('trading-mode-changed', handler)
@@ -131,9 +141,10 @@ export default function DashboardPage() {
 
   const isEmpty = options.length === 0 && trades.length === 0
 
-  // Build equity curve from trade history
-  const equityData = buildEquityData(trades, summary?.equity || 0)
-  const filteredEquity = filterEquityRange(equityData, equityRange)
+  // Prefer server-side equity snapshots; fall back to trade-history synthesis
+  const filteredEquity = equityHistory.length > 1
+    ? equityHistory
+    : filterEquityRange(buildEquityData(trades, summary?.equity || 0), equityRange)
 
   return (
     <div className="space-y-6">

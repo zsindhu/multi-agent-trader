@@ -135,6 +135,13 @@ class LeadAgent:
         logger.info("[Lead] ═══════════════════════════════════════════")
         logger.info("[Lead] Starting orchestration cycle...")
 
+        # Sync worker active state from DB before any decisions
+        for worker in self.workers.values():
+            try:
+                await worker.refresh_active_state()
+            except Exception:
+                pass
+
         # Step 1: Reconcile orders FIRST — LLM needs actual fill status
         if self.order_reconciler:
             try:
@@ -438,6 +445,8 @@ The playbook is how this system gets smarter over time. Every insight you write 
 - If a position is ITM with < 5 DTE: roll it or close it
 - If a position is > 50% underwater: evaluate whether to hold, roll, or close based on context
 - If the overall portfolio drawdown exceeds 5%: close the worst performer and pause new entries
+
+CRITICAL: Do NOT wrap your entire response in a code fence (triple backticks). The JSON action block at the end should be in its own ```json fence, but the surrounding analysis text must be plain markdown.
 
 ## Output Format
 End your response with a JSON action block containing your specific instructions:
@@ -923,14 +932,14 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
         if action_type == "pause_worker":
             worker_name = action.get("worker", "")
             if worker_name in self.workers:
-                self.workers[worker_name].is_active = False
+                await self.workers[worker_name].set_is_active(False, reason)
                 logger.info(f"[Lead] Paused {worker_name}: {reason}")
             return
 
         if action_type == "resume_worker":
             worker_name = action.get("worker", "")
             if worker_name in self.workers:
-                self.workers[worker_name].is_active = True
+                await self.workers[worker_name].set_is_active(True)
                 logger.info(f"[Lead] Resumed {worker_name}: {reason}")
             return
 
@@ -986,6 +995,14 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
                 return self.workers.get(opt.assigned_to)
         return None
 
+    @staticmethod
+    def _strip_code_fences(text: str) -> str:
+        """Remove surrounding triple-backtick code fences that Claude occasionally wraps responses in."""
+        import re
+        stripped = re.sub(r'^```[a-zA-Z]*\n', '', text.lstrip())
+        stripped = re.sub(r'\n```\s*$', '', stripped.rstrip())
+        return stripped.strip()
+
     async def _store_cycle_reasoning(self, decision: dict):
         """Persist the LLM's reasoning to the execution_log table for the dashboard."""
         try:
@@ -994,7 +1011,7 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
                     agent_name="Lead-Agent",
                     symbol="PORTFOLIO",
                     action="cycle_decision",
-                    rationale=decision["reasoning"][:2000],
+                    rationale=self._strip_code_fences(decision["reasoning"])[:8000],
                     order_status=decision["summary"][:200],
                 )
                 session.add(log)

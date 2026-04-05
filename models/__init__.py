@@ -24,6 +24,8 @@ from .performance_insight import PerformanceInsight
 from .news_headline import NewsHeadline
 from .playbook_entry import PlaybookEntry
 from .strategy_insight import StrategyInsight
+from .worker_state import WorkerState
+from .equity_snapshot import EquitySnapshot
 
 __all__ = [
     "Base",
@@ -41,4 +43,6 @@ __all__ = [
     "NewsHeadline",
     "PlaybookEntry",
     "StrategyInsight",
+    "WorkerState",
+    "EquitySnapshot",
 ]

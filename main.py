@@ -55,6 +55,22 @@ from data.options_chain import OptionsChainAnalyzer
 from config.settings import settings
 
 
+async def _write_equity_snapshot(portfolio: "Portfolio"):
+    """Persist current portfolio equity to the equity_snapshots table."""
+    from core.database import AsyncSessionLocal
+    from models.equity_snapshot import EquitySnapshot
+    try:
+        async with AsyncSessionLocal() as session:
+            session.add(EquitySnapshot(
+                equity=portfolio.equity,
+                cash=portfolio.cash,
+                buying_power=portfolio.buying_power,
+            ))
+            await session.commit()
+    except Exception as e:
+        logger.warning(f"[Main] Equity snapshot write failed: {e}")
+
+
 async def run_scanner_cycle(scanner: ScannerAgent, regime_service: "MarketRegimeService" = None):
     """Run a full Scanner cycle: scan → evaluate → persist to DB. Then refresh regime."""
     try:
@@ -210,6 +226,7 @@ async def main(mode: str = "paper"):
             return
         if _is_key_cycle_time():
             await lead.run_cycle()
+            await _write_equity_snapshot(lead.portfolio)
         else:
             await lead._rule_based_cycle()
 
@@ -289,6 +306,7 @@ async def main(mode: str = "paper"):
     # Run first orchestration cycle immediately
     try:
         await lead.run_cycle()
+        await _write_equity_snapshot(portfolio)
     except Exception as e:
         logger.error(f"Initial cycle failed: {e}")
 

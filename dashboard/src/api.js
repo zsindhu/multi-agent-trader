@@ -124,6 +124,7 @@ export const fetchIntelligenceRegimeCorrelation = () => request('/intelligence/p
 export const fetchIntelligenceSymbolScorecard = () => request('/intelligence/performance/symbols');
 export const fetchIntelligenceNews = (n = 10) => request(`/intelligence/news/market?n=${n}`);
 export const fetchLeadAgentReasoning = (limit = 3) => request(`/intelligence/reasoning?limit=${limit}`);
+export const fetchEquityHistory = (range = '1M') => request(`/portfolio/equity-history?range=${range}`);
 
 // ── Health ─────────────────────────────────────────────────────
 export const fetchHealth = () => request('/health');

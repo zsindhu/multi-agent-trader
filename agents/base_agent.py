@@ -36,6 +36,49 @@ class BaseAgent(ABC):
         """Monitor and manage open positions."""
         pass
 
+    async def get_is_active(self) -> bool:
+        """Read is_active from DB; fall back to in-memory."""
+        from core.database import AsyncSessionLocal
+        from models.worker_state import WorkerState
+        from sqlalchemy import select
+        try:
+            async with AsyncSessionLocal() as session:
+                result = await session.execute(
+                    select(WorkerState).where(WorkerState.worker_name == self.name)
+                )
+                row = result.scalar_one_or_none()
+                if row is not None:
+                    self.is_active = row.is_active
+                    return self.is_active
+        except Exception:
+            pass
+        return self.is_active
+
+    async def set_is_active(self, value: bool, reason: str = None):
+        """Persist is_active to DB and update in-memory."""
+        from core.database import AsyncSessionLocal
+        from models.worker_state import WorkerState
+        from sqlalchemy import select
+        self.is_active = value
+        try:
+            async with AsyncSessionLocal() as session:
+                result = await session.execute(
+                    select(WorkerState).where(WorkerState.worker_name == self.name)
+                )
+                row = result.scalar_one_or_none()
+                if row:
+                    row.is_active = value
+                    row.paused_reason = reason
+                else:
+                    session.add(WorkerState(worker_name=self.name, is_active=value, paused_reason=reason))
+                await session.commit()
+        except Exception as e:
+            logger.warning(f"[{self.name}] Failed to persist is_active: {e}")
+
+    async def refresh_active_state(self):
+        """Sync in-memory is_active from DB."""
+        await self.get_is_active()
+
     async def close_position(self, option_symbol: str, reason: str = "") -> Optional[dict]:
         """Close a specific open position by option symbol. Workers override this."""
         return None

@@ -23,6 +23,16 @@ if TYPE_CHECKING:
     from core.strategy import StrategyManager
 
 
+_SP500_SAMPLE = [
+    "AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "BRK.B", "LLY", "AVGO", "JPM",
+    "UNH", "XOM", "V", "TSLA", "PG", "MA", "COST", "JNJ", "HD", "MRK",
+    "CVX", "ABBV", "BAC", "KO", "WMT", "PEP", "ADBE", "CRM", "ACN", "MCD",
+    "TMO", "CSCO", "LIN", "DHR", "NKE", "TXN", "ABT", "NEE", "PM", "WFC",
+    "RTX", "AMGN", "ORCL", "INTC", "QCOM", "IBM", "HON", "CAT", "GS", "SPGI",
+]
+
+_BREADTH_CACHE_TTL = timedelta(minutes=15)
+
 SECTOR_ETFS = {
     "XLK": "Technology",
     "XLF": "Financials",
@@ -53,6 +63,7 @@ class MarketRegimeService:
         self.broker = broker
         self.scanner = scanner
         self.strategy_manager = strategy_manager
+        self._breadth_cache: Optional[tuple] = None  # (pct, trend, computed_at)
 
     # ── Public API ──────────────────────────────────────────────────
 
@@ -202,37 +213,38 @@ class MarketRegimeService:
 
     async def _get_breadth(self) -> tuple[float, str]:
         """
-        Compute % of scanner universe above 50MA.
-        Uses ScannerOpportunity.distance_from_50ma when available (faster),
-        otherwise re-fetches bars.
+        Compute % of a fixed 50-symbol S&P 500 sample above their 50-day SMA.
+        Results are cached for 15 minutes to avoid redundant API calls.
         """
-        # Try to use cached scanner data from DB
-        try:
-            from sqlalchemy import func
-            from models.opportunity import ScannerOpportunity
+        now = datetime.utcnow()
+        if self._breadth_cache and (now - self._breadth_cache[2]) < _BREADTH_CACHE_TTL:
+            return self._breadth_cache[0], self._breadth_cache[1]
 
-            async with AsyncSessionLocal() as session:
-                # Get latest opportunities (last 12 hours)
-                cutoff = datetime.utcnow() - timedelta(hours=12)
-                result = await session.execute(
-                    select(ScannerOpportunity)
-                    .where(ScannerOpportunity.created_at >= cutoff)
-                )
-                opps = list(result.scalars().all())
+        if not self.broker:
+            return 50.0, "stable"
 
-            if opps:
-                valid_opps = [o for o in opps if o.distance_from_50ma is not None]
-                if not valid_opps:
-                    return 50.0, "stable"
-                above_50ma = sum(1 for o in valid_opps if o.distance_from_50ma >= 0)
-                breadth_pct = (above_50ma / len(valid_opps)) * 100
-                trend = self._breadth_trend(breadth_pct)
-                logger.debug(f"[Regime] Breadth from scanner: {breadth_pct:.0f}% ({len(opps)} symbols)")
-                return round(breadth_pct, 1), trend
-        except Exception as e:
-            logger.debug(f"[Regime] Scanner breadth failed: {e}")
+        above = 0
+        total = 0
+        for symbol in _SP500_SAMPLE:
+            try:
+                bars = await self.broker.get_historical_bars(symbol, timeframe="1Day", days_back=60)
+                if bars and len(bars) >= 50:
+                    closes = [b["close"] for b in bars]
+                    sma50 = sum(closes[-50:]) / 50
+                    if closes[-1] >= sma50:
+                        above += 1
+                    total += 1
+            except Exception:
+                continue
 
-        return 50.0, "stable"
+        if total == 0:
+            return 50.0, "stable"
+
+        pct = round((above / total) * 100, 1)
+        trend = self._breadth_trend(pct)
+        self._breadth_cache = (pct, trend, now)
+        logger.debug(f"[Regime] Breadth from S&P500 universe: {pct:.0f}% ({above}/{total} symbols above 50MA)")
+        return pct, trend
 
     def _breadth_trend(self, pct: float) -> str:
         if pct > 60:

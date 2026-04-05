@@ -1,6 +1,7 @@
 """
 Portfolio Routes — Account overview, positions, options.
 """
+from datetime import datetime
 from fastapi import APIRouter, Request
 from loguru import logger
 
@@ -85,6 +86,37 @@ async def get_summary(request: Request):
         "last_updated": snapshot.get("last_updated", ""),
         **hist,
     }
+
+
+@router.get("/equity-history")
+async def get_equity_history(request: Request, range: str = "1M"):
+    """Historical equity snapshots for dashboard charting."""
+    from sqlalchemy import select
+    from core.database import AsyncSessionLocal
+    from models.equity_snapshot import EquitySnapshot
+    from datetime import timedelta
+
+    days = {"1W": 7, "1M": 30, "3M": 90, "6M": 180, "1Y": 365}.get(range, 30)
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    try:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(EquitySnapshot)
+                .where(EquitySnapshot.recorded_at >= cutoff)
+                .order_by(EquitySnapshot.recorded_at)
+            )
+            rows = list(result.scalars().all())
+        return [
+            {
+                "date": r.recorded_at.strftime("%-m/%-d"),
+                "equity": round(r.equity),
+                "recorded_at": r.recorded_at.isoformat(),
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        logger.warning(f"[EquityHistory] Query failed: {e}")
+        return []
 
 
 @router.post("/refresh")

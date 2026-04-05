@@ -35,14 +35,44 @@ async def get_agent_status(request: Request):
             "high_water_mark": state.risk_manager.high_water_mark,
         }
 
+    # Read worker active state from DB so both containers share truth
+    workers_list = []
+    try:
+        from sqlalchemy import select
+        from core.database import AsyncSessionLocal
+        from models.worker_state import WorkerState
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(select(WorkerState).order_by(WorkerState.id))
+            rows = list(result.scalars().all())
+        if rows:
+            _type_map = {
+                "Covered-Calls": "Covered Calls",
+                "Cash-Secured-Puts": "Cash Secured Puts",
+                "Wheel": "The Wheel",
+            }
+            workers_list = [
+                {
+                    "name": r.worker_name,
+                    "type": _type_map.get(r.worker_name, r.worker_name),
+                    "is_active": r.is_active,
+                    "paused_reason": r.paused_reason,
+                }
+                for r in rows
+            ]
+    except Exception:
+        pass
+
+    if not workers_list:
+        workers_list = [
+            {"name": "Covered-Calls", "type": "Covered Calls", "is_active": True, "paused_reason": None},
+            {"name": "Cash-Secured-Puts", "type": "Cash Secured Puts", "is_active": True, "paused_reason": None},
+            {"name": "Wheel", "type": "The Wheel", "is_active": True, "paused_reason": None},
+        ]
+
     return {
         "regime": regime,
         "risk": risk,
-        "workers": [
-            {"name": "Covered-Calls", "type": "Covered Calls"},
-            {"name": "Cash-Secured-Puts", "type": "Cash Secured Puts"},
-            {"name": "Wheel", "type": "The Wheel"},
-        ],
+        "workers": workers_list,
     }
 
 
