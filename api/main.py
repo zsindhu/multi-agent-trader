@@ -74,13 +74,14 @@ app = FastAPI(
 
 
 class NoCacheAPIMiddleware(BaseHTTPMiddleware):
-    """Prevent browsers from caching any /api/ response."""
+    """Prevent browsers and proxies from caching any /api/ response."""
     async def dispatch(self, request, call_next):
         response = await call_next(request)
         if request.url.path.startswith("/api/"):
-            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
             response.headers["Pragma"] = "no-cache"
             response.headers["Expires"] = "0"
+            response.headers["Vary"] = "Accept"
         return response
 
 
