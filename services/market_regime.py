@@ -243,7 +243,7 @@ class MarketRegimeService:
         pct = round((above / total) * 100, 1)
         trend = self._breadth_trend(pct)
         self._breadth_cache = (pct, trend, now)
-        logger.debug(f"[Regime] Breadth from S&P500 universe: {pct:.0f}% ({above}/{total} symbols above 50MA)")
+        logger.info(f"[Regime] Breadth from S&P500 universe: {pct:.0f}% ({above}/{total} symbols above 50MA)")
         return pct, trend
 
     def _breadth_trend(self, pct: float) -> str:
