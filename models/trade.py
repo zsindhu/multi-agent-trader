@@ -22,5 +22,6 @@ class Trade(Base):
     status = Column(String, default="filled")
     pnl = Column(Float, nullable=True)
     notes = Column(String, nullable=True)
+    order_id = Column(String(64), nullable=True, index=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow, server_default=func.now())
     closed_at = Column(DateTime, nullable=True)

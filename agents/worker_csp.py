@@ -315,6 +315,7 @@ class CashSecuredPutWorker(BaseAgent):
                         status="submitted",
                         notes=f"CSP: delta={trade['delta']:.2f}, DTE={trade['dte']}, "
                               f"ann_ret={trade['annualized_return']:.1f}%",
+                        order_id=trade.get("order_id"),
                     )
 
                 # Gather additional entry context
@@ -568,6 +569,7 @@ class CashSecuredPutWorker(BaseAgent):
                     status="submitted",
                     pnl=realized_pnl,
                     notes=f"Close: {reason}. {note}",
+                    order_id=order.get("order_id"),
                 )
 
             # Log exit to trade journal with full context

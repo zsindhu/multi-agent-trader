@@ -316,6 +316,7 @@ class CoveredCallWorker(BaseAgent):
                         notes=f"CC: delta={trade['delta']:.2f}, DTE={trade['dte']}, "
                               f"ann_ret={trade['annualized_return']:.1f}%, "
                               f"downside_prot={trade['downside_protection']:.1f}%",
+                        order_id=trade.get("order_id"),
                     )
 
                 # Gather additional entry context
@@ -561,6 +562,7 @@ class CoveredCallWorker(BaseAgent):
                     status="submitted",
                     pnl=realized_pnl,
                     notes=f"Close: {reason}. {note}",
+                    order_id=order.get("order_id"),
                 )
 
             # Log exit to journal with full context

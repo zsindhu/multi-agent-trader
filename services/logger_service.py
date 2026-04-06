@@ -38,6 +38,7 @@ class PerformanceLogger:
         status: str = "filled",
         pnl: Optional[float] = None,
         notes: Optional[str] = None,
+        order_id: Optional[str] = None,
     ) -> Trade:
         """Record a trade execution to the database."""
         closing_types = {"buy_to_close", "assignment", "expired", "wheel_cycle_complete"}
@@ -56,6 +57,7 @@ class PerformanceLogger:
                 status=status,
                 pnl=pnl,
                 notes=notes,
+                order_id=order_id,
                 closed_at=datetime.utcnow() if trade_type in closing_types else None,
             )
             session.add(trade)

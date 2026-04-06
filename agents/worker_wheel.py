@@ -485,6 +485,7 @@ class WheelWorker(BaseAgent):
                         status="submitted",
                         notes=f"Wheel [{trade['wheel_state']}]: "
                               f"delta={trade['delta']:.2f}, DTE={trade['dte']}",
+                        order_id=trade.get("order_id"),
                     )
 
                 # Gather additional entry context
@@ -757,6 +758,7 @@ class WheelWorker(BaseAgent):
                     status="submitted",
                     pnl=realized_pnl,
                     notes=f"Wheel close: {reason}. {note}",
+                    order_id=order.get("order_id"),
                 )
 
             # Log exit to journal with full context
