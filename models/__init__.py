@@ -29,6 +29,7 @@ from .equity_snapshot import EquitySnapshot
 from .cycle_snapshot import CycleSnapshot
 from .name_observation import NameObservation
 from .agent_message import AgentMessage
+from .skill_document import SkillDocument
 
 __all__ = [
     "Base",
@@ -51,4 +52,5 @@ __all__ = [
     "CycleSnapshot",
     "NameObservation",
     "AgentMessage",
+    "SkillDocument",
 ]
