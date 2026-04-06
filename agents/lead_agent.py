@@ -223,7 +223,7 @@ class LeadAgent:
 
                 # Condition 1: Expiring within 2 days AND in-the-money → close to avoid assignment
                 if dte is not None and dte <= 2 and is_itm:
-                    worker = self._find_worker_for_position(opt.option_symbol)
+                    worker = await self._find_worker_for_position(opt.option_symbol)
                     if worker:
                         result = await worker.close_position(
                             opt.option_symbol,
@@ -238,7 +238,7 @@ class LeadAgent:
 
                 # Condition 2: Lost more than 300% of premium → circuit breaker
                 if opt.pnl_pct is not None and opt.pnl_pct < -3.0:
-                    worker = self._find_worker_for_position(opt.option_symbol)
+                    worker = await self._find_worker_for_position(opt.option_symbol)
                     if worker:
                         result = await worker.close_position(
                             opt.option_symbol,
@@ -885,7 +885,7 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
         if action_type == "close":
             option_symbol = action.get("option_symbol")
             if option_symbol:
-                worker = self._find_worker_for_position(option_symbol)
+                worker = await self._find_worker_for_position(option_symbol)
                 if worker:
                     await worker.close_position(option_symbol, reason=reason)
                 else:
@@ -895,7 +895,7 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
         if action_type == "roll":
             option_symbol = action.get("option_symbol")
             if option_symbol:
-                worker = self._find_worker_for_position(option_symbol)
+                worker = await self._find_worker_for_position(option_symbol)
                 if worker:
                     await worker.roll_position(option_symbol, reason=reason)
                 else:
@@ -986,13 +986,60 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
 
         return True
 
-    def _find_worker_for_position(self, option_symbol: str):
-        """Find which worker owns a specific open position."""
+    async def _find_worker_for_position(self, option_symbol: str):
+        """
+        Find which worker owns a specific open position.
+
+        Fast path: read opt.assigned_to from in-memory portfolio state.
+        DB fallback: query the Trade table by option_symbol — recovers after
+          container restart when in-memory assigned_to is empty.
+        Final fallback: default to Cash-Secured-Puts and write back so
+          subsequent lookups in the same cycle hit the in-memory cache.
+        """
         if not self.portfolio:
             return None
+
         for opt in self.portfolio.options:
             if opt.option_symbol == option_symbol:
-                return self.workers.get(opt.assigned_to)
+                # Fast path: in-memory assignment still intact
+                if opt.assigned_to:
+                    worker = self.workers.get(opt.assigned_to)
+                    if worker:
+                        return worker
+
+                # DB fallback: find the most recent sell trade for this symbol
+                try:
+                    from core.database import AsyncSessionLocal
+                    from models.trade import Trade
+                    from sqlalchemy import select
+                    async with AsyncSessionLocal() as session:
+                        result = await session.execute(
+                            select(Trade.agent_name)
+                            .where(Trade.option_symbol == option_symbol)
+                            .where(Trade.side == "sell")
+                            .order_by(Trade.created_at.desc())
+                            .limit(1)
+                        )
+                        agent_name = result.scalar_one_or_none()
+                    if agent_name and agent_name in self.workers:
+                        opt.assigned_to = agent_name  # write-back to in-memory cache
+                        logger.info(f"[Lead] Routed {option_symbol} → {agent_name} via DB lookup")
+                        return self.workers[agent_name]
+                except Exception as e:
+                    logger.warning(f"[Lead] DB worker lookup failed for {option_symbol}: {e}")
+
+                # Final fallback: system historically only ran CSP; default to it
+                csp = self.workers.get("Cash-Secured-Puts")
+                if csp:
+                    logger.warning(
+                        f"[Lead] No DB record for {option_symbol} — "
+                        "defaulting to Cash-Secured-Puts"
+                    )
+                    opt.assigned_to = "Cash-Secured-Puts"
+                    return csp
+
+                return None
+
         return None
 
     @staticmethod
