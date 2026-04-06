@@ -31,6 +31,7 @@ from .name_observation import NameObservation
 from .agent_message import AgentMessage
 from .skill_document import SkillDocument
 from .reasoning_embedding import ReasoningEmbedding
+from .agent_capability import AgentCapability
 
 __all__ = [
     "Base",
@@ -55,4 +56,5 @@ __all__ = [
     "AgentMessage",
     "SkillDocument",
     "ReasoningEmbedding",
+    "AgentCapability",
 ]
