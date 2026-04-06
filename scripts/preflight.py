@@ -4,7 +4,8 @@ Preflight Smoke Test — catches import errors, missing deps, and broken migrati
 in 30 seconds before you deploy.
 
 Usage:
-    python scripts/preflight.py
+    python scripts/preflight.py          # full check (local)
+    python scripts/preflight.py --ci     # CI-safe: skips modules that need broker credentials
 
 Exit codes:
     0 = all clear
@@ -12,6 +13,7 @@ Exit codes:
 """
 import sys
 import os
+import argparse
 import importlib
 import traceback
 
@@ -86,11 +88,21 @@ MODULES = [
 ]
 
 
-def check_imports():
+# Modules that instantiate broker clients or make network calls at import.
+# Skipped in --ci mode where credentials aren't available.
+CI_SKIP = {
+    "core.bootstrap",
+}
+
+
+def check_imports(ci_mode=False):
     """Import every module and report failures."""
     print("1/2  Importing all modules...")
     failed = []
     for mod in MODULES:
+        if ci_mode and mod in CI_SKIP:
+            print(f"  SKIP  {mod}  (--ci mode)")
+            continue
         try:
             importlib.import_module(mod)
             print(f"  OK  {mod}")
@@ -117,12 +129,18 @@ def check_migrations():
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Preflight smoke test")
+    parser.add_argument("--ci", action="store_true", help="CI mode: skip modules needing credentials")
+    args = parser.parse_args()
+
     print("=" * 60)
     print("Premium Trader — Preflight Smoke Test")
+    if args.ci:
+        print("  (CI mode — skipping credential-dependent modules)")
     print("=" * 60)
     print()
 
-    import_failures = check_imports()
+    import_failures = check_imports(ci_mode=args.ci)
     migration_error = check_migrations()
 
     print()
