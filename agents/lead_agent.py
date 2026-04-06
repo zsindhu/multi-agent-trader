@@ -1052,19 +1052,68 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
 
     async def _store_cycle_reasoning(self, decision: dict):
         """Persist the LLM's reasoning to the execution_log table for the dashboard."""
+        reasoning_text = self._strip_code_fences(decision.get("reasoning", ""))
+
         try:
             async with AsyncSessionLocal() as session:
                 log = ExecutionLog(
                     agent_name="Lead-Agent",
                     symbol="PORTFOLIO",
                     action="cycle_decision",
-                    rationale=self._strip_code_fences(decision["reasoning"])[:8000],
-                    order_status=decision["summary"][:200],
+                    rationale=reasoning_text[:8000],
+                    order_status=decision.get("summary", "")[:200],
                 )
                 session.add(log)
                 await session.commit()
         except Exception as e:
             logger.error(f"[Lead] Failed to store cycle reasoning: {e}")
+
+        # ── Also write to research data layer ──────────────────────
+        try:
+            from services.research_data import ResearchDataService
+            from services.embeddings import EmbeddingsService
+
+            rd = ResearchDataService()
+
+            regime_summary = {}
+            if self.strategy_manager:
+                try:
+                    regime_summary = self.strategy_manager.get_regime_summary() or {}
+                except Exception:
+                    pass
+
+            snapshot_id = await rd.write_cycle_snapshot(
+                regime=regime_summary.get("regime"),
+                vix_level=regime_summary.get("vix_level"),
+                equity=self.portfolio.equity if self.portfolio else None,
+                cash=self.portfolio.cash if self.portfolio else None,
+                buying_power=self.portfolio.buying_power if self.portfolio else None,
+                open_positions_count=len(self.portfolio.options) if self.portfolio else None,
+                actions_decided=len(decision.get("actions", [])),
+                actions_executed=decision.get("executed_count"),
+                summary=decision.get("summary", "")[:512],
+                reasoning=reasoning_text,
+                llm_tokens_in=decision.get("tokens_in"),
+                llm_tokens_out=decision.get("tokens_out"),
+                llm_cost_usd=decision.get("cost_usd"),
+                llm_model=decision.get("model"),
+                full_context={
+                    "tool_calls": decision.get("tool_calls", []),
+                    "actions": decision.get("actions", []),
+                },
+            )
+
+            # Embed the reasoning for semantic search (best-effort)
+            if snapshot_id and reasoning_text:
+                embeddings = EmbeddingsService()
+                if embeddings.is_enabled:
+                    await embeddings.embed_and_store(
+                        text=reasoning_text,
+                        source_table="cycle_snapshots",
+                        source_id=snapshot_id,
+                    )
+        except Exception as e:
+            logger.error(f"[Lead] Failed to write to research data layer: {e}")
 
     # ── REGIME-ADJUSTED PARAMETERS ────────────────────────────────
 
