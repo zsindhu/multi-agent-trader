@@ -9,7 +9,6 @@ scanning tier, and whether it traded or rejected.
 """
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 revision = 'i3j4k5l6m7n8'
 down_revision = 'h2i3j4k5l6m7'
@@ -36,7 +35,7 @@ def upgrade():
         sa.Column('was_traded', sa.Boolean(), default=False, nullable=True),
         sa.Column('rejection_reason', sa.String(256), nullable=True),
         # Full per-name analysis
-        sa.Column('analysis', postgresql.JSONB(), nullable=True),
+        sa.Column('analysis', sa.JSON(), nullable=True),
         sa.PrimaryKeyConstraint('id'),
     )
     op.create_index('ix_name_observations_timestamp', 'name_observations', ['timestamp'])

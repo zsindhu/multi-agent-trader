@@ -9,7 +9,6 @@ with structured columns for fast queries and a JSONB blob for everything else.
 """
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 revision = 'h2i3j4k5l6m7'
 down_revision = 'g1h2i3j4k5l6'
@@ -47,7 +46,7 @@ def upgrade():
         sa.Column('llm_cost_usd', sa.Float(), nullable=True),
         sa.Column('llm_model', sa.String(64), nullable=True),
         # Full context blob
-        sa.Column('full_context', postgresql.JSONB(), nullable=True),
+        sa.Column('full_context', sa.JSON(), nullable=True),
         sa.PrimaryKeyConstraint('id'),
     )
     op.create_index('ix_cycle_snapshots_timestamp', 'cycle_snapshots', ['timestamp'])

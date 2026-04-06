@@ -14,9 +14,14 @@ branch_labels = None
 depends_on = None
 
 
-def upgrade():
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+def upgrade() -> None:
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    # SQLite and other engines don't support extensions — skip silently
 
 
-def downgrade():
-    op.execute("DROP EXTENSION IF EXISTS vector")
+def downgrade() -> None:
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        op.execute("DROP EXTENSION IF EXISTS vector")

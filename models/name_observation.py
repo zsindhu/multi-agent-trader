@@ -9,7 +9,7 @@ The 'tier' field indicates which scanning tier surfaced this name:
   4 = Position management (15min, only open positions)
 """
 from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import JSON
 from sqlalchemy.sql import func
 
 from models import Base
@@ -38,4 +38,4 @@ class NameObservation(Base):
     rejection_reason = Column(String(256))
 
     # ── Full per-name analysis ─────────────────────────────────
-    analysis = Column(JSONB)
+    analysis = Column(JSON)

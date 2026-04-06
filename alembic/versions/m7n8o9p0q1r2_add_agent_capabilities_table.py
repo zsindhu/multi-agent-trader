@@ -9,7 +9,6 @@ startup; other agents query to discover available services.
 """
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 revision = 'm7n8o9p0q1r2'
 down_revision = 'l6m7n8o9p0q1'
@@ -23,11 +22,11 @@ def upgrade():
         sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
         sa.Column('agent_name', sa.String(64), nullable=False),
         sa.Column('agent_type', sa.String(64), nullable=False),
-        sa.Column('capabilities', postgresql.JSONB(), nullable=True),
+        sa.Column('capabilities', sa.JSON(), nullable=True),
         sa.Column('description', sa.Text(), nullable=True),
         sa.Column('is_active', sa.Boolean(), default=True, nullable=True),
         sa.Column('last_heartbeat', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=True),
-        sa.Column('config', postgresql.JSONB(), nullable=True),
+        sa.Column('config', sa.JSON(), nullable=True),
         sa.PrimaryKeyConstraint('id'),
         sa.UniqueConstraint('agent_name', name='uq_agent_capabilities_agent_name'),
     )

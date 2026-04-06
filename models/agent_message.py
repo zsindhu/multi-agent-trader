@@ -6,7 +6,7 @@ agents read them at their next cycle. This is the loose coupling that lets
 us add new agents without modifying existing ones.
 """
 from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import JSON
 from sqlalchemy.sql import func
 
 from models import Base
@@ -24,7 +24,7 @@ class AgentMessage(Base):
 
     subject = Column(String(256))
     body = Column(Text)
-    payload = Column(JSONB)
+    payload = Column(JSON)
 
     read_by_lead_agent = Column(Boolean, default=False, index=True)
     expires_at = Column(DateTime(timezone=True))

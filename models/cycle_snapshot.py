@@ -7,7 +7,7 @@ everything else (tool calls, tool results, full reasoning, playbook entries
 read, playbook entries written) for deep inspection and replay.
 """
 from sqlalchemy import Column, Integer, String, Float, DateTime, Text
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import JSON
 from sqlalchemy.sql import func
 
 from models import Base
@@ -48,4 +48,4 @@ class CycleSnapshot(Base):
     llm_model = Column(String(64))
 
     # ── Full context blob ──────────────────────────────────────
-    full_context = Column(JSONB)
+    full_context = Column(JSON)

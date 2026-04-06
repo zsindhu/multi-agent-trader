@@ -8,7 +8,6 @@ Inter-agent communication bus. Any agent writes, any agent reads.
 """
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 revision = 'j4k5l6m7n8o9'
 down_revision = 'i3j4k5l6m7n8'
@@ -26,7 +25,7 @@ def upgrade():
         sa.Column('message_type', sa.String(64), nullable=False),
         sa.Column('subject', sa.String(256), nullable=True),
         sa.Column('body', sa.Text(), nullable=True),
-        sa.Column('payload', postgresql.JSONB(), nullable=True),
+        sa.Column('payload', sa.JSON(), nullable=True),
         sa.Column('read_by_lead_agent', sa.Boolean(), default=False, nullable=True),
         sa.Column('expires_at', sa.DateTime(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint('id'),

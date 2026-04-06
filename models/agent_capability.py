@@ -7,7 +7,7 @@ what services are available — e.g. the Lead Agent can ask "is there a
 fundamentals analyst available right now?" before requesting a deep dive.
 """
 from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import JSON
 from sqlalchemy.sql import func
 
 from models import Base
@@ -20,10 +20,10 @@ class AgentCapability(Base):
     agent_name = Column(String(64), nullable=False, unique=True, index=True)
     agent_type = Column(String(64), nullable=False)
 
-    capabilities = Column(JSONB)
+    capabilities = Column(JSON)
     description = Column(Text)
 
     is_active = Column(Boolean, default=True)
     last_heartbeat = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
-    config = Column(JSONB)
+    config = Column(JSON)
