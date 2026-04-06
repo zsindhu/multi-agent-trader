@@ -30,6 +30,7 @@ from .cycle_snapshot import CycleSnapshot
 from .name_observation import NameObservation
 from .agent_message import AgentMessage
 from .skill_document import SkillDocument
+from .reasoning_embedding import ReasoningEmbedding
 
 __all__ = [
     "Base",
@@ -53,4 +54,5 @@ __all__ = [
     "NameObservation",
     "AgentMessage",
     "SkillDocument",
+    "ReasoningEmbedding",
 ]
