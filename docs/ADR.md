@@ -478,3 +478,18 @@ Safe mode **never opens new positions**. It logs its reasoning to `execution_log
 4. LLM reads both every cycle — each cycle builds on accumulated knowledge
 
 **Consequences:** The system accumulates institutional memory across cycles. Early cycles start with an empty playbook; by week 2 the LLM is reading its own prior observations about symbols, regimes, and parameter choices. The Performance Analyst's validation step prevents confirmation bias — insights must be supported by trade data to gain confidence.
+
+---
+
+## ADR-023: Postgres-Compatible Boolean Server Defaults in Migrations
+
+**Status:** Accepted  
+**Date:** 2026-04
+
+**Context:** `alembic/versions/b1c2d3e4f5a6_add_knowledge_base_tables.py` used `sa.text('0')` and `sa.text('1')` as `server_default` values for `Boolean` columns (`validated`, `active` in both `playbook_entries` and `strategy_insights`). SQLite accepts bare integer literals for booleans, but Postgres raises `DatatypeMismatch: column "validated" is of type boolean but default expression is of type integer`, causing the app container to crash-loop on `alembic upgrade head`.
+
+**Decision:** Replace `server_default=sa.text('0')` with `server_default=sa.false()` and `server_default=sa.text('1')` with `server_default=sa.true()` on all Boolean columns in the affected migration. `sa.false()` / `sa.true()` emit `FALSE` / `TRUE` in Postgres and `0` / `1` in SQLite — the portable approach. Integer and Float columns with `sa.text('0')` defaults were left unchanged (correct for those types). The migration file was edited in place because it had never successfully run against Postgres, so there was no production state to preserve.
+
+**Rule going forward:** All Boolean columns in Alembic migrations must use `sa.false()` / `sa.true()` for server defaults, never `sa.text('0')` / `sa.text('1')` or bare integer literals.
+
+**Consequences:** Migration chain is intact (revision IDs unchanged). The app container can now run `alembic upgrade head` cleanly against Postgres.

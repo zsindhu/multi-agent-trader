@@ -29,11 +29,11 @@ def upgrade() -> None:
         sa.Column('content', sa.Text(), nullable=False),
         sa.Column('source', sa.String(), nullable=False),
         sa.Column('confidence', sa.Float(), nullable=True),
-        sa.Column('validated', sa.Boolean(), server_default=sa.text('0'), nullable=True),
+        sa.Column('validated', sa.Boolean(), server_default=sa.false(), nullable=True),
         sa.Column('trades_supporting', sa.Integer(), server_default=sa.text('0'), nullable=True),
         sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
         sa.Column('superseded_by', sa.Integer(), nullable=True),
-        sa.Column('active', sa.Boolean(), server_default=sa.text('1'), nullable=True),
+        sa.Column('active', sa.Boolean(), server_default=sa.true(), nullable=True),
         sa.PrimaryKeyConstraint('id'),
     )
     op.create_index('ix_playbook_entries_category', 'playbook_entries', ['category'])
@@ -53,7 +53,7 @@ def upgrade() -> None:
         sa.Column('win_rate_without', sa.Float(), nullable=True),
         sa.Column('discovered_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
         sa.Column('last_validated', sa.DateTime(), nullable=True),
-        sa.Column('active', sa.Boolean(), server_default=sa.text('1'), nullable=True),
+        sa.Column('active', sa.Boolean(), server_default=sa.true(), nullable=True),
         sa.PrimaryKeyConstraint('id'),
     )
     op.create_index('ix_strategy_insights_insight_type', 'strategy_insights', ['insight_type'])
