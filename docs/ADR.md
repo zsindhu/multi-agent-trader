@@ -493,3 +493,29 @@ Safe mode **never opens new positions**. It logs its reasoning to `execution_log
 **Rule going forward:** All Boolean columns in Alembic migrations must use `sa.false()` / `sa.true()` for server defaults, never `sa.text('0')` / `sa.text('1')` or bare integer literals.
 
 **Consequences:** Migration chain is intact (revision IDs unchanged). The app container can now run `alembic upgrade head` cleanly against Postgres.
+
+---
+
+## ADR-024: Real Spot VIX via Yahoo Finance (VIXService)
+
+**Status:** Accepted  
+**Date:** 2026-04
+
+**Context:** `core/strategy.py:_fetch_vix_level` fetched VIXY (a VIX futures ETF), applied a fixed `price / 0.6` multiplier, and returned that as "VIX". Three problems:
+
+1. **Wrong number.** VIXY tracks front-month VIX futures, not spot VIX. Futures are in contango in calm markets and backwardation in crisis — a fixed multiplier is wrong in both directions. In production this produced VIX≈55 when spot VIX was ~27, triggering spurious CRISIS regime decisions ("geopolitical shock event") and causing the LLM to sit out entirely.
+
+2. **Duplicated code path.** Both `core/strategy.py:_fetch_vix_level` and `services/market_regime.py:_get_vix` contained independent proxy-fetching implementations. Any correction had to happen in two places.
+
+3. **VIX is freely available.** Yahoo Finance exposes CBOE spot VIX as `^VIX` through a public chart API requiring no authentication.
+
+**Decision:** Introduce `services/vix_service.py` (`VIXService`) as the single source of truth for VIX:
+
+- **Primary:** Yahoo Finance `v8/finance/chart/%5EVIX` → `meta.regularMarketPrice` — actual CBOE spot VIX
+- **Fallback:** VIXY ETF mid price × 1.67 — used only when Yahoo is unreachable
+- **Cache:** 5-minute in-memory cache per service instance — avoids redundant HTTP calls when both `StrategyManager.refresh_regime()` and `MarketRegimeService._get_vix()` run in the same cycle
+- **Direction:** `get_vix_direction()` reads 10 days of Yahoo bars and classifies the 5-day change as `rising/falling/flat`
+
+Both entrypoints (`main.py` and `api/state.py`) construct `VIXService(broker=broker)` immediately after the broker and pass it into both `StrategyManager(vix_service=...)` and `MarketRegimeService(vix_service=...)`. Both now delegate to the service; their own proxy loops were removed. `_estimate_vix_from_spy()` and the legacy `_get_vix_direction()` fallbacks are retained as last resorts.
+
+**Consequences:** VIX readings are now accurate. Regime classification (HIGH_VOL / NORMAL / LOW_VOL) and the MarketRegimeService confidence signal both reflect real market conditions. The CRISIS override the LLM was seeing at VIX≈55 should no longer appear unless spot VIX actually approaches that level (GFC/COVID territory). Single code path means future VIX source changes require editing one file.
