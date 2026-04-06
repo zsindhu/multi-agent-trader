@@ -1,7 +1,7 @@
 """
 Premium Trader — Main entry point.
 
-Initializes all agents with full dependency injection and starts the orchestration loop.
+Initializes all agents via the shared bootstrap and starts the orchestration loop.
 The Lead Agent runs on a scheduled interval, coordinating all workers.
 The Scanner Agent runs 2x daily (market open + midday) to refresh the opportunity universe.
 Strategy regime detection refreshes each cycle. Discord notifications fire on trades/risk events.
@@ -13,9 +13,12 @@ from datetime import datetime, timezone, timedelta
 from loguru import logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+from core.bootstrap import build_services
+from config.settings import settings
+
 
 def _is_market_hours() -> bool:
-    """True if US equities markets are currently open (ET, weekdays 9:30–16:00)."""
+    """True if US equities markets are currently open (ET, weekdays 9:30-16:00)."""
     now = datetime.now(timezone(timedelta(hours=-4)))  # ET (approx; ignores DST edge)
     if now.weekday() >= 5:
         return False
@@ -29,34 +32,8 @@ def _is_key_cycle_time() -> bool:
     t = now.hour * 60 + now.minute
     return any(abs(t - target) < 8 for target in [575, 750, 945])
 
-from agents import (
-    CoveredCallWorker,
-    CashSecuredPutWorker,
-    WheelWorker,
-    TradeJournalAgent,
-    ScannerAgent,
-)
-from agents.lead_agent import LeadAgent
-from services.alpaca_broker import AlpacaBroker
-from services.logger_service import PerformanceLogger
-from services.notifier import Notifier
-from services.market_regime import MarketRegimeService
-from services.vix_service import VIXService
-from services.earnings_calendar import EarningsCalendarService
-from services.performance_analyst import PerformanceAnalystService
-from services.news_feed import NewsFeedService
-from services.llm_service import LLMService
-from services.order_reconciler import OrderReconciler
-from core.broker import Broker
-from core.risk_manager import RiskManager
-from core.portfolio import Portfolio
-from core.strategy import StrategyManager
-from data.market_feed import MarketFeed
-from data.options_chain import OptionsChainAnalyzer
-from config.settings import settings
 
-
-async def _write_equity_snapshot(portfolio: "Portfolio"):
+async def _write_equity_snapshot(portfolio):
     """Persist current portfolio equity to the equity_snapshots table."""
     from core.database import AsyncSessionLocal
     from models.equity_snapshot import EquitySnapshot
@@ -72,14 +49,14 @@ async def _write_equity_snapshot(portfolio: "Portfolio"):
         logger.warning(f"[Main] Equity snapshot write failed: {e}")
 
 
-async def run_scanner_cycle(scanner: ScannerAgent, regime_service: "MarketRegimeService" = None):
-    """Run a full Scanner cycle: scan → evaluate → persist to DB. Then refresh regime."""
+async def run_scanner_cycle(scanner, regime_service=None):
+    """Run a full Scanner cycle: scan -> evaluate -> persist to DB. Then refresh regime."""
     try:
-        logger.info("[Main] ── Scanner cycle starting ──")
+        logger.info("[Main] -- Scanner cycle starting --")
         raw = await scanner.scan()
         scored = await scanner.evaluate(raw)
         await scanner.execute(scored)
-        logger.info(f"[Main] ── Scanner cycle done — {len(scored)} opportunities ──")
+        logger.info(f"[Main] -- Scanner cycle done -- {len(scored)} opportunities --")
     except Exception as e:
         logger.error(f"[Main] Scanner cycle failed: {e}")
 
@@ -93,105 +70,19 @@ async def run_scanner_cycle(scanner: ScannerAgent, regime_service: "MarketRegime
 async def main(mode: str = "paper"):
     logger.info(f"Premium Trader starting in {mode} mode...")
 
-    # ── Core Services ─────────────────────────────────────────────
-    broker: Broker = AlpacaBroker()
-    portfolio = Portfolio()
-    risk_manager = RiskManager(portfolio)
-    perf_logger = PerformanceLogger()
+    # ── Build all services from shared bootstrap ──────────────────
+    svc = build_services()
 
-    # ── VIX Service (shared between StrategyManager and RegimeService) ──
-    vix_service = VIXService(broker=broker)
-
-    # ── Strategy & Notifications ───────────────────────────────────
-    strategy_manager = StrategyManager(broker=broker, vix_service=vix_service)
-    notifier = Notifier()
-
-    # ── Data Layer ────────────────────────────────────────────────
-    market_feed = MarketFeed(broker=broker)
-    options_chain = OptionsChainAnalyzer(broker=broker)
-
-    # ── Trade Journal (observer agent) ────────────────────────────
-    trade_journal = TradeJournalAgent()
-
-    # ── Scanner Agent (runs 2x daily) ─────────────────────────────
-    scanner = ScannerAgent(
-        broker=broker,
-        market_feed=market_feed,
-        options_chain=options_chain,
-    )
-
-    # ── Intelligence Services ──────────────────────────────────────
-    regime_service = MarketRegimeService(broker=broker, scanner=scanner, strategy_manager=strategy_manager, vix_service=vix_service)
-    earnings_service = EarningsCalendarService()
-    performance_service = PerformanceAnalystService()
-    news_service = NewsFeedService()
-    llm_service = LLMService()
-
-    # ── Order Reconciler (runs before every LLM cycle) ────────────
-    order_reconciler = OrderReconciler(
-        broker=broker,
-        trade_journal=trade_journal,
-        portfolio=portfolio,
-    )
-
-    # ── Worker Agents (fully injected) ────────────────────────────
-    worker_cc = CoveredCallWorker(
-        broker=broker,
-        portfolio=portfolio,
-        risk_manager=risk_manager,
-        market_feed=market_feed,
-        options_chain=options_chain,
-        perf_logger=perf_logger,
-        trade_journal=trade_journal,
-        strategy_manager=strategy_manager,
-        scanner=scanner,
-    )
-
-    worker_csp = CashSecuredPutWorker(
-        broker=broker,
-        portfolio=portfolio,
-        risk_manager=risk_manager,
-        market_feed=market_feed,
-        options_chain=options_chain,
-        perf_logger=perf_logger,
-        trade_journal=trade_journal,
-        strategy_manager=strategy_manager,
-        scanner=scanner,
-    )
-
-    worker_wheel = WheelWorker(
-        broker=broker,
-        portfolio=portfolio,
-        risk_manager=risk_manager,
-        market_feed=market_feed,
-        options_chain=options_chain,
-        perf_logger=perf_logger,
-        trade_journal=trade_journal,
-        strategy_manager=strategy_manager,
-        scanner=scanner,
-    )
-
-    # ── Lead Agent (orchestrator) — receives Scanner, Strategy, Notifier ──
-    lead = LeadAgent(
-        workers=[worker_cc, worker_csp, worker_wheel],
-        risk_manager=risk_manager,
-        performance_logger=perf_logger,
-        broker=broker,
-        portfolio=portfolio,
-        market_feed=market_feed,
-        scanner=scanner,
-        strategy_manager=strategy_manager,
-        notifier=notifier,
-        # Phase B — LLM reasoning engine + intelligence services
-        llm_service=llm_service,
-        regime_service=regime_service,
-        earnings_service=earnings_service,
-        performance_service=performance_service,
-        news_service=news_service,
-        trade_journal=trade_journal,
-        # Phase C — Order reconciliation
-        order_reconciler=order_reconciler,
-    )
+    # Convenient aliases
+    portfolio = svc.portfolio
+    broker = svc.broker
+    lead = svc.lead_agent
+    scanner = svc.scanner
+    strategy_manager = svc.strategy_manager
+    regime_service = svc.regime_service
+    earnings_service = svc.earnings_service
+    news_service = svc.news_service
+    performance_service = svc.performance_service
 
     # ── Sync portfolio state from broker ──────────────────────────
     await portfolio.sync_from_broker(broker)
@@ -207,7 +98,7 @@ async def main(mode: str = "paper"):
     await strategy_manager.refresh_regime()
     logger.info(
         f"Market regime: {strategy_manager.regime.value} "
-        f"(VIX≈{strategy_manager.vix_level:.1f})"
+        f"(VIX~{strategy_manager.vix_level:.1f})"
     )
 
     # ── Run initial Scanner + Regime cycle before first trade cycle ──
@@ -216,10 +107,6 @@ async def main(mode: str = "paper"):
     # ── Scheduled Execution Loop ──────────────────────────────────
     scheduler = AsyncIOScheduler()
 
-    # Lead Agent: market-hours gated wrapper
-    # Full LLM cycle: 3x/day at key times (open, midday, near-close)
-    # Market hours non-key: rule-based position management only (no LLM)
-    # Off-hours: portfolio sync only (no LLM, no trading)
     async def lead_cycle_wrapper():
         if not _is_market_hours():
             try:
@@ -323,7 +210,7 @@ async def main(mode: str = "paper"):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Premium Trader — Multi-Agent Options System")
+    parser = argparse.ArgumentParser(description="Premium Trader -- Multi-Agent Options System")
     parser.add_argument("--mode", default="paper", choices=["paper", "live"])
     args = parser.parse_args()
     asyncio.run(main(args.mode))

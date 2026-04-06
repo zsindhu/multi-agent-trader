@@ -1,8 +1,8 @@
 """
 Application State — Shared services singleton for the API layer.
 
-Initializes broker, portfolio, scanner, strategy manager, and other
-services once at startup. Route handlers access them via request.app.state.app.
+Uses the shared bootstrap to initialize all services (same code path as main.py).
+Route handlers access them via request.app.state.app.
 """
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from core.broker import Broker
 from core.portfolio import Portfolio
 from core.risk_manager import RiskManager
 from core.strategy import StrategyManager
+from core.bootstrap import build_services
 from data.market_feed import MarketFeed
 from data.options_chain import OptionsChainAnalyzer
 from services.alpaca_broker import AlpacaBroker
@@ -65,103 +66,37 @@ class AppState:
         self.vix_service: Optional[VIXService] = None
 
     async def initialize(self):
-        """Create and wire all services."""
+        """Create and wire all services using the shared bootstrap."""
         from config.settings import settings
 
         logger.info("[AppState] Initializing services...")
 
         self.broker_is_paper = settings.trading_mode == "paper"
-        self.broker = AlpacaBroker()
-        self.vix_service = VIXService(broker=self.broker)
-        self.portfolio = Portfolio()
-        self.risk_manager = RiskManager(self.portfolio)
-        self.market_feed = MarketFeed(broker=self.broker)
-        self.options_chain = OptionsChainAnalyzer(broker=self.broker)
-        self.strategy_manager = StrategyManager(broker=self.broker, vix_service=self.vix_service)
-        self.perf_logger = PerformanceLogger()
-        self.trade_journal = TradeJournalAgent()
-        self.notifier = Notifier()
 
-        self.scanner = ScannerAgent(
-            broker=self.broker,
-            market_feed=self.market_feed,
-            options_chain=self.options_chain,
-        )
+        # ── Single source of truth for service wiring ──────────────
+        svc = build_services()
+
+        self.broker = svc.broker
+        self.vix_service = svc.vix_service
+        self.portfolio = svc.portfolio
+        self.risk_manager = svc.risk_manager
+        self.market_feed = svc.market_feed
+        self.options_chain = svc.options_chain
+        self.strategy_manager = svc.strategy_manager
+        self.perf_logger = svc.perf_logger
+        self.trade_journal = svc.trade_journal
+        self.notifier = svc.notifier
+        self.scanner = svc.scanner
+        self.regime_service = svc.regime_service
+        self.earnings_service = svc.earnings_service
+        self.performance_service = svc.performance_service
+        self.news_service = svc.news_service
+        self.llm_service = svc.llm_service
+        self.order_reconciler = svc.order_reconciler
+        self.lead_agent = svc.lead_agent
 
         # ── Startup verification ─────────────────────────────────────────
         await self._verify_account()
-
-        # Build workers and lead agent for the proposal system
-        cc_worker = CoveredCallWorker(
-            broker=self.broker,
-            portfolio=self.portfolio,
-            market_feed=self.market_feed,
-            options_chain=self.options_chain,
-            risk_manager=self.risk_manager,
-            perf_logger=self.perf_logger,
-            trade_journal=self.trade_journal,
-            strategy_manager=self.strategy_manager,
-            scanner=self.scanner,
-        )
-        csp_worker = CashSecuredPutWorker(
-            broker=self.broker,
-            portfolio=self.portfolio,
-            market_feed=self.market_feed,
-            options_chain=self.options_chain,
-            risk_manager=self.risk_manager,
-            perf_logger=self.perf_logger,
-            trade_journal=self.trade_journal,
-            strategy_manager=self.strategy_manager,
-            scanner=self.scanner,
-        )
-        wheel_worker = WheelWorker(
-            broker=self.broker,
-            portfolio=self.portfolio,
-            market_feed=self.market_feed,
-            options_chain=self.options_chain,
-            risk_manager=self.risk_manager,
-            perf_logger=self.perf_logger,
-            trade_journal=self.trade_journal,
-            strategy_manager=self.strategy_manager,
-            scanner=self.scanner,
-        )
-        # ── Intelligence services ────────────────────────────────────────
-        self.regime_service = MarketRegimeService(
-            broker=self.broker,
-            scanner=self.scanner,
-            strategy_manager=self.strategy_manager,
-            vix_service=self.vix_service,
-        )
-        self.earnings_service = EarningsCalendarService()
-        self.performance_service = PerformanceAnalystService()
-        self.news_service = NewsFeedService()
-        self.llm_service = LLMService()
-
-        self.order_reconciler = OrderReconciler(
-            broker=self.broker,
-            trade_journal=self.trade_journal,
-            portfolio=self.portfolio,
-        )
-
-        self.lead_agent = LeadAgent(
-            workers=[cc_worker, csp_worker, wheel_worker],
-            risk_manager=self.risk_manager,
-            performance_logger=self.perf_logger,
-            broker=self.broker,
-            portfolio=self.portfolio,
-            market_feed=self.market_feed,
-            scanner=self.scanner,
-            strategy_manager=self.strategy_manager,
-            notifier=self.notifier,
-            # Phase B
-            llm_service=self.llm_service,
-            regime_service=self.regime_service,
-            earnings_service=self.earnings_service,
-            performance_service=self.performance_service,
-            news_service=self.news_service,
-            trade_journal=self.trade_journal,
-            order_reconciler=self.order_reconciler,
-        )
 
         # Sync portfolio
         try:
@@ -268,18 +203,18 @@ class AppState:
             if options_level is None or options_level == 0:
                 logger.error(
                     "[AppState] Options trading NOT enabled on this account. "
-                    "Go to Alpaca dashboard → Account → Configure → Enable options trading. "
+                    "Go to Alpaca dashboard -> Account -> Configure -> Enable options trading. "
                     "Proposal generation will not work until options are enabled."
                 )
             elif options_level == 1:
                 logger.error(
-                    "[AppState] Options level 1 — cannot sell puts or calls. "
+                    "[AppState] Options level 1 -- cannot sell puts or calls. "
                     "Upgrade to level 2 in Alpaca dashboard. "
                     "Proposal generation will not work until level is upgraded."
                 )
             elif options_level >= 2:
                 logger.info(
-                    f"[AppState] Options level {options_level} ✓ — "
+                    f"[AppState] Options level {options_level} -- "
                     "can sell covered calls and cash-secured puts."
                 )
 
@@ -294,7 +229,7 @@ class AppState:
             else:
                 logger.error(
                     f"[AppState] Failed to connect to Alpaca: {e}. "
-                    "Running in degraded mode — Scanner only."
+                    "Running in degraded mode -- Scanner only."
                 )
 
         self.account_status = status
