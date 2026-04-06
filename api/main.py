@@ -209,12 +209,18 @@ if os.path.exists(_dashboard_dist):
     if os.path.exists(_assets_dir):
         app.mount("/assets", StaticFiles(directory=_assets_dir), name="static-assets")
 
+    def _serve_index():
+        """Return index.html with strict no-cache headers."""
+        resp = FileResponse(os.path.join(_dashboard_dist, "index.html"))
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+        return resp
+
     @app.get("/{path:path}")
     async def serve_dashboard(path: str):
         file_path = os.path.join(_dashboard_dist, path)
         if os.path.isfile(file_path):
             return FileResponse(file_path)
-        # Never cache index.html — it references hashed JS/CSS bundles
-        resp = FileResponse(os.path.join(_dashboard_dist, "index.html"))
-        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-        return resp
+        # SPA fallback — never cache index.html since it references hashed bundles
+        return _serve_index()
