@@ -11,6 +11,7 @@ const AGENT_META = {
   'Cash-Secured-Puts':  { label: 'CSP',  badge: 'green',  dot: 'bg-emerald-400' },
   'Wheel':              { label: 'Wheel', badge: 'pink',   dot: 'bg-pink-400' },
 }
+const UNASSIGNED_META = { label: 'Unassigned', badge: 'red', dot: 'bg-red-400' }
 
 function inferWheelPhase(contracts) {
   const hasCall = contracts.some((c) => c.contract_type === 'call')
@@ -47,7 +48,9 @@ function groupByUnderlying(options) {
   return Object.values(map).map((g) => {
     const isWheel = g.agent === 'Wheel'
     const wheelVariant = isWheel ? inferWheelPhase(g.items) : null
-    const meta = AGENT_META[g.agent] || { label: g.agent || 'Other', badge: 'gray', dot: 'bg-slate-400' }
+    const meta = g.agent
+      ? (AGENT_META[g.agent] || { label: g.agent, badge: 'gray', dot: 'bg-slate-400' })
+      : UNASSIGNED_META
     const badgeLabel = isWheel ? `Wheel (${wheelVariant})` : meta.label
 
     return {
@@ -167,6 +170,23 @@ export default function ActivePositions({ options = [], earnings = [] }) {
                     <p className="text-sm font-medium text-[#94a3b8]">{fmt(row.premium)}</p>
                   </div>
                 </div>
+
+                {/* Per-contract agent assignments (when multiple contracts) */}
+                {row.items.length > 1 && (
+                  <div className="mt-1.5 flex flex-wrap gap-1">
+                    {row.items.map((c, i) => {
+                      const cMeta = c.assigned_to
+                        ? (AGENT_META[c.assigned_to] || { label: c.assigned_to, badge: 'gray' })
+                        : UNASSIGNED_META
+                      return (
+                        <span key={i} className="text-[10px] text-slate-500">
+                          <Badge variant={cMeta.badge}>{cMeta.label}</Badge>
+                          {' '}{c.contract_type === 'put' ? 'P' : 'C'} ${c.strike?.toFixed(0)}
+                        </span>
+                      )
+                    })}
+                  </div>
+                )}
 
                 {/* Health bar */}
                 {(currentPrice != null || strike != null) && (

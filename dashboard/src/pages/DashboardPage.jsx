@@ -13,6 +13,7 @@ import Spinner from '../components/Spinner'
 import ActivePositions from '../components/ActivePositions'
 import SystemThinking from '../components/SystemThinking'
 import MarketIntelligence from '../components/MarketIntelligence'
+import LastCycleActions from '../components/LastCycleActions'
 import {
   fetchPortfolioSummary, fetchPortfolio, refreshPortfolio,
   fetchAgentStatus, fetchAgentPerformance,
@@ -208,6 +209,9 @@ export default function DashboardPage() {
       {/* System Thinking */}
       <SystemThinking reasoning={reasoning} />
 
+      {/* Last Cycle Actions */}
+      <LastCycleActions execLogs={execLogs} />
+
       {/* Empty state CTA */}
       {isEmpty && (
         <Card>
@@ -264,8 +268,9 @@ export default function DashboardPage() {
                 tick={{ fontSize: 10, fill: '#64748b' }}
                 tickLine={false}
                 axisLine={false}
-                tickFormatter={v => `$${(v / 1000).toFixed(0)}k`}
-                width={45}
+                tickFormatter={v => `$${(v / 1000).toFixed(1)}k`}
+                width={50}
+                domain={['dataMin - 500', 'dataMax + 500']}
               />
               <Tooltip
                 contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
