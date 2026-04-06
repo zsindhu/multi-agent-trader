@@ -50,3 +50,4 @@ pytest-asyncio>=0.23.0
 # Notebooks
 jupyter>=1.0.0
 matplotlib>=3.8.0
+pytz>=2024.1
