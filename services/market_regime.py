@@ -59,10 +59,12 @@ class MarketRegimeService:
         broker: Optional["Broker"] = None,
         scanner: Optional["ScannerAgent"] = None,
         strategy_manager: Optional["StrategyManager"] = None,
+        vix_service=None,
     ):
         self.broker = broker
         self.scanner = scanner
         self.strategy_manager = strategy_manager
+        self.vix_service = vix_service
         self._breadth_cache: Optional[tuple] = None  # (pct, trend, computed_at)
 
     # ── Public API ──────────────────────────────────────────────────
@@ -156,8 +158,13 @@ class MarketRegimeService:
         }
 
     async def _get_vix(self) -> tuple[float, str]:
-        """Get VIX level (via proxy) and 5-day direction."""
-        # Delegate to existing StrategyManager if available — avoids duplication
+        """Get VIX level and 5-day direction from shared VIXService."""
+        if self.vix_service:
+            vix = await self.vix_service.get_vix()
+            direction = await self.vix_service.get_vix_direction(vix)
+            return vix, direction
+
+        # Legacy fallback — keep existing StrategyManager delegation
         if self.strategy_manager:
             try:
                 await self.strategy_manager.refresh_regime()
@@ -167,28 +174,6 @@ class MarketRegimeService:
                     return vix, direction
             except Exception as e:
                 logger.debug(f"[Regime] StrategyManager VIX failed: {e}")
-
-        # Fallback: fetch VIX proxy directly
-        if not self.broker:
-            return 20.0, "flat"
-
-        vix_proxies = ["VIXY", "VXX", "UVXY"]
-        for proxy in vix_proxies:
-            try:
-                quote = await self.broker.get_latest_quote(proxy)
-                if quote and quote.get("bid", 0) > 0:
-                    mid = (quote["bid"] + quote["ask"]) / 2
-                    if proxy == "VIXY":
-                        vix = mid / 0.6
-                    elif proxy == "UVXY":
-                        vix = mid / 1.5
-                    else:
-                        vix = mid
-                    vix = max(8.0, min(80.0, vix))
-                    direction = await self._get_vix_direction(vix)
-                    return round(vix, 1), direction
-            except Exception:
-                continue
 
         return 20.0, "flat"
 

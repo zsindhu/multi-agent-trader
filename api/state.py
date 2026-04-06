@@ -25,6 +25,7 @@ from services.performance_analyst import PerformanceAnalystService
 from services.news_feed import NewsFeedService
 from services.llm_service import LLMService
 from services.order_reconciler import OrderReconciler
+from services.vix_service import VIXService
 from agents.scanner import ScannerAgent
 from agents.trade_journal import TradeJournalAgent
 from agents.lead_agent import LeadAgent
@@ -61,6 +62,7 @@ class AppState:
         self.news_service: Optional[NewsFeedService] = None
         self.llm_service: Optional[LLMService] = None
         self.order_reconciler: Optional[OrderReconciler] = None
+        self.vix_service: Optional[VIXService] = None
 
     async def initialize(self):
         """Create and wire all services."""
@@ -70,11 +72,12 @@ class AppState:
 
         self.broker_is_paper = settings.trading_mode == "paper"
         self.broker = AlpacaBroker()
+        self.vix_service = VIXService(broker=self.broker)
         self.portfolio = Portfolio()
         self.risk_manager = RiskManager(self.portfolio)
         self.market_feed = MarketFeed(broker=self.broker)
         self.options_chain = OptionsChainAnalyzer(broker=self.broker)
-        self.strategy_manager = StrategyManager(broker=self.broker)
+        self.strategy_manager = StrategyManager(broker=self.broker, vix_service=self.vix_service)
         self.perf_logger = PerformanceLogger()
         self.trade_journal = TradeJournalAgent()
         self.notifier = Notifier()
@@ -127,6 +130,7 @@ class AppState:
             broker=self.broker,
             scanner=self.scanner,
             strategy_manager=self.strategy_manager,
+            vix_service=self.vix_service,
         )
         self.earnings_service = EarningsCalendarService()
         self.performance_service = PerformanceAnalystService()

@@ -41,6 +41,7 @@ from services.alpaca_broker import AlpacaBroker
 from services.logger_service import PerformanceLogger
 from services.notifier import Notifier
 from services.market_regime import MarketRegimeService
+from services.vix_service import VIXService
 from services.earnings_calendar import EarningsCalendarService
 from services.performance_analyst import PerformanceAnalystService
 from services.news_feed import NewsFeedService
@@ -98,8 +99,11 @@ async def main(mode: str = "paper"):
     risk_manager = RiskManager(portfolio)
     perf_logger = PerformanceLogger()
 
+    # ── VIX Service (shared between StrategyManager and RegimeService) ──
+    vix_service = VIXService(broker=broker)
+
     # ── Strategy & Notifications ───────────────────────────────────
-    strategy_manager = StrategyManager(broker=broker)
+    strategy_manager = StrategyManager(broker=broker, vix_service=vix_service)
     notifier = Notifier()
 
     # ── Data Layer ────────────────────────────────────────────────
@@ -117,7 +121,7 @@ async def main(mode: str = "paper"):
     )
 
     # ── Intelligence Services ──────────────────────────────────────
-    regime_service = MarketRegimeService(broker=broker, scanner=scanner, strategy_manager=strategy_manager)
+    regime_service = MarketRegimeService(broker=broker, scanner=scanner, strategy_manager=strategy_manager, vix_service=vix_service)
     earnings_service = EarningsCalendarService()
     performance_service = PerformanceAnalystService()
     news_service = NewsFeedService()

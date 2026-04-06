@@ -40,8 +40,9 @@ class StrategyManager:
     # volatility as a rough VIX estimate.
     _VIX_PROXIES = ["VIXY", "VXX", "UVXY"]
 
-    def __init__(self, broker: Optional[Broker] = None):
+    def __init__(self, broker: Optional[Broker] = None, vix_service=None):
         self.broker = broker
+        self.vix_service = vix_service
         self._base_params = self._load_strategies()
         self._regime = MarketRegime.NORMAL
         self._vix_level: float = 20.0  # default mid-range
@@ -91,41 +92,11 @@ class StrategyManager:
         )
 
     async def _fetch_vix_level(self) -> float:
-        """
-        Attempt to get a VIX proxy price.
+        """Fetch spot VIX via shared VIXService. Falls back to legacy proxy if service unavailable."""
+        if self.vix_service:
+            return await self.vix_service.get_vix()
 
-        Strategy:
-        1. Try VIX ETP tickers (VIXY, VXX, UVXY) — these trade on Alpaca
-           and roughly track VIX futures. Their absolute price ≠ VIX, but
-           we normalize to a VIX-like scale.
-        2. If none available, compute SPY 20-day realized vol * √252 as
-           a rough VIX approximation.
-        """
-        # Try VIX proxy ETPs
-        for proxy in self._VIX_PROXIES:
-            try:
-                quote = await self.broker.get_latest_quote(proxy)
-                if quote and quote.get("bid", 0) > 0:
-                    mid = (quote["bid"] + quote["ask"]) / 2
-                    # VIXY/VXX prices don't equal VIX directly.
-                    # Use a rough mapping: these ETPs tend to trade
-                    # in the $10-$80 range. We'll use a heuristic:
-                    # if the proxy is VIXY, its price ≈ VIX * 0.6 historically.
-                    # For VXX, price ≈ VIX * 0.8.
-                    # This is imperfect but gives us directional signal.
-                    if proxy == "VIXY":
-                        estimated_vix = mid / 0.6
-                    elif proxy == "UVXY":
-                        estimated_vix = mid / 1.5
-                    else:
-                        estimated_vix = mid  # VXX ≈ VIX roughly
-                    estimated_vix = max(8, min(80, estimated_vix))
-                    logger.debug(f"[Strategy] VIX via {proxy}: mid=${mid:.2f} → VIX≈{estimated_vix:.1f}")
-                    return round(estimated_vix, 1)
-            except Exception as e:
-                logger.debug(f"[Strategy] {proxy} quote failed: {e}")
-
-        # Fallback: SPY realized volatility
+        # Legacy fallback — only runs if VIXService wasn't wired in (shouldn't happen)
         return await self._estimate_vix_from_spy()
 
     async def _estimate_vix_from_spy(self) -> float:
