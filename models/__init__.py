@@ -27,6 +27,7 @@ from .strategy_insight import StrategyInsight
 from .worker_state import WorkerState
 from .equity_snapshot import EquitySnapshot
 from .cycle_snapshot import CycleSnapshot
+from .name_observation import NameObservation
 
 __all__ = [
     "Base",
@@ -47,4 +48,5 @@ __all__ = [
     "WorkerState",
     "EquitySnapshot",
     "CycleSnapshot",
+    "NameObservation",
 ]
