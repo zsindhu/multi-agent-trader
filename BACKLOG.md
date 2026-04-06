@@ -42,7 +42,7 @@ its decisions are silently failing. Ship these and the system actually starts
 making and managing money.
 
 ### A1. Worker routing returns None for legacy positions
-**Status:** `[ ]`
+**Status:** `[x]`
 **Severity:** Critical
 **Evidence:** Today's logs showed 6 close decisions all failing with
 `No worker found for position GDXxxxxxx`. The LLM correctly identified that
@@ -59,7 +59,7 @@ back to `opt.assigned_to` so subsequent lookups in the same cycle hit the
 in-memory cache.
 
 ### A2. Legacy positions have no `assigned_to` at all (data backfill)
-**Status:** `[ ]`
+**Status:** `[x]`
 **Severity:** High
 **Notes:** The 8 currently-open positions were opened by an older code
 version. Even after fixing A1 to query the Trade table, those positions need
@@ -69,7 +69,7 @@ NULL;` (the system only ran CSP when these were opened, so we can hardcode
 the assignment).
 
 ### A3. The 21 legacy "submitted" trades will never reconcile
-**Status:** `[ ]`
+**Status:** `[x]`
 **Severity:** Medium
 **Notes:** Today's reconciler log showed `Trade 1-21 has no order_id —
 skipping`. These trades will sit in the DB as `submitted` forever, polluting
@@ -89,7 +89,7 @@ caught the error before the droplet did." Fix the root causes and stop
 fighting these forever.
 
 ### B1. Kill `api/state.py` as a separate entrypoint
-**Status:** `[ ]`
+**Status:** `[x]`
 **Severity:** High (recurring drift bug)
 **Evidence:** This drift has caused at least three production bugs in the
 past week — missing OrderReconciler in api/state, missing
@@ -104,7 +104,7 @@ properly. Reference the existing `AppState` class structure so the public
 attributes stay the same and the FastAPI routes don't break.
 
 ### B2. Add a preflight smoke test script
-**Status:** `[ ]`
+**Status:** `[x]`
 **Severity:** High (catches deploy bugs in 30 seconds)
 **Evidence:** The `pytz` import bug, the order_id AttributeError, the
 boolean default migration, the missing httpx — all of these would have been
@@ -123,7 +123,7 @@ scripts/preflight.py && git push`. If preflight fails, the push doesn't
 happen and you debug locally instead of on the droplet.
 
 ### B3. Add a `make deploy` shortcut
-**Status:** `[ ]`
+**Status:** `[x]`
 **Severity:** Medium
 **Notes:** Right now your deploy is "git push, ssh, git pull, docker compose
 up -d --build, docker compose logs --follow." That's five commands across
@@ -142,21 +142,21 @@ treating Premium Trader as a managed service rather than something you have
 to babysit.
 
 ### C1. Active Positions card needs to show agent assignment
-**Status:** `[ ]`
+**Status:** `[x]`
 **Severity:** Medium
 **Notes:** When the worker routing bug fires (A1), there's no way to see it
 on the dashboard. Adding an `assigned_to` column or badge to the Active
 Positions card would surface routing issues immediately.
 
 ### C2. Equity chart Y-axis auto-scaling
-**Status:** `[ ]`
+**Status:** `[x]`
 **Severity:** Low
 **Notes:** The chart currently spans $0 to $100k+, which squashes any actual
 movement. Should auto-scale to a tighter range based on min/max of visible
 data points. Recharts supports this with `domain={['dataMin', 'dataMax']}`.
 
 ### C3. Show the LLM's most recent action plan on the dashboard
-**Status:** `[ ]`
+**Status:** `[x]`
 **Severity:** Medium
 **Notes:** Today's logs show the LLM made 9 distinct decisions (6 closes, 2
 holds, 1 pause). Right now the dashboard shows the System Assessment text but
