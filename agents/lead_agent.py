@@ -180,12 +180,15 @@ class LeadAgent:
                 )
                 logger.info(f"[Lead] LLM decision: {decision['summary']}")
                 logger.info(f"[Lead] LLM actions: {len(decision['actions'])}")
-                await self._store_cycle_reasoning(decision)
+                executed_count = 0
                 for action in decision["actions"]:
                     try:
                         await self._execute_action(action)
+                        executed_count += 1
                     except Exception as e:
                         logger.error(f"[Lead] Action failed: {action} — {e}")
+                decision["executed_count"] = executed_count
+                await self._store_cycle_reasoning(decision)
                 await self._evaluate_worker_performance()
                 logger.info("[Lead] ═══════════════════════════════════════════")
                 return {}

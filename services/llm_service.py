@@ -82,6 +82,7 @@ class LLMService:
                 "reasoning": "LLM not configured — using rule-based fallback",
                 "actions": [],
                 "summary": "Rule-based mode (no ANTHROPIC_API_KEY)",
+                "tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0, "model": self.model,
             }
 
         # Daily spending cap
@@ -95,6 +96,7 @@ class LLMService:
                 "reasoning": f"Daily LLM cost limit (${self.MAX_DAILY_COST:.2f}) reached — rule-based mode for rest of day.",
                 "actions": [],
                 "summary": f"Cost limit reached (${self._daily_cost:.3f} / ${self.MAX_DAILY_COST:.2f})",
+                "tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0, "model": self.model,
             }
 
         try:
@@ -163,19 +165,28 @@ class LLMService:
                     final_text = "".join(
                         block.text for block in response.content if hasattr(block, "text")
                     )
+                    cycle_cost = (total_input_tokens / 1_000_000) * 3.0 + (total_output_tokens / 1_000_000) * 15.0
                     logger.info(
                         f"[LLM] Cycle complete — "
                         f"{total_input_tokens} in / {total_output_tokens} out tokens "
-                        f"| Daily: {self._daily_input_tokens} in / {self._daily_output_tokens} out "
-                        f"| Est. cost today: ${self._daily_cost:.4f}"
+                        f"| Cycle cost: ${cycle_cost:.4f} "
+                        f"| Daily: ${self._daily_cost:.4f}"
                     )
-                    return self._parse_decision(final_text)
+                    decision = self._parse_decision(final_text)
+                    decision["tokens_in"] = total_input_tokens
+                    decision["tokens_out"] = total_output_tokens
+                    decision["cost_usd"] = cycle_cost
+                    decision["model"] = self.model
+                    return decision
 
             logger.warning("[LLM] Hit max tool-use turns — no actions taken")
+            cycle_cost = (total_input_tokens / 1_000_000) * 3.0 + (total_output_tokens / 1_000_000) * 15.0
             return {
                 "reasoning": "Hit maximum reasoning turns without a final decision.",
                 "actions": [],
                 "summary": "Reasoning incomplete — no actions taken this cycle",
+                "tokens_in": total_input_tokens, "tokens_out": total_output_tokens,
+                "cost_usd": cycle_cost, "model": self.model,
             }
 
         except anthropic.APIError as e:
@@ -183,14 +194,16 @@ class LLMService:
             return {
                 "reasoning": f"Anthropic API error: {e}",
                 "actions": [],
-                "summary": "LLM API error — rule-based fallback active",
+                "summary": "LLM API error — safe mode fallback active",
+                "tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0, "model": self.model,
             }
         except Exception as e:
             logger.error(f"[LLM] Unexpected error: {e}")
             return {
                 "reasoning": f"Unexpected error: {e}",
                 "actions": [],
-                "summary": "LLM error — rule-based fallback active",
+                "summary": "LLM error — safe mode fallback active",
+                "tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0, "model": self.model,
             }
 
     def _reset_daily_if_needed(self) -> None:
