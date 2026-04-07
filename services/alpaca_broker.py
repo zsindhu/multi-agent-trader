@@ -495,7 +495,7 @@ class AlpacaBroker(Broker):
                 # Tier 1: attributes populated — check explicitly
                 # Tier 2: attributes missing — assume optionable, let liquidity score filter it
                 if a.attributes and isinstance(a.attributes, (list, set)):
-                    has_options = "options_enabled" in a.attributes
+                    has_options = "has_options" in a.attributes
                 else:
                     # Attributes not populated by Alpaca — pass through, downstream will filter
                     has_options = True
