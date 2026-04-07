@@ -26,13 +26,6 @@ def _is_market_hours() -> bool:
     return 570 <= t <= 960  # 9:30 = 570, 16:00 = 960
 
 
-def _is_key_cycle_time() -> bool:
-    """Full LLM analysis runs at 3 key times: open (9:35), midday (12:30), near-close (15:45)."""
-    now = datetime.now(timezone(timedelta(hours=-4)))
-    t = now.hour * 60 + now.minute
-    return any(abs(t - target) < 8 for target in [575, 750, 945])
-
-
 async def _write_equity_snapshot(portfolio):
     """Persist current portfolio equity to the equity_snapshots table."""
     from core.database import AsyncSessionLocal
@@ -115,11 +108,11 @@ async def main(mode: str = "paper"):
             except Exception as e:
                 logger.debug(f"[Scheduler] Off-hours sync skipped: {e}")
             return
-        if _is_key_cycle_time():
-            await lead.run_cycle()
-            await _write_equity_snapshot(lead.portfolio)
-        else:
-            await lead._rule_based_cycle()
+        # During market hours: always run the full LLM cycle. No parallel
+        # rules-based path. If the LLM fails, run_cycle falls back to safe mode
+        # (emergency-only) — there is no rules-based fallback.
+        await lead.run_cycle()
+        await _write_equity_snapshot(lead.portfolio)
 
     scheduler.add_job(lead_cycle_wrapper, "interval", minutes=settings.scan_interval_minutes)
 

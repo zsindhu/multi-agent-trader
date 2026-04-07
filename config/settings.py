@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     max_portfolio_risk: float = 0.02
     max_drawdown: float = 0.10
     max_position_pct: float = 0.15
-    scan_interval_minutes: int = 15
+    scan_interval_minutes: int = 20
     market_open: str = "09:30"
     market_close: str = "16:00"
     discord_webhook_url: Optional[str] = None

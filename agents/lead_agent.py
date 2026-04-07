@@ -198,9 +198,9 @@ class LeadAgent:
             logger.warning("[Lead] LLM credits depleted — entering safe mode")
             return await self._safe_mode_cycle()
 
-        # Step 5: No LLM key at all → rule-based
-        logger.info("[Lead] No LLM configured — using rule-based decisions")
-        return await self._rule_based_cycle()
+        # Step 5: No LLM key at all → safe mode (emergency only)
+        logger.warning("[Lead] No LLM configured — entering safe mode")
+        return await self._safe_mode_cycle()
 
     async def _safe_mode_cycle(self):
         """
@@ -285,108 +285,6 @@ class LeadAgent:
         if opt.pnl_pct is not None and opt.pnl_pct < -0.5:
             return True
         return False
-
-    async def _rule_based_cycle(self):
-        """Original rule-based orchestration cycle (fallback when no LLM key)."""
-
-        # Step 1: Sync portfolio from broker
-        if self.portfolio and self.broker:
-            await self.portfolio.sync_from_broker(self.broker)
-
-        # Step 2: Refresh VIX regime
-        if self.strategy_manager:
-            await self.strategy_manager.refresh_regime()
-            regime_info = self.strategy_manager.get_regime_summary()
-            logger.info(
-                f"[Lead] Market regime: {regime_info['regime']} "
-                f"(VIX≈{regime_info['vix_level']:.1f})"
-            )
-
-            # Push regime-adjusted params to workers
-            self._apply_regime_params()
-
-        # Step 3: Check portfolio health
-        if self.risk_manager:
-            risk_ok = await self.risk_manager.check_portfolio_health()
-            if not risk_ok:
-                logger.warning("[Lead] Risk limits breached — running in conservative mode")
-                if self.notifier:
-                    drawdown = self.risk_manager.get_current_drawdown()
-                    await self.notifier.send_risk_warning(
-                        f"Portfolio drawdown at {drawdown:.1%} — conservative mode engaged",
-                        details={
-                            "drawdown": drawdown,
-                            "action": "Conservative mode enabled",
-                        },
-                    )
-
-        # Step 3b: Intelligence checks (earnings risk, regime override, perf pause)
-        await self._apply_intelligence_checks()
-
-        # Step 4: Update assignments based on Scanner + IV + portfolio state
-        await self._update_assignments()
-
-        # Step 5: Run all active workers
-        results = {}
-        for name, worker in self.workers.items():
-            if not worker.is_active:
-                logger.info(f"[Lead] {name} is inactive — skipping")
-                continue
-            if name in self._paused_workers:
-                logger.info(f"[Lead] {name} is paused — skipping")
-                continue
-
-            try:
-                logger.info(f"[Lead] Running {name} ({len(worker.assigned_securities)} symbols)")
-                results[name] = await worker.run_cycle()
-            except Exception as e:
-                logger.error(f"[Lead] Worker {name} failed: {e}")
-                results[name] = {"error": str(e)}
-
-        # Step 6: Log cycle results
-        if self.performance_logger:
-            await self.performance_logger.log_cycle(results)
-
-        # Step 7: Send trade notifications
-        if self.notifier:
-            # Notify on individual trades
-            for name, result in results.items():
-                if not isinstance(result, dict):
-                    continue
-                for trade in result.get("new_trades", []):
-                    await self.notifier.send_trade_alert({
-                        "agent": name,
-                        "symbol": trade.get("symbol", "?"),
-                        "strategy": trade.get("contract_type", trade.get("wheel_state", "?")),
-                        "side": trade.get("side", "sell"),
-                        "strike": trade.get("strike", 0),
-                        "premium": trade.get("limit_price", 0),
-                        "dte": trade.get("dte", 0),
-                        "delta": trade.get("delta", 0),
-                        "contracts": trade.get("qty", 1),
-                        "order_id": trade.get("order_id"),
-                    })
-
-            # Cycle summary (only if there was activity)
-            await self.notifier.send_cycle_summary(results)
-
-        # Step 8: Evaluate worker performance for rotation
-        await self._evaluate_worker_performance()
-
-        # Summary
-        total_trades = sum(
-            len(r.get("new_trades", [])) for r in results.values() if isinstance(r, dict)
-        )
-        total_actions = sum(
-            len(r.get("position_actions", [])) for r in results.values() if isinstance(r, dict)
-        )
-        logger.info(
-            f"[Lead] Cycle complete: {total_trades} trades, "
-            f"{total_actions} position actions across {len(results)} workers"
-        )
-        logger.info("[Lead] ═══════════════════════════════════════════")
-
-        return results
 
     # ── LLM MODE METHODS ──────────────────────────────────────────
 
