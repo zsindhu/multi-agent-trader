@@ -127,6 +127,56 @@ async def main(mode: str = "paper"):
         id="scanner_morning",
     )
 
+    # Universe sweep: runs daily at 8:00 AM ET (before market open)
+    async def _run_universe_sweep():
+        try:
+            from services.universe_loader import UniverseLoader
+            from services.tier_writer import write_tier1_observations
+            from services.research_data import ResearchDataService
+
+            logger.info("[Main] -- Universe sweep starting --")
+            loader = UniverseLoader(broker=svc.broker)
+            passed, rejected = await loader.load_universe_with_rejections()
+
+            result = await write_tier1_observations(passed, rejected)
+
+            # Post a message to the agent message bus
+            rd = ResearchDataService()
+            await rd.post_message(
+                sender="Universe-Loader",
+                message_type="universe_sweep_complete",
+                subject=f"Universe sweep: {result['passed_written']} names",
+                body=(
+                    f"Daily universe sweep complete. "
+                    f"{result['passed_written']} names passed filters, "
+                    f"{result['rejected_written']} rejected, "
+                    f"{result['errors']} errors."
+                ),
+                payload={
+                    "passed_count": result["passed_written"],
+                    "rejected_count": result["rejected_written"],
+                    "errors": result["errors"],
+                },
+                ttl_hours=48,
+            )
+
+            logger.info(
+                f"[Main] -- Universe sweep done -- "
+                f"{result['passed_written']} passed, "
+                f"{result['rejected_written']} rejected --"
+            )
+        except Exception as e:
+            logger.error(f"[Main] Universe sweep failed: {e}")
+
+    scheduler.add_job(
+        _run_universe_sweep,
+        "cron",
+        hour="8",
+        minute="0",
+        timezone="US/Eastern",
+        id="universe_sweep",
+    )
+
     # Earnings + News: fetch before market open (8:00 AM and 9:00 AM ET)
     async def _refresh_earnings():
         symbols = [o["symbol"] for o in await scanner.get_top_opportunities()] or []
@@ -184,7 +234,8 @@ async def main(mode: str = "paper"):
     scheduler.start()
     logger.info(
         f"Orchestrator running every {settings.scan_interval_minutes} min, "
-        f"Scanner at 9:35 ET + 12:30 ET, Daily summary at 4:05 PM ET.  Ctrl+C to stop."
+        f"Universe sweep at 8:00 ET, Scanner at 9:35 ET + 12:30 ET, "
+        f"Daily summary at 4:05 PM ET. Ctrl+C to stop."
     )
 
     # Run first orchestration cycle immediately
