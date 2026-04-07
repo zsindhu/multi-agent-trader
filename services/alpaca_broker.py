@@ -542,17 +542,17 @@ class AlpacaBroker(Broker):
             order = self.trading.get_order_by_id(order_id)
             return {
                 "id": str(order.id),
-                "symbol": order.symbol,
-                "status": str(order.status).split(".")[-1].lower(),
-                "side": str(order.side).split(".")[-1].lower(),
-                "qty": int(order.qty) if order.qty else 0,
-                "filled_qty": int(order.filled_qty) if order.filled_qty else 0,
-                "filled_avg_price": float(order.filled_avg_price) if order.filled_avg_price else None,
-                "filled_at": str(order.filled_at) if order.filled_at else None,
-                "submitted_at": str(order.submitted_at) if order.submitted_at else None,
-                "reject_reason": str(order.reject_reason) if order.reject_reason else None,
-                "order_type": str(order.type).split(".")[-1].lower(),
-                "limit_price": float(order.limit_price) if order.limit_price else None,
+                "symbol": getattr(order, "symbol", None),
+                "status": str(getattr(order, "status", "")).split(".")[-1].lower(),
+                "side": str(getattr(order, "side", "")).split(".")[-1].lower(),
+                "qty": int(order.qty) if getattr(order, "qty", None) else 0,
+                "filled_qty": int(order.filled_qty) if getattr(order, "filled_qty", None) else 0,
+                "filled_avg_price": float(order.filled_avg_price) if getattr(order, "filled_avg_price", None) else None,
+                "filled_at": str(order.filled_at) if getattr(order, "filled_at", None) else None,
+                "submitted_at": str(order.submitted_at) if getattr(order, "submitted_at", None) else None,
+                "reject_reason": str(order.reject_reason) if getattr(order, "reject_reason", None) else None,
+                "order_type": str(getattr(order, "type", getattr(order, "order_type", ""))).split(".")[-1].lower(),
+                "limit_price": float(order.limit_price) if getattr(order, "limit_price", None) else None,
             }
         except Exception as e:
             logger.error(f"Failed to fetch order {order_id}: {e}")
