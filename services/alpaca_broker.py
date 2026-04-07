@@ -589,52 +589,102 @@ class AlpacaBroker(Broker):
         """
         Fetch historical bars for multiple symbols in one API call.
 
-        Uses the multi-symbol REST endpoint directly (SDK returns empty BarSet on free tier).
-        Batches in groups of 100 to stay within URL length limits.
+        Uses the multi-symbol REST endpoint directly (SDK returns empty BarSet
+        on free tier). Batches in groups of 100 with explicit pacing to stay
+        under Alpaca's free tier rate limits. Retries on 429 with backoff.
         """
         import httpx
 
         start = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
         all_results: dict[str, list[dict]] = {}
         batch_size = 100
+        total_batches = (len(symbols) + batch_size - 1) // batch_size
 
-        for i in range(0, len(symbols), batch_size):
+        logger.info(
+            f"[AlpacaBroker] Fetching bars for {len(symbols)} symbols "
+            f"in {total_batches} batches of {batch_size}..."
+        )
+
+        for batch_idx, i in enumerate(range(0, len(symbols), batch_size)):
             batch = symbols[i : i + batch_size]
             await self._rate_limiter.acquire()
 
-            try:
-                url = f"{self._DATA_BASE}/bars"
-                params: dict = {
-                    "symbols": ",".join(batch),
-                    "timeframe": timeframe,
-                    "start": start,
-                    "limit": 1000,
-                }
+            # Pace requests to stay under Alpaca's free tier data API limit
+            # (~200/min). 0.35s between batches = ~170/min, safely under cap.
+            if batch_idx > 0:
+                await asyncio.sleep(0.35)
 
-                async with httpx.AsyncClient(timeout=30) as client:
-                    while True:
-                        resp = await client.get(url, params=params, headers=self._data_headers)
-                        if resp.status_code != 200:
-                            logger.warning(
-                                f"[AlpacaBroker] batch bars HTTP {resp.status_code}: {resp.text[:200]}"
+            url = f"{self._DATA_BASE}/bars"
+            params: dict = {
+                "symbols": ",".join(batch),
+                "timeframe": timeframe,
+                "start": start,
+                "limit": 1000,
+            }
+
+            # Single retry on 429 with 2s backoff
+            attempts_remaining = 2
+            while attempts_remaining > 0:
+                try:
+                    async with httpx.AsyncClient(timeout=30) as client:
+                        while True:
+                            resp = await client.get(
+                                url, params=params, headers=self._data_headers
                             )
-                            break
-                        data = resp.json()
-                        bars_by_sym = data.get("bars") or {}
-                        for sym, raw_bars in bars_by_sym.items():
-                            all_results.setdefault(sym, []).extend(
-                                self._parse_bar(r) for r in raw_bars
-                            )
-                        token = data.get("next_page_token")
-                        if not token:
-                            break
-                        params["page_token"] = token
 
-            except Exception as e:
-                logger.warning(f"[AlpacaBroker] Batch bar fetch failed for batch at index {i}: {e}")
+                            if resp.status_code == 429:
+                                attempts_remaining -= 1
+                                if attempts_remaining > 0:
+                                    logger.warning(
+                                        f"[AlpacaBroker] Batch {batch_idx + 1}/{total_batches}: "
+                                        f"429 rate limited, backing off 2s and retrying"
+                                    )
+                                    await asyncio.sleep(2.0)
+                                    break  # break inner while, retry outer while
+                                else:
+                                    logger.error(
+                                        f"[AlpacaBroker] Batch {batch_idx + 1}/{total_batches}: "
+                                        f"429 after retry, giving up on this batch"
+                                    )
+                                    break
 
-            # Fill any symbols that got no data
+                            if resp.status_code != 200:
+                                logger.warning(
+                                    f"[AlpacaBroker] Batch {batch_idx + 1}/{total_batches}: "
+                                    f"HTTP {resp.status_code}: {resp.text[:200]}"
+                                )
+                                attempts_remaining = 0
+                                break
+
+                            # Success — parse and accumulate
+                            data = resp.json()
+                            bars_by_sym = data.get("bars") or {}
+                            for sym, raw_bars in bars_by_sym.items():
+                                all_results.setdefault(sym, []).extend(
+                                    self._parse_bar(r) for r in raw_bars
+                                )
+                            token = data.get("next_page_token")
+                            if not token:
+                                attempts_remaining = 0  # success, done with this batch
+                                break
+                            params["page_token"] = token
+
+                except Exception as e:
+                    logger.warning(
+                        f"[AlpacaBroker] Batch {batch_idx + 1}/{total_batches} failed: {e}"
+                    )
+                    attempts_remaining = 0
+
+            # Fill any symbols in this batch that got no data
             for sym in batch:
                 all_results.setdefault(sym, [])
+
+            # Progress log every 10 batches
+            if (batch_idx + 1) % 10 == 0 or batch_idx == total_batches - 1:
+                symbols_with_data = sum(1 for v in all_results.values() if v)
+                logger.info(
+                    f"[AlpacaBroker] Batches {batch_idx + 1}/{total_batches} done, "
+                    f"{symbols_with_data} symbols with data so far"
+                )
 
         return all_results
