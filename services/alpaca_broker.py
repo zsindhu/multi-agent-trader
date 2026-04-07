@@ -609,10 +609,11 @@ class AlpacaBroker(Broker):
             batch = symbols[i : i + batch_size]
             await self._rate_limiter.acquire()
 
-            # Pace requests to stay under Alpaca's free tier data API limit
-            # (~200/min). 0.35s between batches = ~170/min, safely under cap.
+            # Pace at 500ms = 120 req/min, leaving ~80 req/min headroom for other
+            # agent activity (reconciler, portfolio sync, lead agent cycles) that
+            # shares the same Alpaca free-tier 200/min budget.
             if batch_idx > 0:
-                await asyncio.sleep(0.35)
+                await asyncio.sleep(0.5)
 
             url = f"{self._DATA_BASE}/bars"
             params: dict = {
@@ -622,7 +623,7 @@ class AlpacaBroker(Broker):
                 "limit": 1000,
             }
 
-            # Single retry on 429 with 2s backoff
+            # Single retry on 429 with 10s backoff
             attempts_remaining = 2
             while attempts_remaining > 0:
                 try:
@@ -637,9 +638,9 @@ class AlpacaBroker(Broker):
                                 if attempts_remaining > 0:
                                     logger.warning(
                                         f"[AlpacaBroker] Batch {batch_idx + 1}/{total_batches}: "
-                                        f"429 rate limited, backing off 2s and retrying"
+                                        f"429 rate limited, backing off 10s and retrying"
                                     )
-                                    await asyncio.sleep(2.0)
+                                    await asyncio.sleep(10.0)
                                     break  # break inner while, retry outer while
                                 else:
                                     logger.error(
