@@ -32,6 +32,7 @@ from .agent_message import AgentMessage
 from .skill_document import SkillDocument
 from .reasoning_embedding import ReasoningEmbedding
 from .agent_capability import AgentCapability
+from .historical_bar import HistoricalBar
 
 __all__ = [
     "Base",
@@ -57,4 +58,5 @@ __all__ = [
     "SkillDocument",
     "ReasoningEmbedding",
     "AgentCapability",
+    "HistoricalBar",
 ]
