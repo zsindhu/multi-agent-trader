@@ -42,6 +42,21 @@ async def _write_equity_snapshot(portfolio):
         logger.warning(f"[Main] Equity snapshot write failed: {e}")
 
 
+async def _run_breadth_analyst_sweep(breadth_analyst):
+    """Run the Breadth Analyst's daily Tier 1 eligibility sweep."""
+    try:
+        logger.info("[Main] -- Breadth Analyst daily sweep starting --")
+        result = await breadth_analyst.run_daily_sweep()
+        logger.info(
+            f"[Main] -- Breadth Analyst sweep done -- "
+            f"{result.get('passed', 0)} passed, "
+            f"{result.get('rejected', 0)} rejected, "
+            f"{result.get('near_misses', 0)} near-misses --"
+        )
+    except Exception as e:
+        logger.error(f"[Main] Breadth Analyst sweep failed: {e}")
+
+
 async def run_scanner_cycle(scanner, regime_service=None):
     """Run a full Scanner cycle: scan -> evaluate -> persist to DB. Then refresh regime."""
     try:
