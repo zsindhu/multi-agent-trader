@@ -1,0 +1,45 @@
+breadth_analyst:
+  # Universe filters (applied during daily sweep)
+  min_price: 5.0
+  max_price: 1000.0              # Higher than scanner's $500 because Tier 1 is about eligibility, not CSP capital efficiency
+  min_avg_volume_20d: 100000     # 100K shares — catches liquid names without requiring them to be huge
+  min_avg_volume_60d: 100000
+  max_universe_size: 4500         # Hard cap; trimmed by daily_dollar_volume descending
+
+  # Near-miss capture — names that scored just below the cutoff
+  near_miss_threshold_pct: 0.15   # Names within 15% of passing are captured as "near_miss"
+
+  # History windows (days)
+  backfill_days: 252              # ~1 trading year
+  incremental_days: 1             # Just yesterday's bar
+  volume_window_short: 20
+  volume_window_medium: 60
+  volume_window_long: 252
+
+  # Pacing (for both backfill and daily sweep)
+  batch_size: 50
+  batch_sleep_seconds: 2.0
+  max_retries: 3
+  retry_backoff_seconds: 30.0
+
+  # Checkpointing
+  checkpoint_path: "/tmp/breadth_analyst_backfill_checkpoint.json"
+
+  # Override lists
+  always_include:
+    - SPY
+    - QQQ
+    - IWM
+    - DIA
+    - XLF
+    - XLE
+    - XLK
+    - XLV
+    - SMH
+    - GDX
+    - TLT
+    - HYG
+    - EFA
+    - EEM
+
+  always_exclude: []
