@@ -15,6 +15,7 @@ from agents import (
     ScannerAgent,
 )
 from agents.lead_agent import LeadAgent
+from agents.breadth_analyst import BreadthAnalyst
 from services.alpaca_broker import AlpacaBroker
 from services.logger_service import PerformanceLogger
 from services.notifier import Notifier
@@ -60,6 +61,7 @@ class Services:
         self.worker_cc: CoveredCallWorker = None
         self.worker_csp: CashSecuredPutWorker = None
         self.worker_wheel: WheelWorker = None
+        self.breadth_analyst: BreadthAnalyst = None
 
 
 def build_services() -> Services:
@@ -92,6 +94,9 @@ def build_services() -> Services:
         market_feed=s.market_feed,
         options_chain=s.options_chain,
     )
+
+    # ── Breadth Analyst ────────────────────────────────────────
+    s.breadth_analyst = BreadthAnalyst(broker=s.broker)
 
     # ── Intelligence Services ───────────────────────────────────
     s.regime_service = MarketRegimeService(
