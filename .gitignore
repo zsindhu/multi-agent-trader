@@ -56,4 +56,4 @@ dashboard/node_modules/
 dashboard/dist/
 
 # Backtest cache
-data/backtest_cache/*.pkl
+data/backtest_cache/*.pklbackups/
