@@ -1,29 +1,25 @@
 """
-Stooq Bulk Adapter — Downloads the US daily stocks archive from Stooq
-and parses individual symbol CSV files from the ZIP without extracting
-to disk.
+Stooq Adapter — Fetches historical daily bars from Stooq via
+pandas-datareader's built-in Stooq reader.
 
-Stooq publishes free bulk archives at https://stooq.com/db/h/. The US
-daily archive is a single ZIP (~150-300 MB) containing one .txt CSV per
-symbol with format: <TICKER>,<PER>,<DATE>,<TIME>,<OPEN>,<HIGH>,<LOW>,<CLOSE>,<VOL>,<OPENINT>
+Processes symbols one at a time (Stooq's reader is per-symbol), batched
+with 2s sleeps between batches to stay under Stooq's daily request limits.
+Synchronous pandas-datareader calls run in a thread executor for async compat.
 """
-import csv
-import io
-import os
-import zipfile
-from datetime import date, datetime
+import asyncio
+import math
+from datetime import date
 
-import httpx
 from loguru import logger
 
 from services.bulk_data_sources.base import BulkDataSourceAdapter
 
-STOOQ_ARCHIVE_URL = "https://stooq.com/db/d/?b=d_us_txt"
-STOOQ_CACHE_PATH = "/tmp/stooq_us_daily.zip"
+BATCH_SIZE = 25
+BATCH_SLEEP = 2.0  # seconds between batches — Stooq has daily hit limits
 
 
 class StooqAdapter(BulkDataSourceAdapter):
-    """Fetches daily bars from the Stooq US daily archive."""
+    """Fetches daily bars from Stooq via pandas-datareader."""
 
     source_name = "stooq"
 
@@ -35,114 +31,98 @@ class StooqAdapter(BulkDataSourceAdapter):
     ) -> list[dict]:
         logger.info(f"[Stooq] Fetching bars for {len(symbols)} symbols ({start_date} to {end_date})")
 
-        # Step 1: Download archive if not cached
-        archive_path = await self._ensure_archive()
-        if not archive_path:
-            raise RuntimeError("Failed to download Stooq archive")
+        all_bars = []
+        total_batches = math.ceil(len(symbols) / BATCH_SIZE)
+        hit_limit = False
 
-        # Step 2: Build lookup set for fast matching
-        wanted = {s.upper() for s in symbols}
+        for batch_idx in range(0, len(symbols), BATCH_SIZE):
+            if hit_limit:
+                break
 
-        # Step 3: Parse bars from archive
-        bars = []
-        found_symbols = set()
+            batch = symbols[batch_idx : batch_idx + BATCH_SIZE]
+            batch_num = batch_idx // BATCH_SIZE + 1
+
+            for symbol in batch:
+                if hit_limit:
+                    break
+                try:
+                    bars = await self._fetch_symbol(symbol, start_date, end_date)
+                    all_bars.extend(bars)
+                except StooqRateLimitError:
+                    logger.warning(f"[Stooq] Daily hits limit reached at symbol {symbol}. Stopping.")
+                    hit_limit = True
+                except Exception as e:
+                    logger.warning(f"[Stooq] Failed to fetch {symbol}: {e}")
+
+            if batch_num % 10 == 0 or batch_num == total_batches:
+                unique = len({b["symbol"] for b in all_bars})
+                logger.info(f"[Stooq] Batch {batch_num}/{total_batches} done, {len(all_bars)} bars from {unique} symbols")
+
+            if batch_idx + BATCH_SIZE < len(symbols) and not hit_limit:
+                await asyncio.sleep(BATCH_SLEEP)
+
+        unique_symbols = len({b["symbol"] for b in all_bars})
+        logger.info(f"[Stooq] Fetched {len(all_bars)} total bars from {unique_symbols} symbols")
+        return all_bars
+
+    async def _fetch_symbol(self, symbol: str, start_date: date, end_date: date) -> list[dict]:
+        """Fetch bars for a single symbol via pandas-datareader in a thread executor."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._fetch_symbol_sync, symbol, start_date, end_date)
+
+    def _fetch_symbol_sync(self, symbol: str, start_date: date, end_date: date) -> list[dict]:
+        """Synchronous single-symbol fetch via pandas-datareader."""
+        import pandas_datareader.data as pdr
+
+        sym_upper = symbol.upper()
 
         try:
-            with zipfile.ZipFile(archive_path, "r") as zf:
-                # Build a map of lowercase filename stem -> full path in zip
-                # Stooq uses paths like data/daily/us/nasdaq stocks/1/aapl.us.txt
-                name_map = {}
-                for entry in zf.namelist():
-                    if not entry.endswith(".txt"):
-                        continue
-                    basename = os.path.basename(entry)
-                    # Strip .us.txt suffix to get the ticker
-                    if basename.endswith(".us.txt"):
-                        ticker = basename[:-7].upper()
-                    elif basename.endswith(".txt"):
-                        ticker = basename[:-4].upper()
-                    else:
-                        continue
-                    if ticker in wanted:
-                        name_map[ticker] = entry
+            df = pdr.DataReader(sym_upper, "stooq", start_date, end_date)
+        except Exception as e:
+            err_str = str(e).lower()
+            if "limit" in err_str or "too many" in err_str or "429" in err_str:
+                raise StooqRateLimitError(f"Rate limit hit for {sym_upper}: {e}")
+            raise
 
-                logger.info(f"[Stooq] Archive has {len(name_map)} of {len(wanted)} requested symbols")
+        if df is None or df.empty:
+            logger.debug(f"[Stooq] No data for {sym_upper}")
+            return []
 
-                for ticker, zip_path in name_map.items():
-                    try:
-                        with zf.open(zip_path) as f:
-                            text = io.TextIOWrapper(f, encoding="utf-8", errors="replace")
-                            reader = csv.reader(text)
-                            for row in reader:
-                                # Skip header lines (start with <)
-                                if not row or row[0].startswith("<"):
-                                    continue
-                                if len(row) < 9:
-                                    continue
-                                try:
-                                    # Format: TICKER,PER,DATE,TIME,OPEN,HIGH,LOW,CLOSE,VOL,OPENINT
-                                    bar_date_str = row[2]
-                                    bar_dt = datetime.strptime(bar_date_str, "%Y%m%d").date()
+        bars = []
+        for idx, row in df.iterrows():
+            try:
+                bar_date = idx.date() if hasattr(idx, "date") else idx
 
-                                    if bar_dt < start_date or bar_dt > end_date:
-                                        continue
+                if bar_date < start_date or bar_date > end_date:
+                    continue
 
-                                    bars.append({
-                                        "symbol": ticker,
-                                        "bar_date": bar_dt,
-                                        "open": float(row[4]),
-                                        "high": float(row[5]),
-                                        "low": float(row[6]),
-                                        "close": float(row[7]),
-                                        "volume": int(float(row[8])),
-                                        "vwap": None,
-                                        "trade_count": None,
-                                        "source": self.source_name,
-                                    })
-                                except (ValueError, IndexError):
-                                    continue
-                        found_symbols.add(ticker)
-                    except Exception as e:
-                        logger.warning(f"[Stooq] Failed to parse {ticker}: {e}")
+                close = row.get("Close")
+                volume = row.get("Volume")
+                if close is None or volume is None:
+                    continue
 
-        except zipfile.BadZipFile as e:
-            # Corrupted cache — delete and raise so operator can retry
-            os.unlink(archive_path)
-            raise RuntimeError(f"Stooq archive is corrupted (deleted cache): {e}")
+                import math as _math
+                if _math.isnan(float(close)) or _math.isnan(float(volume)):
+                    continue
 
-        missing = wanted - found_symbols
-        if missing:
-            logger.info(f"[Stooq] {len(missing)} symbols not in archive (expected for OTC/recent IPOs)")
+                bars.append({
+                    "symbol": sym_upper,
+                    "bar_date": bar_date,
+                    "open": float(row.get("Open", 0)),
+                    "high": float(row.get("High", 0)),
+                    "low": float(row.get("Low", 0)),
+                    "close": float(close),
+                    "volume": int(float(volume)),
+                    "vwap": None,
+                    "trade_count": None,
+                    "source": self.source_name,
+                })
+            except (ValueError, TypeError):
+                continue
 
-        logger.info(f"[Stooq] Parsed {len(bars)} bars from {len(found_symbols)} symbols")
         return bars
 
-    async def _ensure_archive(self) -> str:
-        """Download the Stooq archive if not already cached."""
-        if os.path.exists(STOOQ_CACHE_PATH):
-            size_mb = os.path.getsize(STOOQ_CACHE_PATH) / (1024 * 1024)
-            logger.info(f"[Stooq] Using cached archive ({size_mb:.0f} MB)")
-            return STOOQ_CACHE_PATH
 
-        logger.info(f"[Stooq] Downloading archive from {STOOQ_ARCHIVE_URL}...")
-        try:
-            async with httpx.AsyncClient(timeout=600, follow_redirects=True) as client:
-                async with client.stream("GET", STOOQ_ARCHIVE_URL) as resp:
-                    if resp.status_code != 200:
-                        logger.error(f"[Stooq] Download failed: HTTP {resp.status_code}")
-                        return None
-
-                    tmp_path = STOOQ_CACHE_PATH + ".tmp"
-                    total = 0
-                    with open(tmp_path, "wb") as f:
-                        async for chunk in resp.aiter_bytes(chunk_size=1024 * 1024):
-                            f.write(chunk)
-                            total += len(chunk)
-
-                    os.replace(tmp_path, STOOQ_CACHE_PATH)
-                    logger.info(f"[Stooq] Downloaded {total / (1024*1024):.0f} MB")
-                    return STOOQ_CACHE_PATH
-
-        except Exception as e:
-            logger.error(f"[Stooq] Download failed: {e}")
-            return None
+class StooqRateLimitError(Exception):
+    """Raised when Stooq's daily hits limit is exceeded."""
+    pass
