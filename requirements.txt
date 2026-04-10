@@ -49,6 +49,7 @@ openai>=1.40.0
 
 # Bulk data sources
 yfinance>=0.2.40
+pandas-datareader>=0.10.0
 
 # Testing
 pytest>=7.4.0
