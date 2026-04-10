@@ -24,7 +24,7 @@ from loguru import logger
 from services.bulk_data_sources.base import BulkDataSourceAdapter
 
 # Default path on the droplet. Override via constructor if needed.
-DEFAULT_ZIP_PATH = "/opt/multi-agent-trader/stooq_data/d_us_txt.zip"
+DEFAULT_ZIP_PATH = "/app/stooq_data/d_us_txt.zip"
 
 
 class StooqAdapter(BulkDataSourceAdapter):

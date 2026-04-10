@@ -27,6 +27,7 @@ services:
     volumes:
       - backtest_data:/app/data/backtest_cache
       - backtest_results:/app/data/backtest_results
+      - /opt/multi-agent-trader/stooq_data:/app/stooq_data:ro
     command: >
       sh -c "alembic upgrade head && uvicorn api.main:app --host 0.0.0.0 --port 8000"
 
@@ -41,6 +42,7 @@ services:
     volumes:
       - backtest_data:/app/data/backtest_cache
       - backtest_results:/app/data/backtest_results
+      - /opt/multi-agent-trader/stooq_data:/app/stooq_data:ro
     command: python main.py --mode paper
 
 volumes:
