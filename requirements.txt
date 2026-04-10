@@ -47,6 +47,9 @@ anthropic>=0.39.0
 # Embeddings — OpenAI API for vector search
 openai>=1.40.0
 
+# Bulk data sources
+yfinance>=0.2.40
+
 # Testing
 pytest>=7.4.0
 pytest-asyncio>=0.23.0
