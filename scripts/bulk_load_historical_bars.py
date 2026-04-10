@@ -7,13 +7,20 @@ Usage:
   python scripts/bulk_load_historical_bars.py --sources stooq,yfinance
   python scripts/bulk_load_historical_bars.py --symbols AAPL,MSFT,GOOGL --days 30
   python scripts/bulk_load_historical_bars.py --limit 100 --dry-run
+  python scripts/bulk_load_historical_bars.py --chunk-size 500
 
 Sources: stooq, yfinance
 Each source adapter is independent — if one fails, the others continue.
 Rows use INSERT ... ON CONFLICT DO NOTHING so re-runs are idempotent.
+
+The universe is processed in chunks (default 250 symbols) to keep peak
+memory under control on small droplets. Each chunk is fetched and written
+before the next chunk starts, so only one chunk's bars are in memory at
+a time.
 """
 import argparse
 import asyncio
+import math
 import sys
 import time
 from datetime import date, timedelta
@@ -30,6 +37,7 @@ from models.agent_action import AgentAction
 
 AVAILABLE_SOURCES = ["stooq", "yfinance"]
 INSERT_CHUNK_SIZE = 10_000
+CHUNK_SIZE = 250  # symbols per chunk — keeps peak memory ~50 MB
 
 
 def get_adapter(source_name: str):
@@ -112,8 +120,11 @@ async def main():
     parser.add_argument("--days", type=int, default=252, help="Trading days back from today (default: 252)")
     parser.add_argument("--symbols", default=None, help="Comma-separated symbols (overrides Alpaca universe)")
     parser.add_argument("--limit", type=int, default=None, help="Only process first N symbols from universe")
+    parser.add_argument("--chunk-size", type=int, default=CHUNK_SIZE, help=f"Symbols per chunk (default: {CHUNK_SIZE})")
     parser.add_argument("--dry-run", action="store_true", help="Fetch from sources but don't write to DB")
     args = parser.parse_args()
+
+    chunk_size = args.chunk_size
 
     sources = [s.strip().lower() for s in args.sources.split(",") if s.strip()]
     for s in sources:
@@ -140,9 +151,12 @@ async def main():
         symbols = symbols[:args.limit]
         logger.info(f"Limited to first {args.limit} symbols")
 
+    total_chunks = math.ceil(len(symbols) / chunk_size)
+
     print(f"\nBulk load configuration:")
     print(f"  Sources: {sources}")
     print(f"  Symbols: {len(symbols)}")
+    print(f"  Chunk size: {chunk_size} ({total_chunks} chunks)")
     print(f"  Date range: {start_date} to {end_date}")
     print(f"  Dry run: {args.dry_run}")
     print()
@@ -158,29 +172,57 @@ async def main():
 
         await log_action(
             f"bulk_load_{source_name}", "in_progress", None,
-            {"source": source_name, "symbol_count": len(symbols)},
+            {"source": source_name, "symbol_count": len(symbols), "chunk_size": chunk_size},
         )
 
         source_start = time.time()
-        try:
-            adapter = get_adapter(source_name)
-            bars = await adapter.fetch_bars(symbols, start_date, end_date)
-            source_elapsed = time.time() - source_start
+        source_bars_total = 0
+        source_inserted_total = 0
+        source_symbols = set()
 
-            unique_symbols = len({b["symbol"] for b in bars})
-            print(f"  Fetched: {len(bars):,} bars from {unique_symbols:,} symbols in {source_elapsed:.0f}s")
+        try:
+            # Instantiate adapter ONCE outside the chunk loop so indexes
+            # (e.g. Stooq's ZIP index) are built once and reused.
+            adapter = get_adapter(source_name)
+
+            for chunk_idx in range(0, len(symbols), chunk_size):
+                chunk_symbols = symbols[chunk_idx : chunk_idx + chunk_size]
+                chunk_num = chunk_idx // chunk_size + 1
+
+                # Fetch this chunk
+                bars = await adapter.fetch_bars(chunk_symbols, start_date, end_date)
+                chunk_bar_count = len(bars)
+                source_bars_total += chunk_bar_count
+                source_symbols.update(b["symbol"] for b in bars)
+
+                # Write immediately, then discard
+                if not args.dry_run:
+                    inserted = await bulk_insert_bars(bars)
+                    source_inserted_total += inserted
+                else:
+                    inserted = 0
+
+                # Discard bars to free memory
+                del bars
+
+                logger.info(
+                    f"[{source_name}] Chunk {chunk_num}/{total_chunks}: "
+                    f"fetched {chunk_bar_count:,} bars, inserted {inserted:,} rows "
+                    f"(cumulative {len(source_symbols):,}/{len(symbols):,} symbols)"
+                )
+
+            source_elapsed = time.time() - source_start
+            print(f"  Fetched: {source_bars_total:,} bars from {len(source_symbols):,} symbols in {source_elapsed:.0f}s")
 
             if not args.dry_run:
-                inserted = await bulk_insert_bars(bars)
-                print(f"  Inserted: {inserted:,} rows (conflicts skipped)")
+                print(f"  Inserted: {source_inserted_total:,} rows (conflicts skipped)")
             else:
-                inserted = 0
-                print(f"  DRY RUN: would insert {len(bars):,} rows")
+                print(f"  DRY RUN: would insert {source_bars_total:,} rows")
 
             results[source_name] = {
-                "bars_fetched": len(bars),
-                "symbols": unique_symbols,
-                "inserted": inserted,
+                "bars_fetched": source_bars_total,
+                "symbols": len(source_symbols),
+                "inserted": source_inserted_total,
                 "elapsed_seconds": round(source_elapsed, 1),
             }
 
@@ -193,9 +235,9 @@ async def main():
             source_elapsed = time.time() - source_start
             logger.error(f"{source_name} failed: {e}")
             results[source_name] = {
-                "bars_fetched": 0,
-                "symbols": 0,
-                "inserted": 0,
+                "bars_fetched": source_bars_total,
+                "symbols": len(source_symbols),
+                "inserted": source_inserted_total,
                 "elapsed_seconds": round(source_elapsed, 1),
                 "error": str(e),
             }
