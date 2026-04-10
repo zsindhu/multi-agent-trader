@@ -1,27 +1,75 @@
 """
-Stooq Adapter — Fetches historical daily bars from Stooq via
-pandas-datareader's built-in Stooq reader.
+Stooq Adapter — Reads historical daily bars from a local Stooq US daily
+archive ZIP file. No network calls.
 
-Processes symbols one at a time (Stooq's reader is per-symbol), batched
-with 2s sleeps between batches to stay under Stooq's daily request limits.
-Synchronous pandas-datareader calls run in a thread executor for async compat.
+The ZIP is manually downloaded from Stooq and placed on the droplet at a
+configurable path. Standard Stooq layout inside the ZIP:
+  data/daily/us/{exchange}/{bucket}/{symbol}.us.txt
+
+CSV format per file (header uses angle brackets):
+  <TICKER>,<PER>,<DATE>,<TIME>,<OPEN>,<HIGH>,<LOW>,<CLOSE>,<VOL>,<OPENINT>
+  AAPL.US,D,20240315,000000,171.17,172.62,170.29,172.62,65002928,0
+
+Dates are YYYYMMDD. Volume is in shares.
 """
-import asyncio
-import math
-from datetime import date
+import csv
+import io
+import os
+import zipfile
+from datetime import date, datetime
+from typing import Optional
 
 from loguru import logger
 
 from services.bulk_data_sources.base import BulkDataSourceAdapter
 
-BATCH_SIZE = 25
-BATCH_SLEEP = 2.0  # seconds between batches — Stooq has daily hit limits
+# Default path on the droplet. Override via constructor if needed.
+DEFAULT_ZIP_PATH = "/opt/multi-agent-trader/stooq_data/d_us_txt.zip"
 
 
 class StooqAdapter(BulkDataSourceAdapter):
-    """Fetches daily bars from Stooq via pandas-datareader."""
+    """Reads daily bars from a local Stooq ZIP archive."""
 
     source_name = "stooq"
+
+    def __init__(self, zip_path: str = DEFAULT_ZIP_PATH):
+        self.zip_path = zip_path
+        self._zf: Optional[zipfile.ZipFile] = None
+        # Maps uppercase symbol -> internal zip path (built once on first use)
+        self._index: Optional[dict[str, str]] = None
+
+    def _ensure_index(self):
+        """Open the ZIP and build the symbol -> path index on first call."""
+        if self._index is not None:
+            return
+
+        if not os.path.exists(self.zip_path):
+            raise FileNotFoundError(
+                f"Stooq ZIP not found at {self.zip_path}. "
+                f"Download from https://stooq.com/db/h/ and place it there."
+            )
+
+        self._zf = zipfile.ZipFile(self.zip_path, "r")
+        self._index = {}
+
+        for entry in self._zf.namelist():
+            if not entry.endswith(".txt"):
+                continue
+            basename = os.path.basename(entry).lower()
+
+            # Strip .us.txt suffix to get the ticker
+            if basename.endswith(".us.txt"):
+                raw_ticker = basename[:-7]
+            elif basename.endswith(".txt"):
+                raw_ticker = basename[:-4]
+            else:
+                continue
+
+            # Stooq uses hyphens for dot-class symbols: brk-b.us.txt -> BRK.B
+            ticker = raw_ticker.replace("-", ".").upper()
+            self._index[ticker] = entry
+
+        logger.info(f"[Stooq] Indexed {len(self._index)} symbols from {self.zip_path}")
 
     async def fetch_bars(
         self,
@@ -29,100 +77,80 @@ class StooqAdapter(BulkDataSourceAdapter):
         start_date: date,
         end_date: date,
     ) -> list[dict]:
-        logger.info(f"[Stooq] Fetching bars for {len(symbols)} symbols ({start_date} to {end_date})")
+        logger.info(f"[Stooq] Reading bars for {len(symbols)} symbols ({start_date} to {end_date})")
+
+        self._ensure_index()
 
         all_bars = []
-        total_batches = math.ceil(len(symbols) / BATCH_SIZE)
-        hit_limit = False
+        found = 0
+        missing = 0
 
-        for batch_idx in range(0, len(symbols), BATCH_SIZE):
-            if hit_limit:
-                break
+        for symbol in symbols:
+            sym_upper = symbol.upper()
+            zip_path = self._index.get(sym_upper)
 
-            batch = symbols[batch_idx : batch_idx + BATCH_SIZE]
-            batch_num = batch_idx // BATCH_SIZE + 1
+            if zip_path is None:
+                logger.debug(f"[Stooq] {sym_upper} not in archive")
+                missing += 1
+                continue
 
-            for symbol in batch:
-                if hit_limit:
-                    break
-                try:
-                    bars = await self._fetch_symbol(symbol, start_date, end_date)
-                    all_bars.extend(bars)
-                except StooqRateLimitError:
-                    logger.warning(f"[Stooq] Daily hits limit reached at symbol {symbol}. Stopping.")
-                    hit_limit = True
-                except Exception as e:
-                    logger.warning(f"[Stooq] Failed to fetch {symbol}: {e}")
+            try:
+                bars = self._read_symbol(sym_upper, zip_path, start_date, end_date)
+                all_bars.extend(bars)
+                found += 1
+            except Exception as e:
+                logger.warning(f"[Stooq] Failed to parse {sym_upper}: {e}")
 
-            if batch_num % 10 == 0 or batch_num == total_batches:
-                unique = len({b["symbol"] for b in all_bars})
-                logger.info(f"[Stooq] Batch {batch_num}/{total_batches} done, {len(all_bars)} bars from {unique} symbols")
-
-            if batch_idx + BATCH_SIZE < len(symbols) and not hit_limit:
-                await asyncio.sleep(BATCH_SLEEP)
-
-        unique_symbols = len({b["symbol"] for b in all_bars})
-        logger.info(f"[Stooq] Fetched {len(all_bars)} total bars from {unique_symbols} symbols")
+        logger.info(
+            f"[Stooq] Done: {len(all_bars)} bars from {found} symbols "
+            f"({missing} not in archive)"
+        )
         return all_bars
 
-    async def _fetch_symbol(self, symbol: str, start_date: date, end_date: date) -> list[dict]:
-        """Fetch bars for a single symbol via pandas-datareader in a thread executor."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._fetch_symbol_sync, symbol, start_date, end_date)
-
-    def _fetch_symbol_sync(self, symbol: str, start_date: date, end_date: date) -> list[dict]:
-        """Synchronous single-symbol fetch via pandas-datareader."""
-        import pandas_datareader.data as pdr
-
-        sym_upper = symbol.upper()
-
-        try:
-            df = pdr.DataReader(sym_upper, "stooq", start_date, end_date)
-        except Exception as e:
-            err_str = str(e).lower()
-            if "limit" in err_str or "too many" in err_str or "429" in err_str:
-                raise StooqRateLimitError(f"Rate limit hit for {sym_upper}: {e}")
-            raise
-
-        if df is None or df.empty:
-            logger.debug(f"[Stooq] No data for {sym_upper}")
-            return []
-
+    def _read_symbol(
+        self, symbol: str, zip_path: str, start_date: date, end_date: date,
+    ) -> list[dict]:
+        """Read and parse one symbol's CSV from the ZIP."""
         bars = []
-        for idx, row in df.iterrows():
-            try:
-                bar_date = idx.date() if hasattr(idx, "date") else idx
 
-                if bar_date < start_date or bar_date > end_date:
+        with self._zf.open(zip_path) as f:
+            text = io.TextIOWrapper(f, encoding="utf-8", errors="replace")
+            reader = csv.reader(text)
+
+            for row in reader:
+                # Skip header lines (start with <) and short rows
+                if not row or row[0].startswith("<"):
+                    continue
+                if len(row) < 9:
                     continue
 
-                close = row.get("Close")
-                volume = row.get("Volume")
-                if close is None or volume is None:
-                    continue
+                try:
+                    # TICKER,PER,DATE,TIME,OPEN,HIGH,LOW,CLOSE,VOL,OPENINT
+                    bar_dt = datetime.strptime(row[2], "%Y%m%d").date()
 
-                import math as _math
-                if _math.isnan(float(close)) or _math.isnan(float(volume)):
-                    continue
+                    if bar_dt < start_date or bar_dt > end_date:
+                        continue
 
-                bars.append({
-                    "symbol": sym_upper,
-                    "bar_date": bar_date,
-                    "open": float(row.get("Open", 0)),
-                    "high": float(row.get("High", 0)),
-                    "low": float(row.get("Low", 0)),
-                    "close": float(close),
-                    "volume": int(float(volume)),
-                    "vwap": None,
-                    "trade_count": None,
-                    "source": self.source_name,
-                })
-            except (ValueError, TypeError):
-                continue
+                    bars.append({
+                        "symbol": symbol,
+                        "bar_date": bar_dt,
+                        "open": float(row[4]),
+                        "high": float(row[5]),
+                        "low": float(row[6]),
+                        "close": float(row[7]),
+                        "volume": int(float(row[8])),
+                        "vwap": None,
+                        "trade_count": None,
+                        "source": self.source_name,
+                    })
+                except (ValueError, IndexError):
+                    continue
 
         return bars
 
-
-class StooqRateLimitError(Exception):
-    """Raised when Stooq's daily hits limit is exceeded."""
-    pass
+    def close(self):
+        """Close the ZIP file handle if open."""
+        if self._zf:
+            self._zf.close()
+            self._zf = None
+            self._index = None
