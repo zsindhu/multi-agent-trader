@@ -1,0 +1,62 @@
+tier2a_prefilter:
+  # Combination logic: at least min_signals_to_fire independent rules
+  # must fire before a name is promoted. Single signals are too noisy.
+  min_signals_to_fire: 2
+
+  # Rule thresholds (override defaults in signal_compute.py)
+  rules:
+    volume_zscore:
+      enabled: true
+      threshold: 2.0
+      window: 60
+      weight: 0.20
+
+    range_expansion:
+      enabled: true
+      threshold: 1.5
+      atr_period: 20
+      weight: 0.15
+
+    gap_zscore:
+      enabled: true
+      threshold: 2.0
+      window: 60
+      weight: 0.15
+
+    iv_rank_delta:
+      enabled: true
+      threshold: 15.0    # points change over 5 trading days
+      weight: 0.20
+
+    correlation_breakdown:
+      enabled: true
+      threshold: 0.3
+      short_window: 20
+      long_window: 60
+      weight: 0.15
+
+    news_density:
+      enabled: true
+      threshold: 2.0
+      weight: 0.15
+
+    # Rules not yet wired (data dependencies pending):
+    # put_call_ratio:     needs 1.3.4 options volume data
+    # options_volume_oi:  needs 1.3.4 options volume data
+    # earnings_proximity: needs 1.3.4 earnings calendar
+    # short_interest:     needs FINRA data ingestion
+    # social_velocity:    needs 1.3.6 sentiment data
+
+  # Near-miss capture: top N names below cutoff
+  near_miss_count: 30
+
+  # Bars source for historical data queries
+  bars_source: "alpaca"
+
+  # Pacing
+  batch_size: 100
+  progress_log_interval: 500    # log progress every N symbols
+
+  # IV rank computation
+  iv_rank_window_days: 252      # 1 year for IV rank percentile
+  iv_rank_delta_lookback: 5     # trading days for Rule 4
