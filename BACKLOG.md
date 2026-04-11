@@ -1,6 +1,16 @@
 # Premium Trader — Backlog
 
-Last updated: 2026-04-06
+Last updated: 2026-04-11
+
+---
+
+## Working rules
+
+1. **Recon-first Claude Code**: Any prompt touching existing subsystems must be structured recon-first. Turn 1 reports findings + proposes a plan, no commits. Turn 2 executes after human review. Read-only is the default; commit permission is a separate explicit grant.
+2. **Diagnostics before fixes**: Isolate a variable with an experiment before writing a fix. Failed fixes compound uncertainty; they don't reset it.
+3. **Decision transparency everywhere**: Every selection, rejection, and tier transition records WHY in name_observations (selection_reason, selection_score, selection_signals, rejected_reason).
+4. **Multi-window metrics**: Never store single-window measurements for things with meaningfully different values across timeframes. Capture short/medium/long; let analysis decide.
+5. **Research sandbox over trading bot**: When "ships faster" conflicts with "generates better research data," choose better research data.
 
 ---
 
@@ -43,9 +53,6 @@ that's a long-term measurement. The near-term success criteria are:
 
 ## Architecture overview
 
-Premium Trader has four conceptual layers. The current system has the
-bottom two well-built. Phase 1 builds the middle two.
-
 ```
 ┌─────────────────────────────────────────────────────┐
 │  Layer 4 — Research Interface                       │
@@ -55,22 +62,25 @@ bottom two well-built. Phase 1 builds the middle two.
 ├─────────────────────────────────────────────────────┤
 │  Layer 3 — Intelligence Agents                      │
 │  Lead Agent (decisions + actions)         ← exists  │
-│  Breadth Analyst (universe screening)     ← new     │
-│  Fundamentals Analyst (10-K/10-Q reading) ← new     │
-│  Research Analyst (strategy iteration)    ← new     │
+│  Breadth Analyst (universe screening)     ← exists  │
+│  Tier 2a Pre-filter (change detection)    ← exists  │
+│  Fundamentals Analyst (10-K/10-Q reading) ← planned │
+│  Research Analyst (strategy iteration)    ← planned │
 ├─────────────────────────────────────────────────────┤
 │  Layer 2 — Research Data Layer                      │
-│  PostgreSQL + JSONB + pgvector            ← new     │
-│  Six core tables (see Phase 1)                      │
-│  Skill documents, embeddings, msg bus               │
+│  PostgreSQL + JSONB + pgvector            ← exists  │
+│  Eight core tables + historical_bars      ← exists  │
+│  Skill documents, embeddings, msg bus     ← exists  │
 ├─────────────────────────────────────────────────────┤
 │  Layer 1 — Data Foundation                          │
-│  Alpaca (market data, options, news)      ← exists  │
+│  Alpaca (market data, options, execution) ← exists  │
 │  Yahoo (spot VIX)                         ← exists  │
-│  FRED (macro indicators)                  ← new     │
-│  EDGAR (SEC filings)                      ← new     │
-│  TA-Lib (technical indicators)            ← new     │
-│  Tiered scanning (4,000 name universe)    ← new     │
+│  Finnhub (earnings, news)                 ← exists  │
+│  Stooq + yfinance (historical bulk)       ← exists  │
+│  FRED (macro indicators)                  ← exists  │
+│  EDGAR (SEC filings)                      ← exists  │
+│  Technical indicators (pure Python)       ← exists  │
+│  Social sentiment (StockTwits/Reddit)     ← planned │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -94,6 +104,56 @@ file, add it under PARKING LOT and keep working on the current phase.
 
 ---
 
+## BUILD NOW vs NEXT WEEK
+
+### Build now (this session / next 1-2 days)
+
+Nothing. The system needs to **run and generate data** before more code
+makes sense. The Tier 2a pre-filter and Breadth Analyst are deployed but
+have not been observed against real market data yet.
+
+**Operator tasks (not code):**
+1. Run `scripts/run_breadth_analyst.py sweep` on the droplet. Verify AAPL
+   `avg_volume_20d` ≈ 28M (source-scoping fix worked) not ≈ 84M (triple-counted).
+2. Run `scripts/run_tier2a.py --dry-run` on the droplet. Spot-check:
+   how many names promoted? What signal distributions look like? Are the
+   6 live rules producing sane scores?
+3. Let both crons run for 2-3 trading days. Accumulate name_observations
+   data at both tiers.
+4. Query the data: `SELECT tier, was_considered, COUNT(*) FROM name_observations
+   WHERE timestamp >= NOW() - INTERVAL '3 days' GROUP BY tier, was_considered;`
+
+**Why hold off on code:** Building more without observing the output of
+what's deployed violates working rule #2 (diagnostics before fixes). The
+Tier 2a signals are theoretical until we see them on real data. Building
+1.4.0b-b (LLM reasoning) on top of unvalidated signals would compound
+uncertainty.
+
+### Build next week (after 3-5 trading days of observation)
+
+**Priority 1 — Wire remaining Tier 2a rules (as data lands):**
+- Rules 5/6 (put/call ratio, options volume/OI) — verify Alpaca provides
+  this data in the options chain response, then wire
+- Rule 8 (earnings proximity) — wire from existing `earnings_calendar.py`
+- Rules 9/11 (short interest, social velocity) — blocked on data ingestion
+
+**Priority 2 — 1.4.0b-b Tier 2b LLM reasoning layer:**
+- Only after Tier 2a signal behavior is validated on real data
+- Llama 3.3 on Together AI, ~$10/month
+- Reads top ~600 from Tier 2a, produces reasoning strings for passes+rejects
+- Every reasoning string logged to name_observations
+
+**Priority 3 — 1.4.1.1 Fundamentals Analyst:**
+- LLM agent reads EDGAR filings + earnings + FRED macro context
+- Produces qualitative context for Tier 3 reasoning
+
+**Priority 4 — 1.4.2.1 Outcome labeler service:**
+- Joins name_observations to closed position outcomes
+- Ground truth substrate for everything in the learning loop
+- Needs enough closed trades to be meaningful (~30 minimum)
+
+---
+
 ## PHASE 1 — Data Foundation
 
 **Goal:** Build the substrate that all future research and intelligence
@@ -101,362 +161,270 @@ builds on. Capture every signal the system produces, expand the universe
 to test the breadth thesis, wire up high-quality free data feeds, and
 expose the data via a plain HTML inspector.
 
-**Estimated effort:** 5 batches, ~2-3 weeks of work
-**Estimated cost increase:** $80-120/month operational (mostly Anthropic API)
+### Batch 1.1 — Research Data Layer Schema `[x]` SHIPPED
 
-### Batch 1.1 — Research data layer schema
+Six tables live with pgvector: cycle_snapshots, name_observations,
+agent_messages, skill_documents, reasoning_embeddings, agent_capabilities.
+Plus agent_actions (unified audit log) and historical_bars (persistent bar
+cache). Embeddings service operational. Consumers do not yet exist beyond
+Tier 2a writes — substrate without flywheel.
 
-**Goal:** The six PostgreSQL tables + migrations + basic write paths from
-existing code into the new tables. This is the foundation everything else
-builds on.
+### Batch 1.2 — Tiered Scanning (rescoped)
 
-**Tasks:**
+- `[x]` **1.2.1 Tier 1** — Universe definition. SHIPPED as rule-based Breadth
+  Analyst. Daily 8 AM ET sweep of ~4,500 optionable US equities. Mechanical
+  filters from config/breadth_analyst.yaml. Pass/reject/near-miss logged
+  with full reasoning to name_observations. **Pending: Part B sanity run.**
+- `[~]` **1.2.2-1.2.5** — Superseded. See 1.4.0b-a (Tier 2a) and 1.4.0b-b
+  (Tier 2b) below for the actual tier 2/3 implementation.
 
-- [ ] **1.1.1** Install pgvector extension on the droplet's PostgreSQL
-- [ ] **1.1.2** Create `cycle_snapshots` table — one row per LLM cycle
-  with structured columns (timestamp, regime, vix, breadth, etc.) plus a
-  JSONB `full_context` column for everything else
-- [ ] **1.1.3** Create `name_observations` table — one row per name per
-  cycle for every name the system looked at, with tier (1/2/3/4),
-  was_considered, was_traded, rejection_reason, plus JSONB for the full
-  per-name analysis
-- [ ] **1.1.4** Create `agent_messages` table — the inter-agent
-  communication bus. Any agent can write a message, any agent can read.
-  Loose coupling through shared database.
-- [ ] **1.1.5** Create `skill_documents` table — versioned markdown
-  documents per agent. Each agent maintains its own evolving description
-  of its strategy and capabilities. Old versions preserved.
-- [ ] **1.1.6** Create `reasoning_embeddings` table — vector embeddings
-  for every reasoning trace, playbook entry, and skill document version.
-  Powers semantic search via pgvector.
-- [ ] **1.1.7** Create `agent_capabilities` table — registry of what
-  each agent can do. Other agents query this to see what's available.
-- [ ] **1.1.8** Wire the existing Lead Agent's `_store_cycle_reasoning`
-  to ALSO write a row to `cycle_snapshots` with the full context as JSONB
-- [ ] **1.1.9** Add a helper function `embed_and_store(text, source_table,
-  source_id)` that calls OpenAI embeddings API and writes to
-  `reasoning_embeddings`. Include cost tracking.
-- [ ] **1.1.10** Migration scripts and Alembic versions for all of the above
+### Batch 1.2b — Multi-source historical_bars `[x]` SHIPPED
 
-**Deliverable:** After this batch ships, every cycle the Lead Agent runs
-writes a complete snapshot to the new tables. We can query "what was the
-full context of the cycle on April 5 at 2pm" and get back everything.
+Stooq ZIP adapter (local-file reader), yfinance adapter, Alpaca adapter.
+Chunked bulk loader (fixed OOM). 3.08M rows landed. Bug fixes: source-aware
+dedup, source-scoped metrics.
 
-**Cost impact:** $0/month direct. Embedding API is $0.01/month at this scale.
+### Batch 1.3 — Additional Data Feeds `[x]` SHIPPED (partial)
 
----
+- `[x]` **1.3.1** FRED macro — `services/fred_service.py`. Treasury yields,
+  yield curve, Fed funds, VIX (CBOE official), unemployment, inflation
+  expectations. Free, no API key. Cached 6 hours. Wired in bootstrap.
+- `[x]` **1.3.2** EDGAR filings — `services/edgar_service.py`. 10-K, 10-Q,
+  8-K filings via SEC EDGAR API. Free, no API key. Rate-limited per SEC
+  policy. CIK lookup cached. Wired in bootstrap.
+- `[x]` **1.3.3** Technical indicators — `services/technical_indicators.py`.
+  RSI, MACD, Bollinger Bands, ATR, SMA/EMA, OBV. **Pure Python, no TA-Lib
+  dependency.** All functions take OHLCV arrays, return computed values.
+- `[x]` **1.3.4** Earnings calendar — `services/earnings_calendar.py`.
+  Pre-existing (Finnhub). Gates rule #8 in 1.4.0b-a.
+- `[x]` **1.3.5** News feed — `services/news_feed.py`. Pre-existing
+  (Finnhub). Feeds rule #10 in 1.4.0b-a.
+- `[ ]` **1.3.6** Social sentiment (NEW) — feeds rule #11 in 1.4.0b-a.
+  - 1.3.6.1 StockTwits ingestion: symbol-level message volume + bullish/bearish
+    ratios. Free API, rate-limited.
+  - 1.3.6.2 Reddit ingestion: r/wallstreetbets, r/options, r/stocks via PRAW
+    or Pushshift. Track mention velocity (spike vs baseline).
+  - 1.3.6.3 Wire sentiment features into Tier 2a as rule #11.
+  - 1.3.6.4 Capture in name_observations.selection_signals for counterfactual
+    research.
 
-### Batch 1.2 — Universe expansion + tiered scanning
+### Batch 1.4.0b-a — Tier 2a Mechanical Pre-filter `[x]` SHIPPED (6/11 rules)
 
-**Goal:** Replace the current 16-name fixed scanner with a 4,000-name
-universe and a tiered scanning architecture. This is what actually tests
-the breadth thesis.
+**Framing:** Tier 2a answers "Is something different about this name today
+vs its own recent history?" Every rule is a change-detection rule measured
+against the name's own distribution. Per-name baselines prevent the
+large-cap bias every retail screener has.
 
-**Tasks:**
+**Combination logic:** Each rule produces a normalized signal score (0-1).
+Selection score is a weighted sum, but at least 2 independent rules must
+fire before promotion. Initial weights equal; tuned by statistical learner
+in 1.4.2.2.
 
-- [ ] **1.2.1** Build the universe loader: pull all US-listed equities and
-  ETFs from Alpaca that have listed options, filter to those with stock
-  price > $5 and average daily volume > 100K shares. Target: 3,500-4,500
-  names. Cache the result for 24 hours.
-- [ ] **1.2.2** Build Tier 1 (Universe Sweep) — runs once per day before
-  market open. Pulls daily bars + market cap + average volume + basic
-  options availability for ALL universe names. Cheap because daily bars
-  are one API call per name and cached for the day. Stores results in
-  `name_observations` with tier=1.
-- [ ] **1.2.3** Build Tier 2 (Active Universe) — runs every 2 hours during
-  market hours. Filters Tier 1 results to names with "interesting
-  characteristics": unusual volume, large price moves, IV rank changes,
-  earnings approaching. Narrows ~4000 to ~200-400 names. Fetches options
-  chains and computes IV ranks. Stores results with tier=2.
-- [ ] **1.2.4** Build Tier 3 (Deep Analysis) — runs every 15 minutes
-  during market hours. From Tier 2 results, picks ~30-60 names that are
-  actually candidates for trading. Runs full analysis (options chain
-  scoring, liquidity, support/resistance, news sentiment). This is what
-  the LLM reasons over. Stores results with tier=3.
-- [ ] **1.2.5** Build Tier 4 (Position Management) — runs every 15
-  minutes, only on currently-open positions. Refreshes position state
-  near-real-time. Stores results with tier=4.
-- [ ] **1.2.6** Add async batching where appropriate — fetch multiple
-  symbols in parallel using `asyncio.gather` to stay under Alpaca rate
-  limits while moving fast through the universe.
-- [ ] **1.2.7** Add caching with appropriate TTLs — daily bars cached for
-  24h, options chains cached for 1h, quotes cached for 1 minute.
-- [ ] **1.2.8** Update the existing Scanner agent to use the new tier
-  system. Lead Agent reads from Tier 3 results. Existing scanner
-  functionality preserved but now operates on the broader universe.
+**The 11 rules:**
+1. `[x]` Volume z-score vs name's 60d mean/std. Threshold: z >= 2.0
+2. `[x]` Range expansion vs 20d ATR. Threshold: >= 1.5x
+3. `[x]` Gap z-score vs name's 60d overnight gap distribution
+4. `[x]` IV rank delta over 5 trading days, >= 15 points
+5. `[ ]` Put/call volume ratio anomaly — needs verification (Alpaca options)
+6. `[ ]` Options volume / prior-day OI — needs verification
+7. `[x]` Correlation breakdown vs SPY (20d vs 60d, drop >= 0.3)
+8. `[ ]` Earnings proximity (gating rule, 1-14 days) — needs wiring from 1.3.4
+9. `[ ]` Short interest delta — needs FINRA data ingestion
+10. `[x]` News density z-score vs 30d baseline
+11. `[ ]` Social mention velocity — needs 1.3.6
 
-**Deliverable:** After this batch ships, the system is monitoring 4,000
-names with appropriate depth at each tier. The data layer captures every
-name the system looked at, whether it was traded or not.
+**Ship phasing:** 6/11 rules live with existing data. Rules 5/6/8 wire
+next as verification/wiring completes. Rules 9/11 blocked on data ingestion.
 
-**Cost impact:** Marginal Alpaca API usage increase (still well within
-free tier). LLM cost increase ~$20-40/month from richer Tier 3 context.
+**Deployed:** `agents/tier2a_prefilter.py`, `services/signal_compute.py`,
+`config/tier2a.yaml`, `scripts/run_tier2a.py`. Cron: 10 AM, 12 PM, 2 PM ET.
 
----
+### Batch 1.4.0b-b — Tier 2b LLM Reasoning Layer `[ ]`
 
-### Batch 1.3 — New data feeds
+Cheap LLM (Llama 3.3 on Together AI, ~$0.20/M tokens) reads top ~600 from
+Tier 2a with signals + playbook context + recent agent_messages. For each
+name, produces a short reasoning string for both passes and rejects.
+Promotes ~200-400 to Tier 3.
 
-**Goal:** Wire up the additional data sources that make the LLM's reasoning
-meaningfully richer than what Alpaca alone provides.
+Cost envelope: ~$10/month. Pulls Phase 4 cheap-model thesis forward.
 
-**Tasks:**
+Logging: every reasoning string logged to name_observations alongside
+mechanical signals. Ship order: after ~1 week of observed Tier 2a signal
+behavior.
 
-- [ ] **1.3.1** FRED integration — `services/fred_service.py` that fetches
-  macro indicators (VIX, 10Y yield, 2Y yield, yield curve, HYG/LQD spread,
-  unemployment, inflation expectations, Fed funds rate). Free, no API key
-  needed for basic access. Cache for 6 hours. Expose as a tool the Lead
-  Agent can call: `get_macro_indicators()`.
-- [ ] **1.3.2** EDGAR integration — `services/edgar_service.py` that can
-  fetch the most recent 10-K, 10-Q, or 8-K for any ticker symbol. Returns
-  structured text. Free, no API key. Rate limited to 10 req/sec which is
-  fine. Expose as a tool: `get_filing(symbol, filing_type)`.
-- [ ] **1.3.3** Technical indicators — install TA-Lib in the Docker image,
-  add `services/technical_indicators.py` that computes RSI, MACD, Bollinger
-  Bands, ATR, multiple moving averages from price bars. No external data
-  source needed — uses bars we already fetch. Add as fields in
-  name_observations or expose as a tool.
-- [ ] **1.3.4** Earnings calendar — Finnhub free tier provides earnings
-  dates and estimates. Add `services/earnings_calendar.py` (if not already
-  present) and a tool `get_earnings_upcoming(days_ahead)`.
-- [ ] **1.3.5** News enrichment — Alpaca's built-in news feed is free and
-  provides news with timestamps and ticker tags. Wire it more deeply into
-  the Lead Agent's tools so news becomes a first-class input to decisions
-  rather than an afterthought. Add a tool `get_news_for_symbol(symbol,
-  hours_back)`.
+### Batch 1.4.1 — Specialized Agents `[ ]`
 
-**Deliverable:** After this batch ships, the Lead Agent has access to
-macro context (FRED), fundamentals (EDGAR), technical indicators (TA-Lib),
-earnings dates (Finnhub), and news (Alpaca enriched). Every cycle's
-reasoning can pull from any of these sources via tool calls.
+- **1.4.1.1 Fundamentals Analyst** — LLM agent, reads EDGAR filings (1.3.2)
+  + earnings calendar (1.3.4) + FRED macro context (1.3.1). Produces
+  qualitative context for Tier 3 reasoning. Not a rule generator.
+- **1.4.1.2 Research Analyst** — promoted into 1.4.2.3 (depends on outcome
+  labeler).
+- **1.4.1.3 Pre-market briefing** — promoted into 1.4.2.4.
+- **1.4.1.4 Prompt caching** — across Lead Agent + Tier 2b + Fundamentals to
+  keep cost envelope intact as context grows.
 
-**Cost impact:** $0/month — all feeds are free.
+### Batch 1.4.2 — Learning Loop Activation `[ ]`
 
----
+**Framing:** Hybrid. Statistics handles quantitative signal-weight learning
+where small models on small features are more trustworthy than LLMs. The
+LLM handles narrative pattern recognition where qualitative + situational
+reasoning is the actual edge. Neither alone is the thesis — the combination
+is.
 
-### Batch 1.4 — New intelligence agents
+- **1.4.2.1 Outcome labeler** — joins name_observations to closed position
+  outcomes. 30-sample minimum, confidence intervals, CIs crossing zero are
+  flagged not promoted. Ground truth substrate.
+- **1.4.2.2 Statistical signal-weight learner** — logistic regression over
+  Tier 2a signal vector vs win/loss outcomes. Retrained monthly once >= ~200
+  closed trades exist. Output: updated weights for the 11 rules.
+- **1.4.2.3 Research Analyst (narrative-only)** — daily post-market
+  reflection. Restricted to narrative reasoning patterns, not predictive
+  rules. Writes to skill_documents and agent_messages.
+- **1.4.2.4 Pre-market briefing** — reads yesterday's Research Analyst
+  reflection + active playbook + pgvector semantic search. Injected into
+  Lead Agent's context each cycle.
+- **1.4.2.5 Citation tracking** — when Lead Agent cites a playbook entry,
+  log the citation + eventual trade outcome. Measure which entries correlate
+  with good outcomes.
+- **1.4.2.6 Decay and re-validation** — every active playbook entry gets
+  re-validated against fresh data on a schedule. Drops below threshold →
+  retired.
+- **1.4.2.7 Adversarial review (optional)** — second LLM reviews proposed
+  playbook entries with adversarial prompt.
+- **1.4.2.8 Skill document producer** — each agent writes/updates its own
+  skill_doc on schedule. Versioned.
+- **1.4.2.9 Lead Agent reads playbook + past reasoning** — the consumer
+  side. Currently writes to cycle_snapshots but doesn't read from them.
+- **1.4.2.10 Control Lead Agent (falsifiability)** — runs 3 months parallel
+  on frozen baseline. If playbook-reading agent doesn't beat it, the
+  document-based learning mechanism gets cut.
 
-**Goal:** Add the three new agents that operate on the data layer and the
-new feeds. These are the agents that make the system feel like a research
-desk instead of just a trader.
+### Batch 1.4.3 — Validation Pipeline `[ ]`
 
-**Tasks:**
+- **1.4.3.1 Backtester** — replays historical_bars + name_observations,
+  compares proposed changes vs current production.
+- **1.4.3.2 Shadow forward test** — 20 trading days parallel with production.
+- **1.4.3.3 Paper trading promotion** — 30 trading days real broker.
+- **1.4.3.4 Pending changes queue** — surfaced in /research.
+- **1.4.3.5 Manual review gate** — validated changes still require human
+  approval before live capital.
 
-- [ ] **1.4.1** Build the Breadth Analyst agent (`agents/breadth_analyst.py`).
-  Runs once per hour during market hours. Job: scan the Tier 1+2 universe
-  for names that look "interesting" by criteria the LLM defines. Surfaces
-  candidates to the Lead Agent via the `agent_messages` table. Maintains
-  its own skill document describing its screening methodology. Cost: ~$5
-  per day in LLM API.
-- [ ] **1.4.2** Build the Fundamentals Analyst agent
-  (`agents/fundamentals_analyst.py`). Runs on demand when triggered by
-  upcoming earnings or by Lead Agent request. Job: read the most recent
-  10-K/10-Q for a name via EDGAR, extract material information, benchmark
-  against industry peers, identify forward guidance, write findings to
-  `agent_messages`. Maintains its own skill document. Cost: ~$1.20 per day.
-- [ ] **1.4.3** Build the Research Analyst agent
-  (`agents/research_analyst.py`). Runs once per day after market close. Job:
-  read the day's `cycle_snapshots`, identify patterns ("CSPs in risk-off
-  underperformed CSPs in neutral by X%"), update its own skill document
-  with findings, write summary to `agent_messages` for Lead Agent to read
-  next morning. This is the "system that reads its own trade data" you
-  asked about. Cost: ~$0.30 per day.
-- [ ] **1.4.4** Update the Lead Agent's system prompt and tool list to:
-  (a) read `agent_messages` at the start of every cycle, (b) read its own
-  current skill document, (c) write to its skill document when it
-  discovers something material. The skill document becomes the Lead
-  Agent's evolving description of its own strategy.
-- [ ] **1.4.5** Add prompt caching for the parts of context that don't
-  change between cycles (system prompt, current skill documents, recent
-  playbook). This cuts Anthropic API costs by 50-90% on cached content.
+### Batch 1.5 — Research Inspector `[ ]`
 
-**Deliverable:** After this batch ships, the system has four agents
-collaborating through the message bus. Each maintains its own skill
-document. The Lead Agent is no longer making decisions in isolation — it's
-reading the morning briefing from the Research Analyst, the latest screen
-from the Breadth Analyst, and the latest deep dives from the Fundamentals
-Analyst.
-
-**Cost impact:** ~$80-120/month additional Anthropic API spend. Total
-operating cost lands at the projected $100-150/month.
-
----
-
-### Batch 1.5 — Research inspector (plain HTML at /research)
-
-**Goal:** Build the brutalist Win95-style research interface so we can
-actually see what the data layer is producing without writing SQL by hand.
-
-**Tasks:**
-
-- [ ] **1.5.1** Create PostgreSQL views that pre-aggregate the most useful
-  data: `today_cycles_with_summary`, `tier3_active_names`,
-  `latest_skill_documents`, `agent_message_feed`, `name_observation_history`.
-  These are SQL queries saved as named views — the eventual real dashboard
-  will read from these too.
-- [ ] **1.5.2** Build CLI inspection tool (`scripts/inspect.py`) with
-  subcommands: `cycles` (last N cycles), `names` (active tier 3),
-  `messages` (recent agent messages), `skills` (current skill documents),
-  `playbook` (recent playbook entries), `cost` (today's API spend).
-  Output to terminal as pretty-formatted tables.
-- [ ] **1.5.3** Build `make inspect` shortcut that runs the most useful
-  inspection commands in sequence and dumps everything to terminal. One
-  command, full system state.
-- [ ] **1.5.4** Add `/research` route to FastAPI. Plain HTML, no
-  JavaScript, no styling beyond minimal readable defaults. Renders the
-  data from the SQL views as HTML tables. Sections: latest cycle,
-  active universe, agent messages, skill documents, playbook. One page,
-  scrollable, dense.
-- [ ] **1.5.5** Add `/research/cycle/<id>` for drilling into a specific
-  cycle's full context (including the JSONB blob rendered as readable
-  text).
-- [ ] **1.5.6** Add `/research/search?q=...` endpoint that uses pgvector
-  semantic search across cycle reasonings, playbook entries, and skill
-  documents. Plain text input, plain text results. This is the killer
-  feature for research — ask "what did the system think about gold
-  miners in March" in plain English and get back the relevant cycles.
-
-**Deliverable:** After this batch ships, you have a URL to look at
-(`/research`) that shows everything the data layer has captured, plus
-a CLI tool for terminal-based inspection, plus semantic search across
-all the system's accumulated knowledge.
-
-**Cost impact:** $0/month. Pure read-only views over existing data.
+- PostgreSQL views for common queries
+- CLI inspection tool (`scripts/inspect.py`)
+- `/research` route (plain HTML, no JS)
+- `/research/cycle/<id>` drill-down
+- `/research/search?q=...` pgvector semantic search
 
 ---
 
 ## PHASE 2 — Real Dashboard (deferred)
 
-**Goal:** Build the actual research-focused dashboard that becomes the
-primary interface for studying the system. Designed around the research
-workflow, not the operational workflow.
+UI for inspecting cycles, positions, decisions, rejected candidates. Risk
+monitor fixes, timezone handling, sector rotation views. Deferred until
+Phase 1 foundation is solid.
 
-**Why deferred:** Don't design the UI until we know what data exists and
-what research questions are most useful to answer. The plain-HTML
-inspector from Batch 1.5 will reveal what we actually need.
+## PHASE 3 — Architecture Transferability (deferred)
 
-**Estimated start:** 2-3 weeks after Phase 1 completes
-**Batches not yet defined** — will be filled in based on what we learn
-from operating Phase 1 for a few weeks.
+Extract the four-tier funnel as reusable framework. Prove on BTC perpetuals.
+Explore prediction markets as third asset class.
 
----
+## PHASE 4 — Model Diversification (split)
 
-## PHASE 3 — Architecture Transferability (later)
-
-**Goal:** Refactor the codebase so the broker abstraction, market
-abstraction, and strategy abstraction are clean enough that we can swap
-in Bitcoin perpetuals or prediction markets without rewriting the core.
-
-**Why deferred:** Premature. We don't yet know if the architecture works
-in even one market. Prove it in options first, then think about transfer.
-
-**Estimated start:** 1-2 months after Phase 1 completes (assuming Phase 1
-proves out)
+- **4a — Ensemble for decision quality (near-term)**: Lead Agent's trade
+  decisions get second opinion from different model on critical cycles.
+- **4b — Specialized models per agent (longer-term)**: cheap models for
+  high-volume agents, Claude reserved for Lead Agent + Research Analyst.
+  Drives cost from $150 → ~$30/month. Note: 1.4.0b-b already pulls this
+  forward as a Phase 1 dependency.
 
 ---
 
 ## PARKING LOT
 
-Things that came up but aren't part of the current plan. Don't lose them,
-but don't work on them either until they get formally pulled into a phase.
+- Claude Code scope discipline — recon-first rule in working rules
+- Push discipline — "shipped vs pushed vs deployed" status convention
+- Prompt caching across agents (1.4.1.4) when context pressures cost
+- pgvector semantic search exposed via CLI for ad-hoc queries
+- Social sentiment (1.3.6) — StockTwits/Reddit API setup
 
-### UI fixes (deferred until Phase 2 redesign)
-- Active Positions card unreadable / "Unassigned" badges everywhere
-- Risk Monitor shows arbitrary numbers, computation broken
+### UI fixes (deferred until Phase 2)
+- Active Positions card unreadable / "Unassigned" badges
+- Risk Monitor computation broken
 - Time displayed in UTC instead of Eastern
-- System Assessment block shows JSON action list as giant code block
+- System Assessment shows JSON as giant code block
 - Last Cycle Actions should move from Dashboard to Trade Desk
-- Sector Rotation card empty (data never wired up)
-- Breadth shows stuck at 50% — possibly cache issue, possibly real
-- Equity chart Y-axis squashes data range
+- Sector Rotation card empty
+- Breadth stuck at 50%
 
-### Bugs (small, can be addressed within phase batches as discovered)
-- Two regime classifiers (`core/strategy.py` and `services/market_regime.py`)
-  still produce parallel outputs even after VIX consolidation
-- Frontend `buildEquityData` is dead code now that the API serves
-  `equity-history`
-- 21 legacy submitted trades in DB will never reconcile (already marked
-  as `unknown` via cleanup script)
-
-### Future intelligence agents
-- Strategy Backtest agent — replays historical decisions against actual
-  outcomes to validate the playbook
-- Risk Manager agent — separate from the Lead Agent, evaluates portfolio
-  risk in real time and can override with risk veto
-- Cross-Market Researcher — once Phase 3 ships, an agent that monitors
-  multiple markets simultaneously and identifies regime correlations
-
-### Ops improvements
-- GitHub Actions Node.js 20 deprecation warnings (need to bump action
-  versions before June 2026)
-- Worker pause/resume button on dashboard (plumbing exists, needs UI)
-- Mobile push notifications for risk events (Discord webhook exists,
-  needs to be configured and tested)
-- Daily Anthropic spend cap set to $5/day in console (safety net for
-  runaway token usage)
+### Bugs (small, addressed within batches as discovered)
+- Two regime classifiers still produce parallel outputs
+- Frontend `buildEquityData` is dead code
+- Legacy dead code: universe_loader.py, tier_writer.py, universe_filters.py,
+  run_universe_sweep.py (cleanup deferred to step 7)
 
 ---
 
-## OBSERVATIONS — read but do not engineer against
+## OBSERVATIONS
 
-Things to look at during observation blocks. Do NOT fix, just understand.
-
-### O1 — The learning flywheel is showing first signs of life
-On April 6, the LLM cited its own playbook entry in a trade decision:
-*"4 DTE Profit Capture Rule: 89.6% profit with 4 DTE in elevated VIX
-environment. Playbook rule confidence 0.9."* This is the first evidence
-of institutional memory compounding. Worth pulling all playbook entries
-and reading them end-to-end at some point this week.
-
-### O2 — System concentrated heavily in GDX
-8 of the original 8 positions were in gold miners or biotech, all bearish.
-Why did the scanner repeatedly surface the same names? Is this a feature
-(high IV in those names is real) or a bug (scanner bias)? Worth
-understanding before scaling capital. The Phase 1.2 universe expansion
-will probably resolve this naturally, but worth confirming.
-
-### O3 — Cost discipline is real
-Today's full LLM cycle (15970 in / 3673 out tokens, 9 actions) cost $0.10.
-The cost controls from earlier batches are working. Phase 1 will increase
-this but the architecture supports prompt caching to keep it bounded.
+- **O1**: Eight tables exist; consumers don't yet exist beyond Tier 2a
+  writes. Substrate is real, flywheel is not yet active.
+- **O2**: Lead Agent reads from hardcoded list, not from Tier 2 promotions.
+  1.4.2.9 is the wiring that connects the funnel end-to-end.
+- **O3**: Playbook citation on April 6 was recency, not learning. Real
+  learning requires 1.4.2.4 + 1.4.2.9.
+- **O4**: Breadth Analyst deployed but sanity-check run still pending. AAPL
+  avg_volume_20d ≈ 28M validates source-scoping; ≈ 84M means triple-counting.
+- **O5**: RESOLVED — 9 commits pushed 2026-04-11. Tier 2a + Batch 1.3
+  feeds now deployed.
 
 ---
 
 ## STRATEGIC OPEN QUESTIONS
 
-These don't have answers yet. They're the questions we're trying to answer
-by running the experiment.
-
-1. **Does the playbook actually compound knowledge, or does it accumulate
-   noise?** We'll know after 4-6 weeks of operation with the new data
-   layer capturing reasoning evolution.
-
-2. **Does the LLM's regime classification correlate with forward returns?**
-   Need ~3 months of data in `cycle_snapshots` to test this rigorously.
-
-3. **Are CSPs the right primary strategy, or should we be running iron
-   condors / wheels / 0DTE / something else?** Don't decide until we have
-   real performance data on the primary strategy.
-
-4. **What's the right balance between LLM autonomy and rule-based guardrails?**
-   Currently the LLM has full position management authority. Should some
-   things become hard rules (max position size, hard stop losses) or stay
-   under LLM judgment?
-
-5. **At what point do we start trading real money?** Set explicit criteria.
-   E.g.: "Trade real after 3 months of paper, after the system has shown
-   consistent positive returns in at least 2 different VIX regimes, and
-   after a manual review of all major decision categories."
-
-6. **What's the kill criteria for the project?** When do we say "the
-   thesis is wrong, time to rethink"? Without one, we'll keep tinkering
-   forever even if it's not working. Suggested: 6 months of operation
-   with no consistent edge over the passive benchmark = thesis disconfirmed,
-   time to rethink the architecture.
+1. **Q1 (sharpened)**: What's the marginal contribution of LLM narrative
+   pattern matching over the statistical-only Tier 2a baseline? Falsifiable
+   via 1.4.2.10 — control Lead Agent is the experiment.
+2. **Q2**: Does the validation pipeline (1.4.3) actually catch overfitting?
+   Answerable after 3-5 changes complete the full pipeline.
+3. **Q3**: At what closed-trade count do statistical weight updates stabilize?
+   The 200-trade floor in 1.4.2.2 is a guess.
+4. **Q4**: Does the $150/month envelope hold once 1.4.0b-b, 1.4.1, and
+   1.4.2 are all running simultaneously?
 
 ---
 
 ## CHANGELOG
 
-- 2026-04-06: Backlog rewritten from scratch under research thesis framing.
-  Old engineering-task backlog moved to git history. New structure
-  organized around phases and the data layer foundation.
+### 2026-04-11 — Architectural rewrite + Tier 2a + data feeds shipped
+
+**Shipped and pushed:**
+- 1.4.0b-a Tier 2a Mechanical Pre-filter (6/11 rules): signal_compute.py,
+  tier2a_prefilter.py, tier2a.yaml, run_tier2a.py, cron at 10/12/14 ET
+- 1.3.1 FRED macro (fred_service.py)
+- 1.3.2 EDGAR filings (edgar_service.py)
+- 1.3.3 Technical indicators (technical_indicators.py, pure Python)
+- Bootstrap wiring + preflight updates
+
+**Architectural decisions locked in:**
+- Hybrid learning loop: statistics for signal weights, LLM for narrative
+- 11 change-detection rules with 2-rule-minimum gate
+- Control Lead Agent (1.4.2.10) as falsifiability experiment
+- Validation pipeline: backtest → 20d shadow → 30d paper
+- Phase 4 split: ensemble (decision quality) vs specialized (cost)
+
+### 2026-04-10 — Multi-source historical_bars + bug fixes
+
+3.08M rows (Stooq + yfinance + Alpaca), chunked loader OOM fix,
+source-aware dedup, source-scoped metrics fixes.
+
+### 2026-04-09 — Schema foundation + Breadth Analyst
+
+Step 1 schema (name_observations extensions, historical_bars, agent_actions).
+Breadth Analyst agent with backfill + daily sweep. Scheduler wiring.
+
+### 2026-04-06 — Backlog rewritten under research thesis framing
+
+Old engineering-task backlog moved to git history. New structure organized
+around phases and data layer foundation.
