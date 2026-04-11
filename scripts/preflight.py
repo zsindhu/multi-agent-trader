@@ -70,6 +70,9 @@ MODULES = [
     "agents.worker_cc",
     "agents.worker_csp",
     "agents.worker_wheel",
+    "agents.breadth_analyst",
+    "agents.tier2a_prefilter",
+    "services.signal_compute",
     # API
     "api.state",
     "api.routes.portfolio",
