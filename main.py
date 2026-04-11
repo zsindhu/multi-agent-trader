@@ -57,6 +57,21 @@ async def _run_breadth_analyst_sweep(breadth_analyst):
         logger.error(f"[Main] Breadth Analyst sweep failed: {e}")
 
 
+async def _run_tier2a_sweep(tier2a_prefilter):
+    """Run the Tier 2a mechanical pre-filter over today's Tier 1 universe."""
+    try:
+        logger.info("[Main] -- Tier 2a sweep starting --")
+        result = await tier2a_prefilter.run_sweep()
+        logger.info(
+            f"[Main] -- Tier 2a sweep done -- "
+            f"{result.get('passed', 0)} passed, "
+            f"{result.get('rejected', 0)} rejected, "
+            f"{result.get('near_misses', 0)} near-misses --"
+        )
+    except Exception as e:
+        logger.error(f"[Main] Tier 2a sweep failed: {e}")
+
+
 async def run_scanner_cycle(scanner, regime_service=None):
     """Run a full Scanner cycle: scan -> evaluate -> persist to DB. Then refresh regime."""
     try:
@@ -153,6 +168,17 @@ async def main(mode: str = "paper"):
         id="breadth_analyst_sweep",
     )
 
+    # Tier 2a pre-filter: runs 3x daily during market hours (10:00, 12:00, 14:00 ET)
+    scheduler.add_job(
+        _run_tier2a_sweep,
+        "cron",
+        args=[svc.tier2a_prefilter],
+        hour="10,12,14",
+        minute="0",
+        timezone="US/Eastern",
+        id="tier2a_sweep",
+    )
+
     # Earnings + News: fetch before market open (8:00 AM and 9:00 AM ET)
     async def _refresh_earnings():
         symbols = [o["symbol"] for o in await scanner.get_top_opportunities()] or []
@@ -210,8 +236,8 @@ async def main(mode: str = "paper"):
     scheduler.start()
     logger.info(
         f"Orchestrator running every {settings.scan_interval_minutes} min, "
-        f"Breadth Analyst sweep at 8:00 ET, Scanner at 9:35 ET + 12:30 ET, "
-        f"Daily summary at 4:05 PM ET. Ctrl+C to stop."
+        f"Breadth Analyst at 8:00 ET, Tier 2a at 10/12/14 ET, "
+        f"Scanner at 9:35+12:30 ET, Summary at 4:05 PM ET. Ctrl+C to stop."
     )
 
     # Run first orchestration cycle immediately
