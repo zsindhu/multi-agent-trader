@@ -454,15 +454,27 @@ class BreadthAnalyst(BaseAgent):
         w_medium = cfg.get("volume_window_medium", 60)
         w_long = cfg.get("volume_window_long", 252)
 
+        # Fetch from all sources, dedup by bar_date. Priority: stooq > yfinance > alpaca.
+        # Stooq and yfinance carry ~259 days of historical body each; alpaca is a
+        # 2-bar freshness top-up that only contributes the most recent dates.
         async with AsyncSessionLocal() as session:
             result = await session.execute(
                 select(HistoricalBar)
                 .where(HistoricalBar.symbol == symbol)
-                .where(HistoricalBar.source == "alpaca")
                 .order_by(HistoricalBar.bar_date.desc())
-                .limit(w_long)
             )
-            rows = result.scalars().all()
+            all_rows = result.scalars().all()
+
+        source_priority = {"stooq": 0, "yfinance": 1, "alpaca": 2}
+        seen: dict = {}
+        for row in all_rows:
+            existing = seen.get(row.bar_date)
+            if existing is None:
+                seen[row.bar_date] = row
+            elif source_priority.get(row.source, 99) < source_priority.get(existing.source, 99):
+                seen[row.bar_date] = row
+
+        rows = sorted(seen.values(), key=lambda r: r.bar_date, reverse=True)[:w_long]
 
         if not rows:
             return None

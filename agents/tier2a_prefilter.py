@@ -83,7 +83,6 @@ class Tier2aPrefilter(BaseAgent):
         rules_cfg = cfg.get("rules", {})
         min_signals = cfg.get("min_signals_to_fire", 2)
         near_miss_count = cfg.get("near_miss_count", 30)
-        bars_source = cfg.get("bars_source", "alpaca")
         batch_size = cfg.get("batch_size", 100)
         progress_interval = cfg.get("progress_log_interval", 500)
 
@@ -118,7 +117,7 @@ class Tier2aPrefilter(BaseAgent):
 
         # Step 2: Fetch SPY bars once (for correlation rule)
         spy_closes = await self._get_closes(
-            "SPY", bars_source, cfg.get("rules", {}).get("correlation_breakdown", {}).get("long_window", 60) + 5
+            "SPY", cfg.get("rules", {}).get("correlation_breakdown", {}).get("long_window", 60) + 5
         )
 
         # Step 3: Score each symbol
@@ -127,7 +126,7 @@ class Tier2aPrefilter(BaseAgent):
 
         for idx, symbol in enumerate(symbols):
             try:
-                result = await self._score_symbol(symbol, tier1_map.get(symbol, {}), spy_closes, bars_source, rules_cfg)
+                result = await self._score_symbol(symbol, tier1_map.get(symbol, {}), spy_closes, rules_cfg)
                 scored.append(result)
             except Exception as e:
                 logger.debug(f"[Tier2a] Scoring failed for {symbol}: {e}")
@@ -199,14 +198,14 @@ class Tier2aPrefilter(BaseAgent):
 
     async def _score_symbol(
         self, symbol: str, tier1_info: dict, spy_closes: list[float],
-        bars_source: str, rules_cfg: dict,
+        rules_cfg: dict,
     ) -> dict:
         """Score a single symbol across all enabled rules."""
         cfg = self.config
         min_signals = cfg.get("min_signals_to_fire", 2)
 
         # Fetch bars for this symbol
-        bars = await self._get_bars(symbol, bars_source, 65)
+        bars = await self._get_bars(symbol, 65)
 
         if len(bars) < 10:
             return {
@@ -310,21 +309,33 @@ class Tier2aPrefilter(BaseAgent):
 
     # ── Data fetchers ────────────────────────────────────────────
 
-    async def _get_bars(self, symbol: str, source: str, limit: int) -> list:
-        """Fetch recent bars from historical_bars, most-recent-first."""
+    async def _get_bars(self, symbol: str, limit: int) -> list:
+        """Fetch recent bars from historical_bars, most-recent-first.
+        Reads all sources and dedupes by bar_date. Priority: stooq > yfinance > alpaca.
+        Stooq and yfinance carry ~259 days of historical body; alpaca is a 2-bar
+        freshness top-up that only contributes the most recent dates."""
         async with AsyncSessionLocal() as session:
             result = await session.execute(
                 select(HistoricalBar)
                 .where(HistoricalBar.symbol == symbol)
-                .where(HistoricalBar.source == source)
                 .order_by(HistoricalBar.bar_date.desc())
-                .limit(limit)
             )
-            return list(result.scalars().all())
+            all_rows = result.scalars().all()
 
-    async def _get_closes(self, symbol: str, source: str, limit: int) -> list[float]:
+        source_priority = {"stooq": 0, "yfinance": 1, "alpaca": 2}
+        seen: dict = {}
+        for row in all_rows:
+            existing = seen.get(row.bar_date)
+            if existing is None:
+                seen[row.bar_date] = row
+            elif source_priority.get(row.source, 99) < source_priority.get(existing.source, 99):
+                seen[row.bar_date] = row
+
+        return sorted(seen.values(), key=lambda r: r.bar_date, reverse=True)[:limit]
+
+    async def _get_closes(self, symbol: str, limit: int) -> list[float]:
         """Fetch closing prices, most-recent-first."""
-        bars = await self._get_bars(symbol, source, limit)
+        bars = await self._get_bars(symbol, limit)
         return [b.close for b in bars]
 
     async def _compute_iv_rank_delta(self, symbol: str, closes: list[float], cfg: dict) -> dict:

@@ -50,9 +50,6 @@ tier2a_prefilter:
   # Near-miss capture: top N names below cutoff
   near_miss_count: 30
 
-  # Bars source for historical data queries
-  bars_source: "alpaca"
-
   # Pacing
   batch_size: 100
   progress_log_interval: 500    # log progress every N symbols
