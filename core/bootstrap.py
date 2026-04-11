@@ -16,6 +16,7 @@ from agents import (
 )
 from agents.lead_agent import LeadAgent
 from agents.breadth_analyst import BreadthAnalyst
+from agents.tier2a_prefilter import Tier2aPrefilter
 from services.alpaca_broker import AlpacaBroker
 from services.logger_service import PerformanceLogger
 from services.notifier import Notifier
@@ -62,6 +63,7 @@ class Services:
         self.worker_csp: CashSecuredPutWorker = None
         self.worker_wheel: WheelWorker = None
         self.breadth_analyst: BreadthAnalyst = None
+        self.tier2a_prefilter: Tier2aPrefilter = None
 
 
 def build_services() -> Services:
@@ -97,6 +99,9 @@ def build_services() -> Services:
 
     # ── Breadth Analyst ────────────────────────────────────────
     s.breadth_analyst = BreadthAnalyst(broker=s.broker)
+
+    # ── Tier 2a Pre-filter ──────────────────────────────────────
+    s.tier2a_prefilter = Tier2aPrefilter(broker=s.broker, market_feed=s.market_feed)
 
     # ── Intelligence Services ───────────────────────────────────
     s.regime_service = MarketRegimeService(
