@@ -414,11 +414,12 @@ class BreadthAnalyst(BaseAgent):
                         if not bar_date:
                             continue
 
-                        # Check for existing row (upsert would be better but simple skip is fine)
+                        # Check for existing row from this source
                         existing = await session.execute(
                             select(HistoricalBar.id).where(
                                 HistoricalBar.symbol == symbol,
                                 HistoricalBar.bar_date == bar_date,
+                                HistoricalBar.source == "alpaca",
                             )
                         )
                         if existing.scalar_one_or_none() is not None:
@@ -435,6 +436,7 @@ class BreadthAnalyst(BaseAgent):
                                 volume=int(bar.get("volume") or bar.get("v") or 0),
                                 vwap=float(bar["vwap"]) if bar.get("vwap") else None,
                                 trade_count=int(bar["trade_count"]) if bar.get("trade_count") else None,
+                                source="alpaca",
                             ))
                             written += 1
                         except Exception:
@@ -456,6 +458,7 @@ class BreadthAnalyst(BaseAgent):
             result = await session.execute(
                 select(HistoricalBar)
                 .where(HistoricalBar.symbol == symbol)
+                .where(HistoricalBar.source == "alpaca")
                 .order_by(HistoricalBar.bar_date.desc())
                 .limit(w_long)
             )
