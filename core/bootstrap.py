@@ -27,6 +27,8 @@ from services.performance_analyst import PerformanceAnalystService
 from services.news_feed import NewsFeedService
 from services.llm_service import LLMService
 from services.order_reconciler import OrderReconciler
+from services.fred_service import FredService
+from services.edgar_service import EdgarService
 from core.broker import Broker
 from core.risk_manager import RiskManager
 from core.portfolio import Portfolio
@@ -57,6 +59,8 @@ class Services:
         self.news_service: NewsFeedService = None
         self.llm_service: LLMService = None
         self.order_reconciler: OrderReconciler = None
+        self.fred_service: FredService = None
+        self.edgar_service: EdgarService = None
         self.lead_agent: LeadAgent = None
         # Workers (exposed so main.py can reference them directly if needed)
         self.worker_cc: CoveredCallWorker = None
@@ -114,6 +118,8 @@ def build_services() -> Services:
     s.performance_service = PerformanceAnalystService()
     s.news_service = NewsFeedService()
     s.llm_service = LLMService()
+    s.fred_service = FredService()
+    s.edgar_service = EdgarService()
 
     # ── Order Reconciler ────────────────────────────────────────
     s.order_reconciler = OrderReconciler(

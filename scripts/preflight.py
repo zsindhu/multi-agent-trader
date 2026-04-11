@@ -61,6 +61,10 @@ MODULES = [
     "services.llm_service",
     "services.order_reconciler",
     "services.backtester",
+    "services.fred_service",
+    "services.edgar_service",
+    "services.technical_indicators",
+    "services.signal_compute",
     # Agents
     "agents",
     "agents.base_agent",
@@ -72,7 +76,6 @@ MODULES = [
     "agents.worker_wheel",
     "agents.breadth_analyst",
     "agents.tier2a_prefilter",
-    "services.signal_compute",
     # API
     "api.state",
     "api.routes.portfolio",
