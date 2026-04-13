@@ -10,6 +10,7 @@ Runs daily at 6:00 AM ET before any Tier 2a cycles. Refreshes the next
 
 Requires FINNHUB_API_KEY in .env. If not set, returns empty gracefully.
 """
+import asyncio
 from datetime import datetime, date, timedelta
 from typing import Optional
 
@@ -58,18 +59,38 @@ class EarningsCalendarService:
 
         logger.info(f"[Earnings] Bulk refresh: {from_date} to {to_date}")
 
-        # Step 1: Fetch the full calendar in one API call
-        try:
-            raw_events = await self._fetch_bulk_earnings(from_date, to_date)
-        except Exception as e:
-            logger.error(f"[Earnings] Bulk fetch failed: {e}")
-            return 0
+        # Step 1: Fetch in 7-day chunks to avoid Finnhub free-tier ~1500-event cap.
+        # A single 30-day request silently drops events beyond ~1500, concentrating
+        # results in the latest 7 days. Chunking ensures full coverage.
+        raw_events = []
+        chunk_days = 7
+        chunk_start = today
+        while chunk_start < today + timedelta(days=30):
+            chunk_end = min(chunk_start + timedelta(days=chunk_days), today + timedelta(days=30))
+            try:
+                chunk = await self._fetch_bulk_earnings(chunk_start.isoformat(), chunk_end.isoformat())
+                raw_events.extend(chunk)
+                logger.info(f"[Earnings] Chunk {chunk_start} to {chunk_end}: {len(chunk)} events")
+            except Exception as e:
+                logger.warning(f"[Earnings] Chunk {chunk_start} to {chunk_end} failed: {e}")
+            chunk_start = chunk_end
+            await asyncio.sleep(1.0)
+
+        # Deduplicate by (symbol, date) — chunks may overlap at boundaries
+        seen = set()
+        deduped = []
+        for evt in raw_events:
+            key = (evt.get("symbol"), evt.get("date"))
+            if key not in seen:
+                seen.add(key)
+                deduped.append(evt)
+        raw_events = deduped
 
         if not raw_events:
-            logger.warning("[Earnings] Bulk endpoint returned zero events")
+            logger.warning("[Earnings] All chunks returned zero events")
             return 0
 
-        logger.info(f"[Earnings] Bulk endpoint returned {len(raw_events)} raw events")
+        logger.info(f"[Earnings] Total raw events after chunking + dedup: {len(raw_events)}")
 
         # Step 2: Get the optionable universe for filtering
         universe = await self._get_optionable_universe()
