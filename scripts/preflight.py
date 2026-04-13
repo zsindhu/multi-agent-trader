@@ -39,6 +39,8 @@ MODULES = [
     "models.strategy_insight",
     "models.worker_state",
     "models.equity_snapshot",
+    "models.macro_news_event",
+    "models.symbol_news_headline",
     # Core
     "core.database",
     "core.broker",

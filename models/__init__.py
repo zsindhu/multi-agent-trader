@@ -34,6 +34,8 @@ from .reasoning_embedding import ReasoningEmbedding
 from .agent_capability import AgentCapability
 from .historical_bar import HistoricalBar
 from .agent_action import AgentAction
+from .macro_news_event import MacroNewsEvent
+from .symbol_news_headline import SymbolNewsHeadline
 
 __all__ = [
     "Base",
@@ -61,4 +63,6 @@ __all__ = [
     "AgentCapability",
     "HistoricalBar",
     "AgentAction",
+    "MacroNewsEvent",
+    "SymbolNewsHeadline",
 ]
