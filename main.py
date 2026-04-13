@@ -179,19 +179,25 @@ async def main(mode: str = "paper"):
         id="tier2a_sweep",
     )
 
-    # Earnings + News: fetch before market open (8:00 AM and 9:00 AM ET)
+    # Earnings: bulk refresh at 6 AM ET (before Tier 1 at 8 AM, before Tier 2a at 10 AM)
     async def _refresh_earnings():
-        symbols = [o["symbol"] for o in await scanner.get_top_opportunities()] or []
-        await earnings_service.refresh(symbols[:50])
+        try:
+            count = await earnings_service.refresh()
+            logger.info(f"[Main] Earnings refresh: {count} events")
+        except Exception as e:
+            logger.error(f"[Main] Earnings refresh failed: {e}")
 
+    # News: macro refresh at 9 AM and 12 PM ET
     async def _refresh_news_morning():
-        symbols = [o["symbol"] for o in await scanner.get_top_opportunities()] or []
-        await news_service.refresh(symbols[:20])
+        try:
+            await news_service.refresh()
+        except Exception as e:
+            logger.debug(f"[Main] News refresh failed: {e}")
 
     scheduler.add_job(
         _refresh_earnings,
         "cron",
-        hour="8",
+        hour="6",
         minute="0",
         timezone="US/Eastern",
         id="earnings_refresh",
