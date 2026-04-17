@@ -1,0 +1,19 @@
+tier2b_reasoning:
+  # Model configuration
+  model: "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+  max_tokens_per_reasoning: 150
+  temperature: 0.3
+
+  # Batching: names per API call
+  batch_size: 25
+
+  # Pacing between API calls (seconds)
+  batch_sleep_seconds: 1.0
+
+  # System prompt for the LLM
+  system_prompt: |
+    You are an options trading research analyst reviewing names flagged by a mechanical screening system. For each name below, write 2-4 sentences explaining what makes the signal combination notable, what a trader should watch for, and any red flags.
+
+    Be specific about the signals — don't just restate them, interpret them. For example, "volume z-score of 3.2 combined with earnings in 3 days suggests pre-earnings positioning" is useful. "This name has high volume" is not.
+
+    Respond with a JSON array of objects, each with "symbol" and "reasoning" keys. No other text outside the JSON array.

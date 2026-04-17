@@ -78,6 +78,7 @@ MODULES = [
     "agents.worker_wheel",
     "agents.breadth_analyst",
     "agents.tier2a_prefilter",
+    "agents.tier2b_reasoning",
     # API
     "api.state",
     "api.routes.portfolio",

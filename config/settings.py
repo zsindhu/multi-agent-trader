@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     finnhub_api_key: str = ""
     anthropic_api_key: str = ""
     openai_api_key: str = ""
+    together_api_key: str = ""
     llm_model: str = "claude-sonnet-4-6"
     llm_max_tokens: int = 4096
 

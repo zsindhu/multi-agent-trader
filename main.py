@@ -72,6 +72,23 @@ async def _run_tier2a_sweep(tier2a_prefilter):
         logger.error(f"[Main] Tier 2a sweep failed: {e}")
 
 
+async def _run_tier2b_sweep(tier2b_reasoning):
+    """Run Tier 2b LLM reasoning over Tier 2a promotions."""
+    try:
+        logger.info("[Main] -- Tier 2b reasoning starting --")
+        result = await tier2b_reasoning.run_sweep()
+        if result.get("skipped"):
+            logger.info("[Main] -- Tier 2b skipped (not enabled) --")
+        else:
+            logger.info(
+                f"[Main] -- Tier 2b done -- "
+                f"{result.get('reasoned', 0)} reasoned, "
+                f"{result.get('errors', 0)} errors --"
+            )
+    except Exception as e:
+        logger.error(f"[Main] Tier 2b reasoning failed: {e}")
+
+
 async def run_scanner_cycle(scanner, regime_service=None):
     """Run a full Scanner cycle: scan -> evaluate -> persist to DB. Then refresh regime."""
     try:
@@ -179,6 +196,17 @@ async def main(mode: str = "paper"):
         id="tier2a_sweep",
     )
 
+    # Tier 2b LLM reasoning: runs 10 min after each Tier 2a sweep (10:10, 12:10, 14:10 ET)
+    scheduler.add_job(
+        _run_tier2b_sweep,
+        "cron",
+        args=[svc.tier2b_reasoning],
+        hour="10,12,14",
+        minute="10",
+        timezone="US/Eastern",
+        id="tier2b_sweep",
+    )
+
     # Earnings: bulk refresh at 6 AM ET (before Tier 1 at 8 AM, before Tier 2a at 10 AM)
     async def _refresh_earnings():
         try:
@@ -242,7 +270,7 @@ async def main(mode: str = "paper"):
     scheduler.start()
     logger.info(
         f"Orchestrator running every {settings.scan_interval_minutes} min, "
-        f"Breadth Analyst at 8:00 ET, Tier 2a at 10/12/14 ET, "
+        f"Breadth Analyst at 8:00 ET, Tier 2a at 10/12/14 ET, Tier 2b at :10 offset, "
         f"Scanner at 9:35+12:30 ET, Summary at 4:05 PM ET. Ctrl+C to stop."
     )
 

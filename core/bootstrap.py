@@ -17,6 +17,7 @@ from agents import (
 from agents.lead_agent import LeadAgent
 from agents.breadth_analyst import BreadthAnalyst
 from agents.tier2a_prefilter import Tier2aPrefilter
+from agents.tier2b_reasoning import Tier2bReasoning
 from services.alpaca_broker import AlpacaBroker
 from services.logger_service import PerformanceLogger
 from services.notifier import Notifier
@@ -68,6 +69,7 @@ class Services:
         self.worker_wheel: WheelWorker = None
         self.breadth_analyst: BreadthAnalyst = None
         self.tier2a_prefilter: Tier2aPrefilter = None
+        self.tier2b_reasoning: Tier2bReasoning = None
 
 
 def build_services() -> Services:
@@ -106,6 +108,9 @@ def build_services() -> Services:
 
     # ── Tier 2a Pre-filter ──────────────────────────────────────
     s.tier2a_prefilter = Tier2aPrefilter(broker=s.broker, market_feed=s.market_feed)
+
+    # ── Tier 2b LLM Reasoning ────────────────────────────────────
+    s.tier2b_reasoning = Tier2bReasoning()
 
     # ── Intelligence Services ───────────────────────────────────
     s.regime_service = MarketRegimeService(
