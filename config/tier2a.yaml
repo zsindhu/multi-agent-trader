@@ -56,7 +56,7 @@ tier2a_prefilter:
       enabled: true
       threshold: 2.0
       weight: 0.15
-      min_news_days: 14        # Minimum distinct days of data before evaluating
+      min_news_days: 5         # Minimum distinct days of data before evaluating (lowered from 14 to reduce warm-up dormancy)
       cache_ttl_hours: 4       # Don't re-fetch company news within this window
 
     # Rules not yet wired (data dependencies pending):

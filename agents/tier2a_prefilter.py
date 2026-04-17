@@ -194,7 +194,7 @@ class Tier2aPrefilter(BaseAgent):
         news_cfg = rules_cfg.get("news_density", {})
         if news_cfg.get("enabled", True):
             cache_ttl = news_cfg.get("cache_ttl_hours", 4.0)
-            min_news_days = news_cfg.get("min_news_days", 14)
+            min_news_days = news_cfg.get("min_news_days", 5)
             news_weight = news_cfg.get("weight", 0.15)
 
             fetched = 0
