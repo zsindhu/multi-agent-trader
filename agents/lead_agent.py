@@ -338,7 +338,7 @@ The playbook is how this system gets smarter over time. Every insight you write 
 2. Second: Check the market regime. In risk-off or crisis, be very conservative or sit out entirely.
 3. Third: Review open positions. Manage what you have before opening anything new.
 4. Fourth: Check performance insights. Are we doing well? What's working? What isn't?
-5. Fifth: Only then consider new positions from the Scanner results.
+5. Fifth: Only then consider new positions from the Tier 2 funnel results (get_scanner_top). Each name comes with mechanical signal scores, earnings amplification status, and an AI analyst's reasoning. Read the analyst reasoning — it tells you why the signals matter in context.
 6. Sixth: Check earnings before any new position.
 
 ## Position Management Rules
@@ -422,16 +422,22 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
             {
                 "name": "get_scanner_top",
                 "description": (
-                    "Get the top N scored trading opportunities from the Scanner. "
-                    "Returns symbols with IV rank, momentum, liquidity, and composite scores."
+                    "Get the top N names from the Tier 2 scanning funnel, ranked by "
+                    "composite score. Each name includes: mechanical signal scores "
+                    "(volume z-score, ATR range expansion, gap z-score, IV rank delta, "
+                    "correlation breakdown, earnings proximity, news density), earnings "
+                    "amplification status, and an AI analyst reasoning string explaining "
+                    "why the signal combination is notable. Use this to find new "
+                    "opportunities — review the signals and analyst reasoning, then "
+                    "decide which names deserve a trade."
                 ),
                 "input_schema": {
                     "type": "object",
                     "properties": {
                         "n": {
                             "type": "integer",
-                            "description": "Number of opportunities (default 10)",
-                            "default": 10,
+                            "description": "Number of names to return (default 50)",
+                            "default": 50,
                         }
                     },
                     "required": [],
@@ -636,10 +642,7 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
             return {"error": "Regime service not available"}
 
         if tool_name == "get_scanner_top":
-            if self.scanner:
-                n = tool_input.get("n", 10)
-                return {"opportunities": await self.scanner.get_top_opportunities(n=n)}
-            return {"error": "Scanner not available"}
+            return await self._get_tier2_promotions(tool_input.get("n", 50))
 
         if tool_name == "get_open_positions":
             if self.portfolio:
@@ -771,6 +774,83 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
                 }
 
         return {"error": f"Unknown tool: {tool_name}"}
+
+    async def _get_tier2_promotions(self, n: int = 50) -> dict:
+        """
+        Fetch the top N names from Tier 2 promotions (name_observations).
+
+        Returns composite scores, signal breakdowns, earnings amplification,
+        and Tier 2b LLM reasoning strings. Falls back to old scanner if no
+        Tier 2 data exists today.
+        """
+        from models.name_observation import NameObservation
+        from sqlalchemy import select as sa_select
+        from datetime import datetime, timezone, timedelta
+
+        today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
+        try:
+            async with AsyncSessionLocal() as session:
+                result = await session.execute(
+                    sa_select(NameObservation)
+                    .where(NameObservation.tier == 2)
+                    .where(NameObservation.was_considered == True)
+                    .where(NameObservation.timestamp >= today_start)
+                    .order_by(NameObservation.composite_score.desc())
+                    .limit(n)
+                )
+                rows = list(result.scalars().all())
+
+            if not rows:
+                # Fallback to old scanner if Tier 2 data not available yet
+                logger.info("[Lead] No Tier 2 promotions today, falling back to scanner")
+                if self.scanner:
+                    return {"opportunities": await self.scanner.get_top_opportunities(n=n)}
+                return {"opportunities": [], "source": "none"}
+
+            opportunities = []
+            for obs in rows:
+                analysis = obs.analysis or {}
+                signals = analysis.get("signals", {})
+
+                # Extract which rules fired
+                firing = [name for name, sig in signals.items() if sig.get("fired")]
+
+                opp = {
+                    "symbol": obs.symbol,
+                    "composite_score": obs.composite_score,
+                    "price": obs.price,
+                    "asset_type": obs.asset_type,
+                    "signals_fired": analysis.get("signals_fired", 0),
+                    "firing_rules": firing,
+                    "amplification_applied": analysis.get("amplification_applied", 1.0),
+                }
+
+                # Include key signal raw values
+                for sig_name, sig_data in signals.items():
+                    if sig_data.get("fired"):
+                        opp[f"{sig_name}_raw"] = sig_data.get("raw")
+
+                # Include earnings proximity if present
+                ep = signals.get("earnings_proximity", {})
+                if ep.get("raw") is not None:
+                    opp["earnings_days"] = ep["raw"]
+
+                # Include Tier 2b reasoning if available
+                reasoning = analysis.get("tier2b_reasoning")
+                if reasoning:
+                    opp["analyst_reasoning"] = reasoning
+
+                opportunities.append(opp)
+
+            logger.info(f"[Lead] Serving {len(opportunities)} Tier 2 promotions to Claude")
+            return {"opportunities": opportunities, "source": "tier2_funnel"}
+
+        except Exception as e:
+            logger.error(f"[Lead] Tier 2 query failed: {e}")
+            if self.scanner:
+                return {"opportunities": await self.scanner.get_top_opportunities(n=n)}
+            return {"opportunities": [], "error": str(e)}
 
     async def _execute_action(self, action: dict):
         """Validate and execute a single action from Claude's decision."""
