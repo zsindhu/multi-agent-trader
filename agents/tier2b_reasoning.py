@@ -18,6 +18,7 @@ import json
 import math
 import re
 from datetime import datetime, timezone
+from sqlalchemy.orm.attributes import flag_modified
 from typing import Optional
 
 import yaml
@@ -338,6 +339,7 @@ class Tier2bReasoning(BaseAgent):
                         existing = row.analysis or {}
                         existing["tier2b_reasoning"] = reasoning
                         row.analysis = existing
+                        flag_modified(row, "analysis")
                         written += 1
 
                 await session.commit()
