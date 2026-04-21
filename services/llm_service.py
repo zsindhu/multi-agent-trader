@@ -27,7 +27,7 @@ class LLMService:
     structured decision dict.
     """
 
-    MAX_DAILY_COST = 5.00  # Hard cap: $5/day (~$100/month max — safety net, not target)
+    MAX_DAILY_COST = 10.00  # Hard cap: $10/day (~$150/month safety net)
 
     def __init__(self):
         self._enabled = bool(settings.anthropic_api_key)
