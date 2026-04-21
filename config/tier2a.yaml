@@ -59,17 +59,29 @@ tier2a_prefilter:
       min_news_days: 5         # Minimum distinct days of data before evaluating (lowered from 14 to reduce warm-up dormancy)
       cache_ttl_hours: 4       # Don't re-fetch company news within this window
 
+    # Rule 5: Put/call volume ratio (v1 — absolute thresholds)
+    # Fires when P/C > 1.5 (heavy put buying) or < 0.5 (heavy call buying).
+    # PARKING LOT: upgrade to per-name z-scores once history table exists.
+    put_call_ratio:
+      enabled: true
+      weight: 0.10
+
+    # Rule 6: Options volume / open interest
+    # Fires when total daily volume / total OI > 0.30
+    volume_oi_ratio:
+      enabled: true
+      weight: 0.10
+
     # Rules not yet wired (data dependencies pending):
-    # put_call_ratio:     needs options volume data
-    # options_volume_oi:  needs options volume data
     # short_interest:     needs FINRA data ingestion
     # social_velocity:    needs 1.3.6 sentiment data
 
   # Near-miss capture: top N names below cutoff
   near_miss_count: 30
 
-  # On-demand news fetch: company news fetched for top N by interim score
+  # On-demand fetches: top N by interim score get additional data
   news_fetch_top_n: 200
+  options_fetch_top_n: 100   # Options chain fetched for rules 5/6
 
   # Pacing
   batch_size: 100

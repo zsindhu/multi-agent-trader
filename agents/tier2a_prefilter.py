@@ -43,6 +43,8 @@ from services.signal_compute import (
     iv_rank_delta,
     correlation_breakdown,
     earnings_proximity,
+    put_call_volume_ratio,
+    volume_oi_ratio,
     news_density_zscore,
 )
 
@@ -217,6 +219,41 @@ class Tier2aPrefilter(BaseAgent):
                     }
 
             logger.info(f"[Tier2a] News fetched for {fetched} top candidates")
+
+        # Step 6.5: On-demand options chain fetch for top candidates (rules 5/6)
+        r5_cfg = rules_cfg.get("put_call_ratio", {})
+        r6_cfg = rules_cfg.get("volume_oi_ratio", {})
+        options_top_n = cfg.get("options_fetch_top_n", 100)
+
+        if r5_cfg.get("enabled", True) or r6_cfg.get("enabled", True):
+            # Use the same sorted order — top N by interim score
+            options_symbols = {s["symbol"] for s in scored[:options_top_n]}
+            options_fetched = 0
+
+            for s in scored:
+                if s["symbol"] in options_symbols:
+                    chain_signals = await self._compute_options_signals(
+                        s["symbol"], r5_cfg, r6_cfg,
+                    )
+                    for sig_name, sig_data in chain_signals.items():
+                        s["signals"][sig_name] = sig_data
+                        if sig_data.get("score", 0) > 0:
+                            w = (r5_cfg if sig_name == "put_call_ratio" else r6_cfg).get("weight", 0.10)
+                            s["total_score"] += sig_data["score"] * w
+                        if sig_data.get("fired"):
+                            s["signals_fired"] += 1
+                    options_fetched += 1
+                else:
+                    if r5_cfg.get("enabled", True):
+                        s["signals"]["put_call_ratio"] = {
+                            "score": 0.0, "raw": 0, "fired": False, "reason": "not_evaluated",
+                        }
+                    if r6_cfg.get("enabled", True):
+                        s["signals"]["volume_oi_ratio"] = {
+                            "score": 0.0, "raw": 0, "fired": False, "reason": "not_evaluated",
+                        }
+
+            logger.info(f"[Tier2a] Options chain fetched for {options_fetched} top candidates")
 
         # Step 7: Apply earnings amplification to FINAL composite (after news_density)
         # Order: mechanical → news_density → sum → earnings amplifier → min_signals gate
@@ -549,6 +586,48 @@ class Tier2aPrefilter(BaseAgent):
         except Exception as e:
             logger.debug(f"[Tier2a] News density query failed for {symbol}: {e}")
             return {"score": 0.0, "raw": 0, "fired": False, "reason": "fetch_failed"}
+
+    async def _compute_options_signals(
+        self, symbol: str, r5_cfg: dict, r6_cfg: dict,
+    ) -> dict[str, dict]:
+        """
+        Fetch options chain for a symbol and compute rules 5 (P/C ratio)
+        and 6 (volume/OI ratio). Returns dict of signal name -> signal dict.
+        """
+        result = {}
+
+        try:
+            chain = await self.broker.get_options_chain(symbol)
+        except Exception as e:
+            logger.debug(f"[Tier2a] Options chain fetch failed for {symbol}: {e}")
+            if r5_cfg.get("enabled", True):
+                result["put_call_ratio"] = {"score": 0.0, "raw": 0, "fired": False, "reason": "fetch_failed"}
+            if r6_cfg.get("enabled", True):
+                result["volume_oi_ratio"] = {"score": 0.0, "raw": 0, "fired": False, "reason": "fetch_failed"}
+            return result
+
+        if not chain:
+            if r5_cfg.get("enabled", True):
+                result["put_call_ratio"] = {"score": 0.0, "raw": 0, "fired": False, "reason": "no_chain_data"}
+            if r6_cfg.get("enabled", True):
+                result["volume_oi_ratio"] = {"score": 0.0, "raw": 0, "fired": False, "reason": "no_chain_data"}
+            return result
+
+        # Aggregate volumes and OI across all contracts
+        put_vol = sum(c.get("volume", 0) for c in chain if c.get("contract_type") == "put")
+        call_vol = sum(c.get("volume", 0) for c in chain if c.get("contract_type") == "call")
+        total_vol = put_vol + call_vol
+        total_oi = sum(c.get("open_interest", 0) for c in chain)
+
+        # Rule 5: Put/call volume ratio
+        if r5_cfg.get("enabled", True):
+            result["put_call_ratio"] = put_call_volume_ratio(put_vol, call_vol)
+
+        # Rule 6: Options volume / open interest
+        if r6_cfg.get("enabled", True):
+            result["volume_oi_ratio"] = volume_oi_ratio(total_vol, total_oi)
+
+        return result
 
     # ── Writers ──────────────────────────────────────────────────
 

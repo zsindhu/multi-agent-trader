@@ -254,6 +254,66 @@ def earnings_proximity(days_until: Optional[int], threshold_days: int = 14) -> d
     }
 
 
+# ── Rule 5: Put/call volume ratio ─────────────────────────────
+
+def put_call_volume_ratio(put_volume: int, call_volume: int) -> dict:
+    """
+    Put/call volume ratio across the options chain.
+
+    Fires when ratio > 1.5 (heavy put buying) or < 0.5 (heavy call buying).
+    Score: normalized distance from 1.0 (neutral).
+
+    v1 uses absolute thresholds. Upgrade to per-name z-scores once a
+    history table accumulates 30 days of daily P/C snapshots (PARKING LOT).
+    """
+    if put_volume == 0 and call_volume == 0:
+        return {"score": 0.0, "raw": 0.0, "fired": False, "reason": "no_options_volume"}
+
+    if call_volume == 0:
+        # All puts, no calls — extreme signal
+        return {"score": 1.0, "raw": 999.0, "fired": True}
+
+    ratio = put_volume / call_volume
+
+    # Distance from neutral (1.0), normalized
+    distance = abs(ratio - 1.0)
+    score = min(1.0, distance / 1.0)  # distance of 1.0 from neutral → score 1.0
+
+    fired = ratio > 1.5 or ratio < 0.5
+    return {
+        "score": round(score, 3) if fired else 0.0,
+        "raw": round(ratio, 3),
+        "fired": fired,
+    }
+
+
+# ── Rule 6: Options volume / open interest ───────────────────
+
+def volume_oi_ratio(total_volume: int, total_oi: int) -> dict:
+    """
+    Total daily options volume divided by total open interest.
+
+    > 0.30 = unusual activity. > 0.60 = something is happening.
+    Catches sweeps and blocks that volume alone misses.
+    Open interest = standing army, volume = troop movement.
+    """
+    if total_oi == 0:
+        return {"score": 0.0, "raw": 0.0, "fired": False, "reason": "no_open_interest"}
+
+    if total_volume == 0:
+        return {"score": 0.0, "raw": 0.0, "fired": False}
+
+    ratio = total_volume / total_oi
+
+    fired = ratio > 0.30
+    score = min(1.0, (ratio - 0.30) / 0.30) if fired else 0.0
+    return {
+        "score": round(score, 3),
+        "raw": round(ratio, 3),
+        "fired": fired,
+    }
+
+
 # ── Rule 10: News density z-score ─────────────────────────────
 
 def news_density_zscore(
