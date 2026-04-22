@@ -314,6 +314,73 @@ def volume_oi_ratio(total_volume: int, total_oi: int) -> dict:
     }
 
 
+# ── Rule 9: Short interest ────────────────────────────────────
+
+def short_interest_signal(
+    short_pct_of_float: Optional[float],
+    short_ratio: Optional[float],
+    pct_threshold: float = 0.10,
+    ratio_threshold: float = 5.0,
+) -> dict:
+    """
+    Short interest level from yfinance Ticker.info.
+
+    Fires when shortPercentOfFloat > 10% or shortRatio (days to cover) > 5.
+    v1 uses absolute thresholds. Per-name z-score (delta vs prior FINRA
+    report) deferred — needs a short_interest_snapshots table (PARKING LOT).
+    """
+    if short_pct_of_float is None and short_ratio is None:
+        return {"score": 0.0, "raw": 0.0, "fired": False, "reason": "no_short_data"}
+
+    pct = short_pct_of_float or 0.0
+    ratio = short_ratio or 0.0
+
+    pct_fired = pct > pct_threshold
+    ratio_fired = ratio > ratio_threshold
+    fired = pct_fired or ratio_fired
+
+    # Score: max of the two normalized distances above threshold
+    pct_score = min(1.0, (pct - pct_threshold) / pct_threshold) if pct_fired else 0.0
+    ratio_score = min(1.0, (ratio - ratio_threshold) / ratio_threshold) if ratio_fired else 0.0
+    score = max(pct_score, ratio_score)
+
+    return {
+        "score": round(score, 3),
+        "raw": round(pct * 100, 2),  # Raw = short % of float as percentage
+        "fired": fired,
+        "short_pct": round(pct * 100, 2),
+        "short_ratio": round(ratio, 2),
+    }
+
+
+# ── Rule 11: Social mention velocity ─────────────────────────
+
+def social_velocity_signal(
+    mentions_24h: int,
+    threshold: int = 10,
+) -> dict:
+    """
+    Social mention velocity from StockTwits.
+
+    Fires when recent messages from last 24h exceed threshold.
+    Score scales from 0 at threshold to 1.0 at 3x threshold.
+
+    v1 uses absolute thresholds. Per-name z-score (mentions vs 30-day
+    rolling baseline) deferred — needs a social_mentions table (PARKING LOT).
+    """
+    if mentions_24h == 0:
+        return {"score": 0.0, "raw": 0, "fired": False, "reason": "no_social_data"}
+
+    fired = mentions_24h > threshold
+    score = min(1.0, (mentions_24h - threshold) / (threshold * 2)) if fired else 0.0
+
+    return {
+        "score": round(score, 3),
+        "raw": mentions_24h,
+        "fired": fired,
+    }
+
+
 # ── Rule 10: News density z-score ─────────────────────────────
 
 def news_density_zscore(

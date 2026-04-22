@@ -45,6 +45,8 @@ from services.signal_compute import (
     earnings_proximity,
     put_call_volume_ratio,
     volume_oi_ratio,
+    short_interest_signal,
+    social_velocity_signal,
     news_density_zscore,
 )
 
@@ -254,6 +256,58 @@ class Tier2aPrefilter(BaseAgent):
                         }
 
             logger.info(f"[Tier2a] Options chain fetched for {options_fetched} top candidates")
+
+        # Step 6.6: On-demand short interest fetch (rule 9) for top N
+        r9_cfg = rules_cfg.get("short_interest", {})
+        si_top_n = cfg.get("short_interest_top_n", 100)
+
+        if r9_cfg.get("enabled", True):
+            si_symbols = {s["symbol"] for s in scored[:si_top_n]}
+            si_fetched = 0
+
+            for s in scored:
+                if s["symbol"] in si_symbols:
+                    si_result = await self._compute_short_interest(s["symbol"])
+                    s["signals"]["short_interest"] = si_result
+                    if si_result.get("score", 0) > 0:
+                        s["total_score"] += si_result["score"] * r9_cfg.get("weight", 0.10)
+                    if si_result.get("fired"):
+                        s["signals_fired"] += 1
+                    si_fetched += 1
+                else:
+                    s["signals"]["short_interest"] = {
+                        "score": 0.0, "raw": 0, "fired": False, "reason": "not_evaluated",
+                    }
+
+            logger.info(f"[Tier2a] Short interest fetched for {si_fetched} top candidates")
+
+        # Step 6.7: On-demand social velocity fetch (rule 11) for top N
+        r11_cfg = rules_cfg.get("social_velocity", {})
+        social_top_n = cfg.get("social_top_n", 50)
+
+        if r11_cfg.get("enabled", True):
+            social_symbols = {s["symbol"] for s in scored[:social_top_n]}
+            social_fetched = 0
+
+            for s in scored:
+                if s["symbol"] in social_symbols:
+                    social_result = await self._compute_social_velocity(
+                        s["symbol"], r11_cfg.get("threshold", 10),
+                    )
+                    s["signals"]["social_velocity"] = social_result
+                    if social_result.get("score", 0) > 0:
+                        s["total_score"] += social_result["score"] * r11_cfg.get("weight", 0.10)
+                    if social_result.get("fired"):
+                        s["signals_fired"] += 1
+                    social_fetched += 1
+                    # Pace StockTwits calls (200/hr unauthenticated = 1.8s between calls)
+                    await asyncio.sleep(1.8)
+                else:
+                    s["signals"]["social_velocity"] = {
+                        "score": 0.0, "raw": 0, "fired": False, "reason": "not_evaluated",
+                    }
+
+            logger.info(f"[Tier2a] Social velocity fetched for {social_fetched} top candidates")
 
         # Step 7: Apply earnings amplification to FINAL composite (after news_density)
         # Order: mechanical → news_density → sum → earnings amplifier → min_signals gate
@@ -628,6 +682,71 @@ class Tier2aPrefilter(BaseAgent):
             result["volume_oi_ratio"] = volume_oi_ratio(total_vol, total_oi)
 
         return result
+
+    async def _compute_short_interest(self, symbol: str) -> dict:
+        """Fetch short interest from yfinance Ticker.info. Runs in thread executor."""
+        try:
+            import yfinance as yf
+            loop = asyncio.get_event_loop()
+
+            def _fetch():
+                try:
+                    info = yf.Ticker(symbol).info
+                    return {
+                        "short_pct": info.get("shortPercentOfFloat"),
+                        "short_ratio": info.get("shortRatio"),
+                    }
+                except Exception:
+                    return None
+
+            result = await loop.run_in_executor(None, _fetch)
+            if result is None:
+                return {"score": 0.0, "raw": 0, "fired": False, "reason": "fetch_failed"}
+
+            return short_interest_signal(
+                result["short_pct"], result["short_ratio"],
+            )
+        except Exception as e:
+            logger.debug(f"[Tier2a] Short interest failed for {symbol}: {e}")
+            return {"score": 0.0, "raw": 0, "fired": False, "reason": "fetch_failed"}
+
+    async def _compute_social_velocity(self, symbol: str, threshold: int = 10) -> dict:
+        """Fetch recent StockTwits messages and count those from last 24h."""
+        import httpx
+        from datetime import datetime, timezone, timedelta
+
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(
+                    f"https://api.stocktwits.com/api/2/streams/symbol/{symbol}.json"
+                )
+                if resp.status_code != 200:
+                    return {"score": 0.0, "raw": 0, "fired": False, "reason": "fetch_failed"}
+
+                data = resp.json()
+                messages = data.get("messages", [])
+
+            if not messages:
+                return {"score": 0.0, "raw": 0, "fired": False, "reason": "no_social_data"}
+
+            # Count messages from last 24h
+            cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+            recent = 0
+            for msg in messages:
+                try:
+                    ts = msg.get("created_at", "")
+                    if ts:
+                        msg_time = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                        if msg_time >= cutoff:
+                            recent += 1
+                except (ValueError, TypeError):
+                    continue
+
+            return social_velocity_signal(recent, threshold)
+
+        except Exception as e:
+            logger.debug(f"[Tier2a] Social velocity failed for {symbol}: {e}")
+            return {"score": 0.0, "raw": 0, "fired": False, "reason": "fetch_failed"}
 
     # ── Writers ──────────────────────────────────────────────────
 

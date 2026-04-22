@@ -72,16 +72,29 @@ tier2a_prefilter:
       enabled: true
       weight: 0.10
 
-    # Rules not yet wired (data dependencies pending):
-    # short_interest:     needs FINRA data ingestion
-    # social_velocity:    needs 1.3.6 sentiment data
+    # Rule 9: Short interest (yfinance Ticker.info)
+    # v1 uses absolute thresholds. Per-name z-score deferred (PARKING LOT).
+    short_interest:
+      enabled: true
+      pct_threshold: 0.10      # short % of float > 10%
+      ratio_threshold: 5.0     # days to cover > 5
+      weight: 0.10
+
+    # Rule 11: Social mention velocity (StockTwits public API)
+    # v1 uses absolute thresholds. Per-name z-score deferred (PARKING LOT).
+    social_velocity:
+      enabled: true
+      threshold: 10            # 24h messages > 10 (out of 30 returned)
+      weight: 0.10
 
   # Near-miss capture: top N names below cutoff
   near_miss_count: 30
 
   # On-demand fetches: top N by interim score get additional data
   news_fetch_top_n: 200
-  options_fetch_top_n: 100   # Options chain fetched for rules 5/6
+  options_fetch_top_n: 100       # Options chain for rules 5/6
+  short_interest_top_n: 100      # yfinance short interest for rule 9
+  social_top_n: 50               # StockTwits for rule 11 (200 req/hr limit)
 
   # Pacing
   batch_size: 100
