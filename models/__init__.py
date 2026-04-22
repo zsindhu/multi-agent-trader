@@ -36,6 +36,7 @@ from .historical_bar import HistoricalBar
 from .agent_action import AgentAction
 from .macro_news_event import MacroNewsEvent
 from .symbol_news_headline import SymbolNewsHeadline
+from .trade_outcome import TradeOutcome
 
 __all__ = [
     "Base",
@@ -65,4 +66,5 @@ __all__ = [
     "AgentAction",
     "MacroNewsEvent",
     "SymbolNewsHeadline",
+    "TradeOutcome",
 ]

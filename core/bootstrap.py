@@ -30,6 +30,7 @@ from services.llm_service import LLMService
 from services.order_reconciler import OrderReconciler
 from services.fred_service import FredService
 from services.edgar_service import EdgarService
+from services.outcome_labeler import OutcomeLabeler
 from core.broker import Broker
 from core.risk_manager import RiskManager
 from core.portfolio import Portfolio
@@ -62,6 +63,7 @@ class Services:
         self.order_reconciler: OrderReconciler = None
         self.fred_service: FredService = None
         self.edgar_service: EdgarService = None
+        self.outcome_labeler: OutcomeLabeler = None
         self.lead_agent: LeadAgent = None
         # Workers (exposed so main.py can reference them directly if needed)
         self.worker_cc: CoveredCallWorker = None
@@ -125,6 +127,7 @@ def build_services() -> Services:
     s.llm_service = LLMService()
     s.fred_service = FredService()
     s.edgar_service = EdgarService()
+    s.outcome_labeler = OutcomeLabeler()
 
     # ── Order Reconciler ────────────────────────────────────────
     s.order_reconciler = OrderReconciler(

@@ -803,6 +803,7 @@ class Tier2aPrefilter(BaseAgent):
                 "total_score": scored.get("total_score", 0),
                 "amplification_applied": scored.get("amplification_applied", 1.0),
                 "reason": scored.get("reason"),
+                "config_version": self.config.get("config_version", "unknown"),
             },
         )
 

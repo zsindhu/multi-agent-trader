@@ -247,6 +247,24 @@ async def main(mode: str = "paper"):
         id="news_midday",
     )
 
+    # Outcome labeler: nightly at 5 PM ET (after market close, after last Tier 2a/2b cycle)
+    async def _run_outcome_labeler():
+        try:
+            logger.info("[Main] -- Outcome labeler starting --")
+            result = await svc.outcome_labeler.run()
+            logger.info(f"[Main] -- Outcome labeler done -- {result.get('labeled', 0)} labeled --")
+        except Exception as e:
+            logger.error(f"[Main] Outcome labeler failed: {e}")
+
+    scheduler.add_job(
+        _run_outcome_labeler,
+        "cron",
+        hour="17",
+        minute="0",
+        timezone="US/Eastern",
+        id="outcome_labeler",
+    )
+
     # Performance analytics: runs after market close (4:30 PM ET)
     scheduler.add_job(
         performance_service.compute_all,

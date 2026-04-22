@@ -79,6 +79,7 @@ MODULES = [
     "agents.breadth_analyst",
     "agents.tier2a_prefilter",
     "agents.tier2b_reasoning",
+    "services.outcome_labeler",
     # API
     "api.state",
     "api.routes.portfolio",

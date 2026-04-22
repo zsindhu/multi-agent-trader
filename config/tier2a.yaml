@@ -1,4 +1,8 @@
 tier2a_prefilter:
+  # Config version — stamped into every observation's analysis JSON for provenance.
+  # Increment when rule weights, thresholds, or structure change.
+  config_version: "v1.1-2026-04-22"
+
   # Combination logic: at least min_signals_to_fire independent rules
   # must fire before a name is promoted. Single signals are too noisy.
   min_signals_to_fire: 2
