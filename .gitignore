@@ -57,3 +57,4 @@ dashboard/dist/
 
 # Backtest cache
 data/backtest_cache/*.pklbackups/
+config/learned_weights.json

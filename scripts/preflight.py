@@ -83,6 +83,7 @@ MODULES = [
     "services.briefing_service",
     "agents.fundamentals_analyst",
     "agents.research_analyst",
+    "services.signal_learner",
     # API
     "api.state",
     "api.routes.portfolio",
