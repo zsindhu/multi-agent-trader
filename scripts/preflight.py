@@ -80,6 +80,9 @@ MODULES = [
     "agents.tier2a_prefilter",
     "agents.tier2b_reasoning",
     "services.outcome_labeler",
+    "services.briefing_service",
+    "agents.fundamentals_analyst",
+    "agents.research_analyst",
     # API
     "api.state",
     "api.routes.portfolio",

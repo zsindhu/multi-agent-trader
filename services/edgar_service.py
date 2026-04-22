@@ -14,8 +14,8 @@ from typing import Optional
 import httpx
 from loguru import logger
 
-# SEC requires a User-Agent header with contact info
-SEC_USER_AGENT = "PremiumTrader/1.0 (research sandbox; contact: github.com/zsindhu)"
+# SEC requires a User-Agent header with a real email address
+SEC_USER_AGENT = "PremiumTrader research@premiumtrader.dev"
 SEC_BASE_URL = "https://efts.sec.gov/LATEST"
 SEC_FILINGS_URL = "https://data.sec.gov/submissions"
 
@@ -28,6 +28,7 @@ class EdgarService:
 
     def __init__(self):
         self._cik_cache: dict[str, str] = {}
+        self._tickers_cache: Optional[dict] = None
 
     async def get_filing(
         self,
@@ -100,60 +101,68 @@ class EdgarService:
 
         return results
 
+    async def fetch_filing_text(self, url: str, max_chars: int = 12000) -> Optional[str]:
+        """
+        Download a filing HTML from SEC and extract readable text.
+        Returns first max_chars of cleaned text, or None on failure.
+        """
+        if not url:
+            return None
+
+        try:
+            await asyncio.sleep(_RATE_LIMIT_SLEEP)
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.get(url, headers={"User-Agent": SEC_USER_AGENT}, follow_redirects=True)
+                if resp.status_code != 200:
+                    logger.debug(f"[EDGAR] Filing fetch HTTP {resp.status_code}: {url}")
+                    return None
+
+                html = resp.text
+
+            import re
+            # Remove script/style/xbrl blocks
+            text = re.sub(r'<(script|style|xbrl|ix:header)[^>]*>.*?</\1>', '', html, flags=re.DOTALL | re.IGNORECASE)
+            # Remove inline XBRL tags but keep their text content
+            text = re.sub(r'<ix:[^>]*>', '', text)
+            text = re.sub(r'</ix:[^>]*>', '', text)
+            # Remove HTML tags
+            text = re.sub(r'<[^>]+>', ' ', text)
+            # Remove XBRL metadata lines (namespace URIs, booleans, technical identifiers)
+            text = re.sub(r'http://\S+', '', text)
+            text = re.sub(r'\b(true|false)\b', '', text, flags=re.IGNORECASE)
+            # Collapse whitespace
+            text = re.sub(r'\s+', ' ', text).strip()
+            # Skip past XBRL preamble — find first substantial paragraph
+            # Look for "PART I" or "Item 1" or "ANNUAL REPORT" as start markers
+            for marker in ['PART I', 'Item 1', 'ANNUAL REPORT', 'QUARTERLY REPORT']:
+                idx = text.find(marker)
+                if idx > 0 and idx < len(text) // 2:
+                    text = text[idx:]
+                    break
+
+            return text[:max_chars] if text else None
+
+        except Exception as e:
+            logger.debug(f"[EDGAR] Filing text extraction failed: {e}")
+            return None
+
     async def _get_cik(self, symbol: str) -> Optional[str]:
-        """Look up the CIK (Central Index Key) for a ticker symbol."""
+        """Look up the CIK (Central Index Key) for a ticker symbol via company_tickers.json."""
         if symbol in self._cik_cache:
             return self._cik_cache[symbol]
 
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(
-                    "https://www.sec.gov/cgi-bin/browse-edgar",
-                    params={
-                        "company": "",
-                        "CIK": symbol,
-                        "type": "",
-                        "dateb": "",
-                        "owner": "include",
-                        "count": "1",
-                        "search_text": "",
-                        "action": "getcompany",
-                        "output": "atom",
-                    },
-                    headers={"User-Agent": SEC_USER_AGENT},
-                    follow_redirects=True,
-                )
-
-                if resp.status_code != 200:
-                    return None
-
-                # Try the company tickers JSON endpoint (more reliable)
-                resp2 = await client.get(
-                    "https://www.sec.gov/cgi-bin/browse-edgar",
-                    params={"action": "getcompany", "company": "", "CIK": symbol,
-                            "type": "", "dateb": "", "owner": "include", "count": "1",
-                            "search_text": "", "output": "atom"},
-                    headers={"User-Agent": SEC_USER_AGENT},
-                    follow_redirects=True,
-                )
-
-            await asyncio.sleep(_RATE_LIMIT_SLEEP)
-
-            # Parse CIK from the tickers endpoint
-            tickers_resp = await self._fetch_tickers_json()
-            if tickers_resp and symbol in tickers_resp:
-                cik = str(tickers_resp[symbol]).zfill(10)
-                self._cik_cache[symbol] = cik
-                return cik
-
-            return None
-
-        except Exception as e:
-            logger.debug(f"[EDGAR] CIK lookup failed for {symbol}: {e}")
-            return None
+        tickers = await self._fetch_tickers_json()
+        if tickers and symbol in tickers:
+            cik = str(tickers[symbol]).zfill(10)
+            self._cik_cache[symbol] = cik
+            return cik
+        return None
 
     async def _fetch_tickers_json(self) -> Optional[dict]:
-        """Fetch the SEC company tickers JSON file."""
+        """Fetch the SEC company tickers JSON file. Cached for the session."""
+        if self._tickers_cache is not None:
+            return self._tickers_cache
+
         try:
             async with httpx.AsyncClient(timeout=15) as client:
                 resp = await client.get(
@@ -161,15 +170,17 @@ class EdgarService:
                     headers={"User-Agent": SEC_USER_AGENT},
                 )
                 if resp.status_code != 200:
+                    logger.warning(f"[EDGAR] Tickers JSON HTTP {resp.status_code}")
                     return None
 
                 data = resp.json()
-                # Format: {"0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."}, ...}
-                return {
+                self._tickers_cache = {
                     entry["ticker"]: entry["cik_str"]
                     for entry in data.values()
                     if "ticker" in entry and "cik_str" in entry
                 }
+                logger.info(f"[EDGAR] Loaded {len(self._tickers_cache)} ticker-CIK mappings")
+                return self._tickers_cache
         except Exception as e:
             logger.debug(f"[EDGAR] Failed to fetch tickers JSON: {e}")
             return None

@@ -92,6 +92,9 @@ class LeadAgent:
         trade_journal: Optional["TradeJournalAgent"] = None,
         # Phase C — Order reconciliation
         order_reconciler: Optional["OrderReconciler"] = None,
+        # Intelligence agents
+        fundamentals_analyst=None,
+        briefing_service=None,
     ):
         self.workers = {w.name: w for w in workers}
         self.risk_manager = risk_manager
@@ -110,6 +113,10 @@ class LeadAgent:
         self.performance_service = performance_service
         self.news_service = news_service
         self.trade_journal = trade_journal
+
+        # Intelligence agents
+        self._fundamentals_analyst = fundamentals_analyst
+        self._briefing_service = briefing_service
 
         # Phase C — Order reconciler
         self.order_reconciler = order_reconciler
@@ -327,7 +334,9 @@ You have access to two knowledge tools that persist across cycles:
 
 3. **Strategy Insights** (get_strategy_insights): Validated rules confirmed by trade data. These have higher authority than the playbook — if an insight says "max 2 positions per symbol" with 0.9 confidence, follow it.
 
-Your first two tool calls every cycle should be get_playbook() followed by get_strategy_insights(). Learn from the past before acting on the present.
+Your first three tool calls every cycle should be get_briefing(), get_playbook(), then get_strategy_insights(). The briefing contains the Research Analyst's reflection on yesterday's patterns. Learn from the past before acting on the present.
+
+4. **Fundamentals Analysis** (get_fundamentals): When you're seriously considering a specific name for a trade, request its fundamentals summary. This gives you financial health, SEC filings context, and risk factors that signal scores alone don't capture.
 
 When you close a losing trade, ALWAYS add a playbook entry explaining what went wrong and what to do differently. When you discover a pattern (e.g., "ETF puts outperform single-stock puts by 15%"), add it with the supporting data.
 
@@ -627,6 +636,35 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
                     "required": [],
                 },
             },
+            {
+                "name": "get_fundamentals",
+                "description": (
+                    "Get a fundamentals analysis for a specific symbol. Returns financial "
+                    "health, recent SEC filings, earnings context, and risk factors. "
+                    "Use this when evaluating a specific name for trading — it provides "
+                    "the qualitative context that signal scores alone don't capture."
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "symbol": {
+                            "type": "string",
+                            "description": "The ticker symbol to analyze",
+                        }
+                    },
+                    "required": ["symbol"],
+                },
+            },
+            {
+                "name": "get_briefing",
+                "description": (
+                    "Get today's pre-market briefing. Contains the Research Analyst's "
+                    "reflection on yesterday's trading patterns and themes, plus active "
+                    "playbook entries. Read this alongside the playbook for context on "
+                    "what the system has been observing recently."
+                ),
+                "input_schema": {"type": "object", "properties": {}, "required": []},
+            },
         ]
 
     async def _execute_tool(self, tool_name: str, tool_input: dict) -> dict:
@@ -772,6 +810,20 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
                         for i in insights
                     ]
                 }
+
+        if tool_name == "get_fundamentals":
+            symbol = tool_input.get("symbol", "")
+            if hasattr(self, '_fundamentals_analyst') and self._fundamentals_analyst:
+                return await self._fundamentals_analyst.get_summary(symbol)
+            return {"error": "Fundamentals analyst not available"}
+
+        if tool_name == "get_briefing":
+            if hasattr(self, '_briefing_service') and self._briefing_service:
+                briefing = await self._briefing_service.get_today_briefing()
+                if briefing:
+                    return {"briefing": briefing}
+                return {"briefing": "No briefing available for today yet."}
+            return {"error": "Briefing service not available"}
 
         return {"error": f"Unknown tool: {tool_name}"}
 

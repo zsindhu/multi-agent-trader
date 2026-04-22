@@ -265,6 +265,42 @@ async def main(mode: str = "paper"):
         id="outcome_labeler",
     )
 
+    # Research Analyst reflection: runs at 5:30 PM ET (after outcome labeler)
+    async def _run_research_reflection():
+        try:
+            logger.info("[Main] -- Research Analyst reflection starting --")
+            result = await svc.research_analyst.run_reflection()
+            logger.info(f"[Main] -- Research Analyst done -- {result}")
+        except Exception as e:
+            logger.error(f"[Main] Research Analyst failed: {e}")
+
+    scheduler.add_job(
+        _run_research_reflection,
+        "cron",
+        hour="17",
+        minute="30",
+        timezone="US/Eastern",
+        id="research_reflection",
+    )
+
+    # Pre-market briefing: runs at 7:30 AM ET (before Breadth Analyst at 8 AM)
+    async def _run_briefing():
+        try:
+            logger.info("[Main] -- Pre-market briefing starting --")
+            result = await svc.briefing_service.generate_briefing()
+            logger.info(f"[Main] -- Briefing done -- {result}")
+        except Exception as e:
+            logger.error(f"[Main] Briefing failed: {e}")
+
+    scheduler.add_job(
+        _run_briefing,
+        "cron",
+        hour="7",
+        minute="30",
+        timezone="US/Eastern",
+        id="premarket_briefing",
+    )
+
     # Performance analytics: runs after market close (4:30 PM ET)
     scheduler.add_job(
         performance_service.compute_all,

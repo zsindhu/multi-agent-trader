@@ -31,6 +31,9 @@ from services.order_reconciler import OrderReconciler
 from services.fred_service import FredService
 from services.edgar_service import EdgarService
 from services.outcome_labeler import OutcomeLabeler
+from agents.fundamentals_analyst import FundamentalsAnalyst
+from agents.research_analyst import ResearchAnalyst
+from services.briefing_service import BriefingService
 from core.broker import Broker
 from core.risk_manager import RiskManager
 from core.portfolio import Portfolio
@@ -64,6 +67,9 @@ class Services:
         self.fred_service: FredService = None
         self.edgar_service: EdgarService = None
         self.outcome_labeler: OutcomeLabeler = None
+        self.fundamentals_analyst: FundamentalsAnalyst = None
+        self.research_analyst: ResearchAnalyst = None
+        self.briefing_service: BriefingService = None
         self.lead_agent: LeadAgent = None
         # Workers (exposed so main.py can reference them directly if needed)
         self.worker_cc: CoveredCallWorker = None
@@ -128,6 +134,14 @@ def build_services() -> Services:
     s.fred_service = FredService()
     s.edgar_service = EdgarService()
     s.outcome_labeler = OutcomeLabeler()
+    s.fundamentals_analyst = FundamentalsAnalyst(
+        edgar_service=s.edgar_service,
+        earnings_service=s.earnings_service,
+        fred_service=s.fred_service,
+        news_service=s.news_service,
+    )
+    s.research_analyst = ResearchAnalyst()
+    s.briefing_service = BriefingService()
 
     # ── Order Reconciler ────────────────────────────────────────
     s.order_reconciler = OrderReconciler(
@@ -170,6 +184,8 @@ def build_services() -> Services:
         news_service=s.news_service,
         trade_journal=s.trade_journal,
         order_reconciler=s.order_reconciler,
+        fundamentals_analyst=s.fundamentals_analyst,
+        briefing_service=s.briefing_service,
     )
 
     return s
