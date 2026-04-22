@@ -84,6 +84,7 @@ MODULES = [
     "agents.fundamentals_analyst",
     "agents.research_analyst",
     "services.signal_learner",
+    "models.pending_change",
     # API
     "api.state",
     "api.routes.portfolio",

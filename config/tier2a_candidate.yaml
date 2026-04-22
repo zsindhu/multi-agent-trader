@@ -1,0 +1,108 @@
+tier2a_prefilter:
+  # Config version — stamped into every observation's analysis JSON for provenance.
+  # Increment when rule weights, thresholds, or structure change.
+  config_version: "v1.1-2026-04-22"
+
+  # Combination logic: at least min_signals_to_fire independent rules
+  # must fire before a name is promoted. Single signals are too noisy.
+  min_signals_to_fire: 2
+
+  # Liquidity floor: reject names below this daily dollar volume
+  # BEFORE any signal compute. Prevents micro-cap noise.
+  min_daily_dollar_volume: 10_000_000  # $10M
+
+  # Rule thresholds, weights, and history guards
+  rules:
+    volume_zscore:
+      enabled: true
+      threshold: 2.0
+      window: 60
+      min_history: 60
+      weight: 0.20
+
+    range_expansion:
+      enabled: true
+      threshold: 1.5
+      atr_period: 20
+      min_history: 60
+      weight: 0.15
+
+    gap_zscore:
+      enabled: true
+      threshold: 2.0
+      window: 60
+      min_history: 60
+      weight: 0.15
+
+    iv_rank_delta:
+      enabled: true
+      threshold: 15.0    # points change over 5 trading days
+      weight: 0.20
+
+    correlation_breakdown:
+      enabled: true
+      threshold: 0.3
+      short_window: 20
+      long_window: 60
+      min_history: 60
+      weight: 0.15
+
+    # Rule 8: Earnings proximity
+    # Contributes to base score (weight 0.15) AND triggers amplification
+    # (multiplier 1.5x on final composite when fired). Both effects tunable.
+    earnings_proximity:
+      enabled: true
+      threshold_days: 14
+      amplification_multiplier: 1.5
+      weight: 0.15
+
+    news_density:
+      enabled: true
+      threshold: 2.0
+      weight: 0.15
+      min_news_days: 5         # Minimum distinct days of data before evaluating (lowered from 14 to reduce warm-up dormancy)
+      cache_ttl_hours: 4       # Don't re-fetch company news within this window
+
+    # Rule 5: Put/call volume ratio (v1 — absolute thresholds)
+    # Fires when P/C > 1.5 (heavy put buying) or < 0.5 (heavy call buying).
+    # PARKING LOT: upgrade to per-name z-scores once history table exists.
+    put_call_ratio:
+      enabled: true
+      weight: 0.10
+
+    # Rule 6: Options volume / open interest
+    # Fires when total daily volume / total OI > 0.30
+    volume_oi_ratio:
+      enabled: true
+      weight: 0.10
+
+    # Rule 9: Short interest (yfinance Ticker.info)
+    # v1 uses absolute thresholds. Per-name z-score deferred (PARKING LOT).
+    short_interest:
+      enabled: true
+      pct_threshold: 0.10      # short % of float > 10%
+      ratio_threshold: 5.0     # days to cover > 5
+      weight: 0.10
+
+    # Rule 11: Social mention velocity (StockTwits public API)
+    # v1 uses absolute thresholds. Per-name z-score deferred (PARKING LOT).
+    social_velocity:
+      enabled: true
+      threshold: 10            # 24h messages > 10 (out of 30 returned)
+      weight: 0.10
+
+  # Near-miss capture: top N names below cutoff
+  near_miss_count: 30
+
+  # On-demand fetches: top N by interim score get additional data
+  news_fetch_top_n: 200
+  options_fetch_top_n: 100       # yfinance options + short interest (rules 5/6/9 combined)
+  social_top_n: 50               # StockTwits for rule 11 (200 req/hr limit)
+
+  # Pacing
+  batch_size: 100
+  progress_log_interval: 500
+
+  # IV rank computation
+  iv_rank_window_days: 252
+  iv_rank_delta_lookback: 5

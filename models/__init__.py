@@ -37,6 +37,7 @@ from .agent_action import AgentAction
 from .macro_news_event import MacroNewsEvent
 from .symbol_news_headline import SymbolNewsHeadline
 from .trade_outcome import TradeOutcome
+from .pending_change import PendingChange
 
 __all__ = [
     "Base",
@@ -67,4 +68,5 @@ __all__ = [
     "MacroNewsEvent",
     "SymbolNewsHeadline",
     "TradeOutcome",
+    "PendingChange",
 ]
