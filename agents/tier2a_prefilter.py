@@ -222,64 +222,47 @@ class Tier2aPrefilter(BaseAgent):
 
             logger.info(f"[Tier2a] News fetched for {fetched} top candidates")
 
-        # Step 6.5: On-demand options chain fetch for top candidates (rules 5/6)
+        # Step 6.5: Combined yfinance fetch for rules 5/6/9 (options + short interest)
+        # One yf.Ticker() per symbol yields .info (short interest) + .option_chain()
+        # (P/C ratio, vol/OI). Halves API calls vs separate loops.
         r5_cfg = rules_cfg.get("put_call_ratio", {})
         r6_cfg = rules_cfg.get("volume_oi_ratio", {})
-        options_top_n = cfg.get("options_fetch_top_n", 100)
+        r9_cfg = rules_cfg.get("short_interest", {})
+        yf_top_n = cfg.get("options_fetch_top_n", 100)
 
-        if r5_cfg.get("enabled", True) or r6_cfg.get("enabled", True):
-            # Use the same sorted order — top N by interim score
-            options_symbols = {s["symbol"] for s in scored[:options_top_n]}
-            options_fetched = 0
+        any_yf_enabled = (r5_cfg.get("enabled", True) or r6_cfg.get("enabled", True)
+                          or r9_cfg.get("enabled", True))
+
+        if any_yf_enabled:
+            yf_symbols = {s["symbol"] for s in scored[:yf_top_n]}
+            yf_fetched = 0
 
             for s in scored:
-                if s["symbol"] in options_symbols:
-                    chain_signals = await self._compute_options_signals(
-                        s["symbol"], r5_cfg, r6_cfg,
+                if s["symbol"] in yf_symbols:
+                    yf_signals = await self._compute_yfinance_signals(
+                        s["symbol"], r5_cfg, r6_cfg, r9_cfg,
                     )
-                    for sig_name, sig_data in chain_signals.items():
+                    for sig_name, sig_data in yf_signals.items():
                         s["signals"][sig_name] = sig_data
+                        weight_map = {
+                            "put_call_ratio": r5_cfg.get("weight", 0.10),
+                            "volume_oi_ratio": r6_cfg.get("weight", 0.10),
+                            "short_interest": r9_cfg.get("weight", 0.10),
+                        }
                         if sig_data.get("score", 0) > 0:
-                            w = (r5_cfg if sig_name == "put_call_ratio" else r6_cfg).get("weight", 0.10)
-                            s["total_score"] += sig_data["score"] * w
+                            s["total_score"] += sig_data["score"] * weight_map.get(sig_name, 0.10)
                         if sig_data.get("fired"):
                             s["signals_fired"] += 1
-                    options_fetched += 1
+                    yf_fetched += 1
                 else:
-                    if r5_cfg.get("enabled", True):
-                        s["signals"]["put_call_ratio"] = {
-                            "score": 0.0, "raw": 0, "fired": False, "reason": "not_evaluated",
-                        }
-                    if r6_cfg.get("enabled", True):
-                        s["signals"]["volume_oi_ratio"] = {
-                            "score": 0.0, "raw": 0, "fired": False, "reason": "not_evaluated",
-                        }
+                    for sig_name in ["put_call_ratio", "volume_oi_ratio", "short_interest"]:
+                        rule_cfg = {"put_call_ratio": r5_cfg, "volume_oi_ratio": r6_cfg, "short_interest": r9_cfg}[sig_name]
+                        if rule_cfg.get("enabled", True):
+                            s["signals"][sig_name] = {
+                                "score": 0.0, "raw": 0, "fired": False, "reason": "not_evaluated",
+                            }
 
-            logger.info(f"[Tier2a] Options chain fetched for {options_fetched} top candidates")
-
-        # Step 6.6: On-demand short interest fetch (rule 9) for top N
-        r9_cfg = rules_cfg.get("short_interest", {})
-        si_top_n = cfg.get("short_interest_top_n", 100)
-
-        if r9_cfg.get("enabled", True):
-            si_symbols = {s["symbol"] for s in scored[:si_top_n]}
-            si_fetched = 0
-
-            for s in scored:
-                if s["symbol"] in si_symbols:
-                    si_result = await self._compute_short_interest(s["symbol"])
-                    s["signals"]["short_interest"] = si_result
-                    if si_result.get("score", 0) > 0:
-                        s["total_score"] += si_result["score"] * r9_cfg.get("weight", 0.10)
-                    if si_result.get("fired"):
-                        s["signals_fired"] += 1
-                    si_fetched += 1
-                else:
-                    s["signals"]["short_interest"] = {
-                        "score": 0.0, "raw": 0, "fired": False, "reason": "not_evaluated",
-                    }
-
-            logger.info(f"[Tier2a] Short interest fetched for {si_fetched} top candidates")
+            logger.info(f"[Tier2a] yfinance (options + short interest) fetched for {yf_fetched} top candidates")
 
         # Step 6.7: On-demand social velocity fetch (rule 11) for top N
         r11_cfg = rules_cfg.get("social_velocity", {})
@@ -641,74 +624,88 @@ class Tier2aPrefilter(BaseAgent):
             logger.debug(f"[Tier2a] News density query failed for {symbol}: {e}")
             return {"score": 0.0, "raw": 0, "fired": False, "reason": "fetch_failed"}
 
-    async def _compute_options_signals(
-        self, symbol: str, r5_cfg: dict, r6_cfg: dict,
+    async def _compute_yfinance_signals(
+        self, symbol: str, r5_cfg: dict, r6_cfg: dict, r9_cfg: dict,
     ) -> dict[str, dict]:
         """
-        Fetch options chain for a symbol and compute rules 5 (P/C ratio)
-        and 6 (volume/OI ratio). Returns dict of signal name -> signal dict.
+        Combined yfinance fetch for rules 5 (P/C ratio), 6 (vol/OI), and
+        9 (short interest). One Ticker object per symbol, fetches both
+        .info and .option_chain() in a single thread executor call.
         """
+        import yfinance as yf
+        loop = asyncio.get_event_loop()
+
+        def _fetch_all():
+            try:
+                t = yf.Ticker(symbol)
+                data = {"info": None, "put_vol": 0, "call_vol": 0, "put_oi": 0, "call_oi": 0}
+
+                # Short interest from .info (rule 9)
+                if r9_cfg.get("enabled", True):
+                    try:
+                        info = t.info
+                        data["info"] = {
+                            "short_pct": info.get("shortPercentOfFloat"),
+                            "short_ratio": info.get("shortRatio"),
+                        }
+                    except Exception:
+                        pass
+
+                # Options chain from nearest expiration (rules 5/6)
+                if r5_cfg.get("enabled", True) or r6_cfg.get("enabled", True):
+                    try:
+                        exps = t.options
+                        if exps:
+                            chain = t.option_chain(exps[0])
+                            data["put_vol"] = int(chain.puts["volume"].fillna(0).sum())
+                            data["call_vol"] = int(chain.calls["volume"].fillna(0).sum())
+                            data["put_oi"] = int(chain.puts["openInterest"].fillna(0).sum())
+                            data["call_oi"] = int(chain.calls["openInterest"].fillna(0).sum())
+                            data["has_chain"] = True
+                        else:
+                            data["has_chain"] = False
+                    except Exception:
+                        data["has_chain"] = False
+
+                return data
+            except Exception:
+                return None
+
         result = {}
+        data = await loop.run_in_executor(None, _fetch_all)
 
-        try:
-            chain = await self.broker.get_options_chain(symbol)
-        except Exception as e:
-            logger.debug(f"[Tier2a] Options chain fetch failed for {symbol}: {e}")
-            if r5_cfg.get("enabled", True):
-                result["put_call_ratio"] = {"score": 0.0, "raw": 0, "fired": False, "reason": "fetch_failed"}
-            if r6_cfg.get("enabled", True):
-                result["volume_oi_ratio"] = {"score": 0.0, "raw": 0, "fired": False, "reason": "fetch_failed"}
+        if data is None:
+            for sig_name, cfg in [("put_call_ratio", r5_cfg), ("volume_oi_ratio", r6_cfg), ("short_interest", r9_cfg)]:
+                if cfg.get("enabled", True):
+                    result[sig_name] = {"score": 0.0, "raw": 0, "fired": False, "reason": "fetch_failed"}
             return result
-
-        if not chain:
-            if r5_cfg.get("enabled", True):
-                result["put_call_ratio"] = {"score": 0.0, "raw": 0, "fired": False, "reason": "no_chain_data"}
-            if r6_cfg.get("enabled", True):
-                result["volume_oi_ratio"] = {"score": 0.0, "raw": 0, "fired": False, "reason": "no_chain_data"}
-            return result
-
-        # Aggregate volumes and OI across all contracts
-        put_vol = sum(c.get("volume", 0) for c in chain if c.get("contract_type") == "put")
-        call_vol = sum(c.get("volume", 0) for c in chain if c.get("contract_type") == "call")
-        total_vol = put_vol + call_vol
-        total_oi = sum(c.get("open_interest", 0) for c in chain)
 
         # Rule 5: Put/call volume ratio
         if r5_cfg.get("enabled", True):
-            result["put_call_ratio"] = put_call_volume_ratio(put_vol, call_vol)
+            if data.get("has_chain"):
+                result["put_call_ratio"] = put_call_volume_ratio(data["put_vol"], data["call_vol"])
+            else:
+                result["put_call_ratio"] = {"score": 0.0, "raw": 0, "fired": False, "reason": "no_chain_data"}
 
         # Rule 6: Options volume / open interest
         if r6_cfg.get("enabled", True):
-            result["volume_oi_ratio"] = volume_oi_ratio(total_vol, total_oi)
+            if data.get("has_chain"):
+                total_vol = data["put_vol"] + data["call_vol"]
+                total_oi = data["put_oi"] + data["call_oi"]
+                result["volume_oi_ratio"] = volume_oi_ratio(total_vol, total_oi)
+            else:
+                result["volume_oi_ratio"] = {"score": 0.0, "raw": 0, "fired": False, "reason": "no_chain_data"}
+
+        # Rule 9: Short interest
+        if r9_cfg.get("enabled", True):
+            if data.get("info"):
+                result["short_interest"] = short_interest_signal(
+                    data["info"]["short_pct"], data["info"]["short_ratio"],
+                )
+            else:
+                result["short_interest"] = {"score": 0.0, "raw": 0, "fired": False, "reason": "fetch_failed"}
 
         return result
-
-    async def _compute_short_interest(self, symbol: str) -> dict:
-        """Fetch short interest from yfinance Ticker.info. Runs in thread executor."""
-        try:
-            import yfinance as yf
-            loop = asyncio.get_event_loop()
-
-            def _fetch():
-                try:
-                    info = yf.Ticker(symbol).info
-                    return {
-                        "short_pct": info.get("shortPercentOfFloat"),
-                        "short_ratio": info.get("shortRatio"),
-                    }
-                except Exception:
-                    return None
-
-            result = await loop.run_in_executor(None, _fetch)
-            if result is None:
-                return {"score": 0.0, "raw": 0, "fired": False, "reason": "fetch_failed"}
-
-            return short_interest_signal(
-                result["short_pct"], result["short_ratio"],
-            )
-        except Exception as e:
-            logger.debug(f"[Tier2a] Short interest failed for {symbol}: {e}")
-            return {"score": 0.0, "raw": 0, "fired": False, "reason": "fetch_failed"}
 
     async def _compute_social_velocity(self, symbol: str, threshold: int = 10) -> dict:
         """Fetch recent StockTwits messages and count those from last 24h."""

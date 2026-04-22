@@ -92,8 +92,7 @@ tier2a_prefilter:
 
   # On-demand fetches: top N by interim score get additional data
   news_fetch_top_n: 200
-  options_fetch_top_n: 100       # Options chain for rules 5/6
-  short_interest_top_n: 100      # yfinance short interest for rule 9
+  options_fetch_top_n: 100       # yfinance options + short interest (rules 5/6/9 combined)
   social_top_n: 50               # StockTwits for rule 11 (200 req/hr limit)
 
   # Pacing
