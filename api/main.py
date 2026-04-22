@@ -20,7 +20,7 @@ from loguru import logger
 
 from config.settings import settings as app_settings
 from api.state import AppState
-from api.routes import portfolio, trades, agents, scanner, backtest, settings, proposals, account, executions, intelligence, diagnostics
+from api.routes import portfolio, trades, agents, scanner, backtest, settings, proposals, account, executions, intelligence, diagnostics, research
 
 
 # ── Background Scanner ──────────────────────────────────────────────
@@ -114,6 +114,7 @@ app.include_router(account.router, prefix="/api/account", tags=["Account"])
 app.include_router(executions.router, prefix="/api/executions", tags=["Executions"])
 app.include_router(intelligence.router, prefix="/api/intelligence", tags=["Intelligence"])
 app.include_router(diagnostics.router, prefix="/api/diagnostics", tags=["Diagnostics"])
+app.include_router(research.router, tags=["Research"])  # No /api prefix — serves HTML at /research
 
 
 # ── Health ──────────────────────────────────────────────────────────
