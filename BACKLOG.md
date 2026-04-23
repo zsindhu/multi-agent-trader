@@ -112,49 +112,41 @@ file, add it under PARKING LOT and keep working on the current phase.
 
 ## BUILD NOW vs NEXT WEEK
 
-### Build now (this session / next 1-2 days)
+### Build now (Week 2-3 of multi-sleeve launch)
 
-**Priority 1 — 1.4.2.1 Outcome labeler service.** The funnel is closed
-end-to-end (Tier 1 → 2a → 2b → Lead Agent). The Lead Agent is now making
-trade decisions through the pipeline. The next critical piece is ground
-truth: joining name_observations to closed position outcomes so we can
-measure which signals actually predict profitable trades.
-- Joins name_observations to closed trade outcomes
-- 30-sample minimum before drawing conclusions, confidence intervals
-- Ground truth substrate for statistical signal-weight learner (1.4.2.2)
+**Priority 1 — Sleeve Orchestrator.** Parallel-plus-consolidation
+architecture: 4 independent Lead Agent calls (one per sleeve) with
+per-sleeve system prompts and Tier 2 top-15 lists, followed by a
+consolidation call for cross-sleeve conflict resolution. Deterministic
+primary (earnings → event-driven, high IV no catalyst → vol-reversion,
+ETF → sector-rotation), LLM secondary for ambiguous cases.
 
-**Priority 2 — 1.4.1.1 Fundamentals Analyst.** LLM agent reads EDGAR
-filings + earnings calendar + FRED macro context. Produces qualitative
-context injected into Lead Agent's reasoning. Currently the Lead Agent
-sees signal profiles and Tier 2b reasoning but has no fundamentals context.
+**Priority 2 — SleeveRiskGate.** Pre-execution hard limits: sector
+concentration (30%), single-name cross-sleeve (10%), per-sleeve position
+count, per-sleeve drawdown trigger (-10%), portfolio-level Greek limits.
+Sector lookup via yfinance.
 
-**Priority 3 — 1.4.2.3 Research Analyst + 1.4.2.4 Pre-market briefing.**
-The learning flywheel: daily post-market reflection reads the day's
-observations and trades, identifies patterns, updates the playbook.
-Pre-market briefing injects yesterday's reflection into the next day's
-Lead Agent context. This is where strategy compounds daily.
+**Priority 3 — Experiment evaluation dashboard.** `/research/experiment`
+page: per-sleeve Sharpe (rolling 20d), drawdown, win rate, position
+count, pairwise correlations.
 
-**Operator tasks:**
-1. Verify rules 5/6 firing with real data after the yfinance options fix
-   deploys (check after next market-hours Tier 2a cron run).
-2. Rotate compromised credentials (Postgres password + Finnhub key).
-3. Commit the `MAX_DAILY_COST = 10.00` change to the repo (hotfixed on
-   droplet container, will revert on next rebuild if not committed).
+**Priority 4 — Prompt caching + multi-leg infrastructure.** Prompt
+caching in llm_service.py (~$15/month savings). Multi-leg order support
+in alpaca_broker.py (infrastructure, not activated).
 
-### Build next week
+### On hold for 6-month experiment
 
-**Priority 1 — 1.4.2.2 Statistical signal-weight learner.** Logistic
-regression over Tier 2a signal vectors vs win/loss outcomes. Retrained
-monthly once >= ~200 closed trades exist. Requires outcome labeler (1.4.2.1)
-to be producing ground truth first.
+- No new sleeves (4 only)
+- No signal weight changes without backtester validation
+- No Kelly sizing activation
+- No Phase 2 React dashboard
+- No Phase 3 architecture transfer
+- Allowed: bug fixes, data quality, monitoring, prompt tuning
 
-**Priority 2 — 1.4.3 Validation pipeline.** Backtester + shadow forward
-test + paper trading promotion. Gates any future signal weight or rule
-threshold changes behind empirical validation.
+### Operator tasks
 
-**Priority 3 — 1.5 Research Inspector.** PostgreSQL views, CLI tools,
-plain HTML `/research` route for inspecting cycles, decisions, and the
-learning loop.
+1. Rotate compromised credentials (Postgres password + Finnhub key)
+2. Fill EXPERIMENT_CHARTER.md specifics before Day 1
 
 ---
 
@@ -258,43 +250,76 @@ Tier 1 (6,350 → 4,285 daily)
         → Trade decisions + position management
 ```
 
-### Batch 1.4.1 — Specialized Agents `[ ]`
+### Batch 1.4.1 — Specialized Agents `[x]` SHIPPED
 
-- **1.4.1.1 Fundamentals Analyst** — LLM agent, EDGAR + earnings + FRED.
-- **1.4.1.2 Research Analyst** — promoted into 1.4.2.3.
-- **1.4.1.3 Pre-market briefing** — promoted into 1.4.2.4.
-- **1.4.1.4 Prompt caching** — cost discipline as context grows.
+- `[x]` **1.4.1.1 Fundamentals Analyst** — On-demand via Lead Agent tool
+  `get_fundamentals(symbol)`. EDGAR filing text + earnings + FRED macro +
+  news → Llama 3.3 summary. Cached 24h in agent_messages. ~$0.30/month.
+- `[x]` **1.4.1.2/1.4.2.3 Research Analyst** — Daily 5:30 PM ET. Reads
+  cycle_snapshots + top 20 promotions + trade outcomes → narrative
+  reflection. ~$0.05/month.
+- `[x]` **1.4.1.3/1.4.2.4 Pre-market briefing** — Daily 7:30 AM ET. No
+  LLM. Assembles Research Analyst reflection + playbook. $0/month.
+- `[ ]` **1.4.1.4 Prompt caching** — Scheduled for Week 3 of sleeve launch.
 
-### Batch 1.4.2 — Learning Loop Activation `[ ]`
+### Batch 1.4.2 — Learning Loop Activation `[x]` SHIPPED (core items)
 
-- **1.4.2.1 Outcome labeler** — ground truth substrate.
-- **1.4.2.2 Statistical signal-weight learner** — logistic regression,
-  monthly retrain at >= 200 closed trades.
-- **1.4.2.3 Research Analyst** — daily post-market reflection.
-- **1.4.2.4 Pre-market briefing** — yesterday's reflection → today's context.
-- **1.4.2.5 Citation tracking** — playbook entry → trade outcome correlation.
-- **1.4.2.6 Decay and re-validation** — retire stale playbook entries.
-- **1.4.2.7 Adversarial review (optional)** — second LLM reviews playbook.
-- **1.4.2.8 Skill document producer** — per-agent skill docs, versioned.
-- ~~**1.4.2.9 Lead Agent rewiring**~~ — ✅ SHIPPED as 1.4.0c.
-- **1.4.2.10 Control Lead Agent** — 3-month parallel on frozen baseline.
+- `[x]` **1.4.2.1 Outcome labeler** — Nightly 5 PM ET. Joins trades to
+  observations, computes PnL (sell/buy guards), holding period, underlying
+  return. 23 pre-funnel outcomes labeled.
+- `[x]` **1.4.2.2 Signal-weight learner** — numpy logistic regression.
+  L2 regularized, bounded drift (0.3x-3x), CI diagnostics. Min 50
+  funnel-driven outcomes. Output: config/learned_weights.json (human-reviewed).
+- `[x]` **1.4.2.3 Research Analyst** — See 1.4.1.2 above.
+- `[x]` **1.4.2.4 Pre-market briefing** — See 1.4.1.3 above.
+- `[ ]` **1.4.2.5 Citation tracking** — Deferred to post-experiment.
+- `[ ]` **1.4.2.6 Decay and re-validation** — Deferred to post-experiment.
+- `[ ]` **1.4.2.7 Adversarial review** — Deferred.
+- `[ ]` **1.4.2.8 Skill document producer** — Deferred.
+- `[x]` **1.4.2.9 Lead Agent rewiring** — SHIPPED as 1.4.0c.
+- ~~**1.4.2.10 Control Lead Agent**~~ — REPLACED by 4-sleeve experiment.
 
-### Batch 1.4.3 — Validation Pipeline `[ ]`
+### Batch 1.4.3 — Validation Pipeline `[x]` SHIPPED (v1)
 
-- **1.4.3.1** Backtester
-- **1.4.3.2** Shadow forward test (20 trading days)
-- **1.4.3.3** Paper trading promotion (30 trading days)
-- **1.4.3.4** Pending changes queue
-- **1.4.3.5** Manual review gate
+- `[x]` **1.4.3.1** Config backtester — re-scores historical observations
+  under two configs, compares promotion counts + win rates.
+- `[ ]` **1.4.3.2** Shadow forward test — deferred until backtester
+  produces meaningful candidates.
+- `[ ]` **1.4.3.3** Paper trading promotion — deferred.
+- `[x]` **1.4.3.4** Pending changes queue — `pending_changes` table.
+- `[x]` **1.4.3.5** Manual review gate — implicit (human updates config).
 
-### Batch 1.5 — Research Inspector `[ ]`
+### Batch 1.5 — Research Inspector `[x]` SHIPPED
 
-PostgreSQL views, CLI tools, `/research` HTML route, cycle drill-down,
-pgvector semantic search.
+- `[x]` PostgreSQL views (5 views via migration)
+- `[x]` CLI tool (`scripts/research_inspect.py`, 6 subcommands)
+- `[x]` `/research` HTML route (5 pages: dashboard, promotions, trades,
+  signals, cycle drill-down)
+- `[ ]` pgvector semantic search — deferred.
 
-### Batch 1.6 — Cross-Database Context Retrieval `[ ]`
+### Batch 1.6 — Robust Statistics Migration `[x]` SHIPPED
 
-Build when Research Analyst (1.4.2.3) needs cross-table queries.
+- `[x]` `_safe_median()` and `_safe_mad()` in signal_compute.py
+- `[x]` Rules 1, 2, 3 migrated to median/MAD (backward-compatible, legacy
+  z-scores preserved in analysis JSON)
+- `[x]` Rule 4 converted from fixed 15-point threshold to per-name robust
+  z-score of 5-day change vs 60-day distribution
+- `[x]` Rule 7 enriched with corr_short/corr_long diagnostic fields
+- `[x]` MAD=0 fallback to std for thinly-traded names
+
+### Phase 1.5 — Multi-Sleeve Experiment `[~]` IN PROGRESS
+
+- `[x]` **Week 1:** Robust statistics migration, sleeve_id migration,
+  4 sleeve configs, SleeveConfig loader, EXPERIMENT_CHARTER.md template
+- `[ ]` **Week 2:** SleeveOrchestrator (parallel + consolidation),
+  SleeveRiskGate, per-sleeve Tier 2 queries
+- `[ ]` **Week 3:** Evaluation dashboard, prompt caching, multi-leg
+  infrastructure, edge estimate capture, scheduler wiring
+- `[ ]` **Launch:** $500K paper, 6 months observation
+
+### Batch 1.7 — Cross-Database Context Retrieval `[ ]`
+
+Build when Research Analyst needs cross-table queries. Deferred.
 
 ---
 
