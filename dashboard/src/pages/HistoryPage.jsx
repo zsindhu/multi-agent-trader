@@ -10,6 +10,14 @@ import {
 
 // ── Helpers ──────────────────────────────────────────────────
 
+function stripFences(text) {
+  if (!text) return text
+  return text
+    .replace(/```json\s*/g, '')
+    .replace(/```\s*/g, '')
+    .trim()
+}
+
 function fmtDate(iso) {
   if (!iso) return '--'
   const d = new Date(iso)
@@ -275,7 +283,7 @@ function CyclesPanel({ cycles }) {
               <td>${(c.llm_cost_usd || 0).toFixed(4)}</td>
               <td>{c.actions_executed || 0}/{c.actions_decided || 0}</td>
               <td style={{ maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {(c.summary || '--').slice(0, 100)}
+                {stripFences(c.summary || '--').slice(0, 100)}
               </td>
             </tr>
             {expandedId === c.id && (
@@ -289,7 +297,7 @@ function CyclesPanel({ cycles }) {
                     <span className="w95-bold">Tokens:</span> {(c.llm_tokens_in || 0).toLocaleString()} in / {(c.llm_tokens_out || 0).toLocaleString()} out
                   </div>
                   <div className="w95-text-scroll" style={{ maxHeight: 200, fontSize: 11 }}>
-                    {c.reasoning || '(no reasoning recorded)'}
+                    {stripFences(c.reasoning) || '(no reasoning recorded)'}
                   </div>
                 </td>
               </tr>
