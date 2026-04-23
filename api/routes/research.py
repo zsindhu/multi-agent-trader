@@ -47,6 +47,7 @@ NAV = """
   <a href="/research/promotions">Promotions</a>
   <a href="/research/trades">Trades</a>
   <a href="/research/signals">Signals</a>
+  <a href="/research/experiment">Experiment</a>
 </nav>
 """
 
@@ -263,3 +264,246 @@ async def research_cycle(cycle_id: int):
     ]
 
     return _page(f"Cycle #{cycle_id}", "\n".join(parts))
+
+
+# ── Experiment Dashboard ───────────────────────────────────────────
+
+
+def _compute_sharpe(pnls: list[float], trading_days: int = 252) -> float:
+    """Annualized Sharpe ratio from a list of per-trade PnL percentages."""
+    if len(pnls) < 2:
+        return 0.0
+    import statistics
+    mean = statistics.mean(pnls)
+    stdev = statistics.stdev(pnls)
+    if stdev == 0:
+        return 0.0
+    return (mean / stdev) * (trading_days ** 0.5)
+
+
+def _compute_max_drawdown(pnls: list[float]) -> float:
+    """Max drawdown from a cumulative PnL series (as fraction, e.g. 0.08 = 8%)."""
+    if not pnls:
+        return 0.0
+    cumulative = 0.0
+    peak = 0.0
+    max_dd = 0.0
+    for p in pnls:
+        cumulative += p
+        if cumulative > peak:
+            peak = cumulative
+        dd = peak - cumulative
+        if dd > max_dd:
+            max_dd = dd
+    return max_dd
+
+
+def _pearson_correlation(xs: list[float], ys: list[float]) -> float:
+    """Pearson correlation between two equal-length series."""
+    n = min(len(xs), len(ys))
+    if n < 3:
+        return 0.0
+    import statistics
+    xs, ys = xs[:n], ys[:n]
+    mean_x, mean_y = statistics.mean(xs), statistics.mean(ys)
+    cov = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys)) / (n - 1)
+    std_x, std_y = statistics.stdev(xs), statistics.stdev(ys)
+    if std_x == 0 or std_y == 0:
+        return 0.0
+    return cov / (std_x * std_y)
+
+
+@router.get("/research/experiment", response_class=HTMLResponse)
+async def research_experiment(days: int = Query(180, ge=7, le=365)):
+    """Per-sleeve experiment evaluation — Sharpe, drawdown, win rate, correlations."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    parts = []
+
+    # ── Load trade outcomes grouped by sleeve ────────────────────
+    async with AsyncSessionLocal() as session:
+        r = await session.execute(
+            select(TradeOutcome)
+            .where(TradeOutcome.labeled_at >= cutoff)
+            .order_by(TradeOutcome.labeled_at.asc())
+        )
+        outcomes = list(r.scalars().all())
+
+    # Group by sleeve_id (None = legacy / pre-sleeve)
+    sleeve_outcomes: dict[str, list] = {}
+    for o in outcomes:
+        sid = o.sleeve_id or "legacy"
+        sleeve_outcomes.setdefault(sid, []).append(o)
+
+    if not outcomes:
+        return _page("Experiment Dashboard", "<p>No trade outcomes in this period. The experiment hasn't generated data yet.</p>")
+
+    # ── Summary stats ────────────────────────────────────────────
+    total_trades = len(outcomes)
+    total_pnl = sum(o.pnl_dollars or 0 for o in outcomes)
+    total_wins = sum(1 for o in outcomes if o.outcome == "win")
+    total_losses = sum(1 for o in outcomes if o.outcome == "loss")
+
+    parts.append(
+        f'<div class="stat"><b>{total_trades}</b>Total trades</div>'
+        f'<div class="stat"><b>${total_pnl:,.0f}</b>Total PnL</div>'
+        f'<div class="stat"><b>{total_wins}W / {total_losses}L</b>'
+        f'{total_wins / max(total_wins + total_losses, 1) * 100:.0f}% win rate</div>'
+        f'<div class="stat"><b>{len(sleeve_outcomes)}</b>Sleeves active</div>'
+    )
+
+    # ── Per-sleeve metrics table ─────────────────────────────────
+    parts.append("<h2>Per-Sleeve Performance</h2>")
+
+    sleeve_pnl_series: dict[str, list[float]] = {}  # for correlation matrix
+    rows = []
+
+    for sid in sorted(sleeve_outcomes.keys()):
+        so = sleeve_outcomes[sid]
+        wins = sum(1 for o in so if o.outcome == "win")
+        losses = sum(1 for o in so if o.outcome == "loss")
+        breakevens = sum(1 for o in so if o.outcome == "breakeven")
+        total = wins + losses + breakevens
+        win_rate = wins / max(wins + losses, 1) * 100
+
+        pnl_dollars = [o.pnl_dollars for o in so if o.pnl_dollars is not None]
+        pnl_pcts = [o.pnl_percent for o in so if o.pnl_percent is not None]
+
+        total_pnl_sleeve = sum(pnl_dollars)
+        avg_pnl = total_pnl_sleeve / max(len(pnl_dollars), 1)
+
+        sharpe = _compute_sharpe(pnl_pcts)
+        max_dd = _compute_max_drawdown(pnl_pcts)
+
+        # Average holding days
+        hold_days = [o.holding_days for o in so if o.holding_days is not None]
+        avg_hold = sum(hold_days) / max(len(hold_days), 1) if hold_days else 0
+
+        # Edge calibration: compare estimated_edge to actual win rate
+        edges = [o.estimated_edge for o in so if o.estimated_edge is not None]
+        avg_edge = sum(edges) / len(edges) if edges else None
+        edge_str = f"{avg_edge:.2f}" if avg_edge is not None else "—"
+        edge_cal = ""
+        if avg_edge is not None and total >= 5:
+            actual = wins / max(wins + losses, 1)
+            cal_diff = actual - avg_edge
+            edge_cal = f' ({"+" if cal_diff >= 0 else ""}{cal_diff:.2f})'
+
+        sleeve_pnl_series[sid] = pnl_pcts
+
+        pnl_cls = "win" if total_pnl_sleeve >= 0 else "loss"
+        rows.append(
+            f'<tr><td><b>{sid}</b></td>'
+            f'<td>{total}</td>'
+            f'<td>{wins}W / {losses}L / {breakevens}B</td>'
+            f'<td>{win_rate:.1f}%</td>'
+            f'<td class="{pnl_cls}">${total_pnl_sleeve:,.0f}</td>'
+            f'<td>${avg_pnl:,.0f}</td>'
+            f'<td>{sharpe:+.2f}</td>'
+            f'<td>{max_dd:.1%}</td>'
+            f'<td>{avg_hold:.0f}d</td>'
+            f'<td>{edge_str}{edge_cal}</td></tr>'
+        )
+
+    table = (
+        "<table><tr><th>Sleeve</th><th>Trades</th><th>W/L/B</th><th>Win Rate</th>"
+        "<th>Total PnL</th><th>Avg PnL</th><th>Sharpe</th><th>Max DD</th>"
+        "<th>Avg Hold</th><th>Edge Est (cal)</th></tr>"
+        + "\n".join(rows)
+        + "</table>"
+    )
+    parts.append(table)
+
+    # ── Correlation matrix ───────────────────────────────────────
+    sleeve_ids = sorted(sleeve_pnl_series.keys())
+    if len(sleeve_ids) >= 2:
+        parts.append("<h2>PnL Correlation Matrix</h2>")
+        header = "<tr><th></th>" + "".join(f"<th>{s}</th>" for s in sleeve_ids) + "</tr>"
+        corr_rows = []
+        for s1 in sleeve_ids:
+            cells = [f"<td><b>{s1}</b></td>"]
+            for s2 in sleeve_ids:
+                if s1 == s2:
+                    cells.append("<td>1.00</td>")
+                else:
+                    r_val = _pearson_correlation(
+                        sleeve_pnl_series[s1], sleeve_pnl_series[s2]
+                    )
+                    color = "#c00" if r_val > 0.5 else ("#090" if r_val < -0.1 else "#666")
+                    cells.append(f'<td style="color:{color}">{r_val:+.2f}</td>')
+            corr_rows.append("<tr>" + "".join(cells) + "</tr>")
+        parts.append(f"<table>{header}{''.join(corr_rows)}</table>")
+        parts.append("<p><small>Low/negative correlation = good diversification. "
+                      "Red (>0.5) = high overlap, green (<-0.1) = complementary.</small></p>")
+
+    # ── Recent trades by sleeve ──────────────────────────────────
+    parts.append("<h2>Recent Trades by Sleeve</h2>")
+    recent = sorted(outcomes, key=lambda o: o.labeled_at or datetime.min, reverse=True)[:30]
+    trade_rows = []
+    for o in recent:
+        pnl_cls = "win" if o.outcome == "win" else ("loss" if o.outcome == "loss" else "")
+        edge_str = f"{o.estimated_edge:.2f}" if o.estimated_edge is not None else "—"
+        ts = o.labeled_at.strftime("%m-%d") if o.labeled_at else ""
+
+        # Get symbol from signal_profile or trade linkage
+        sig = o.signal_profile or {}
+        symbol = sig.get("symbol", f"trade#{o.trade_id}")
+
+        trade_rows.append(
+            f'<tr><td>{o.sleeve_id or "legacy"}</td>'
+            f'<td>{symbol}</td>'
+            f'<td class="{pnl_cls}">{o.outcome}</td>'
+            f'<td class="{pnl_cls}">${o.pnl_dollars or 0:,.0f}</td>'
+            f'<td>{o.pnl_percent or 0:.1%}</td>'
+            f'<td>{o.holding_days or 0}d</td>'
+            f'<td>{edge_str}</td>'
+            f'<td>{ts}</td></tr>'
+        )
+
+    if trade_rows:
+        parts.append(
+            "<table><tr><th>Sleeve</th><th>Symbol</th><th>Outcome</th><th>PnL</th>"
+            "<th>PnL %</th><th>Hold</th><th>Edge</th><th>Date</th></tr>"
+            + "\n".join(trade_rows)
+            + "</table>"
+        )
+    else:
+        parts.append("<p>No recent trades to display.</p>")
+
+    # ── Edge calibration chart (text-based) ──────────────────────
+    all_edges = [(o.estimated_edge, o.outcome) for o in outcomes if o.estimated_edge is not None]
+    if len(all_edges) >= 5:
+        parts.append("<h2>Edge Calibration</h2>")
+        parts.append("<p>Predicted edge vs actual win rate, by decile:</p>")
+
+        # Bucket into deciles by edge estimate
+        sorted_edges = sorted(all_edges, key=lambda x: x[0])
+        bucket_size = max(len(sorted_edges) // 5, 1)
+        cal_rows = []
+        for i in range(0, len(sorted_edges), bucket_size):
+            bucket = sorted_edges[i:i + bucket_size]
+            if not bucket:
+                continue
+            avg_predicted = sum(e for e, _ in bucket) / len(bucket)
+            actual_wins = sum(1 for _, o in bucket if o == "win")
+            actual_rate = actual_wins / len(bucket)
+            diff = actual_rate - avg_predicted
+            bar_pred = "█" * int(avg_predicted * 20) + "░" * (20 - int(avg_predicted * 20))
+            bar_act = "█" * int(actual_rate * 20) + "░" * (20 - int(actual_rate * 20))
+            cal_rows.append(
+                f"<tr><td>{avg_predicted:.2f}</td><td><code>{bar_pred}</code></td>"
+                f"<td>{actual_rate:.2f}</td><td><code>{bar_act}</code></td>"
+                f"<td>{len(bucket)}</td>"
+                f'<td style="color:{"#090" if abs(diff) < 0.1 else "#c00"}">'
+                f'{"+" if diff >= 0 else ""}{diff:.2f}</td></tr>'
+            )
+
+        parts.append(
+            "<table><tr><th>Predicted</th><th></th><th>Actual</th><th></th>"
+            "<th>n</th><th>Diff</th></tr>"
+            + "\n".join(cal_rows)
+            + "</table>"
+        )
+        parts.append("<p><small>Green diff = well-calibrated (|diff| < 0.10). "
+                      "Red = miscalibrated. Overconfidence = negative diff.</small></p>")
+
+    return _page(f"Experiment Dashboard ({days}d lookback, {total_trades} trades)", "\n".join(parts))

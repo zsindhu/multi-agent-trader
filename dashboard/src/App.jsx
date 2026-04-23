@@ -5,11 +5,15 @@ import {
   Crosshair,
   BarChart2,
   Activity,
+  Monitor,
+  BookOpen,
 } from 'lucide-react'
 import DashboardPage from './pages/DashboardPage'
 import TradeDeskPage from './pages/TradeDeskPage'
 import PerformancePage from './pages/PerformancePage'
 import DiagnosticsPage from './pages/DiagnosticsPage'
+import CommandCenterPage from './pages/CommandCenterPage'
+import HistoryPage from './pages/HistoryPage'
 import TradingModeToggle from './components/TradingModeToggle'
 import ConfirmLiveModal from './components/ConfirmLiveModal'
 import SystemStatusBar from './components/SystemStatusBar'
@@ -21,6 +25,8 @@ const navItems = [
   { to: '/trade-desk', icon: Crosshair, label: 'Trade Desk' },
   { to: '/performance', icon: BarChart2, label: 'Performance' },
   { to: '/diagnostics', icon: Activity, label: 'System' },
+  { to: '/command-center', icon: Monitor, label: 'Research' },
+  { to: '/history', icon: BookOpen, label: 'History' },
 ]
 
 /**
@@ -242,6 +248,8 @@ export default function App() {
             <Route path="/trade-desk" element={<ErrorBoundary><TradeDeskPage /></ErrorBoundary>} />
             <Route path="/performance" element={<ErrorBoundary><PerformancePage /></ErrorBoundary>} />
             <Route path="/diagnostics" element={<ErrorBoundary><DiagnosticsPage /></ErrorBoundary>} />
+            <Route path="/command-center" element={<ErrorBoundary><CommandCenterPage /></ErrorBoundary>} />
+            <Route path="/history" element={<ErrorBoundary><HistoryPage /></ErrorBoundary>} />
           </Routes>
         </main>
       </div>

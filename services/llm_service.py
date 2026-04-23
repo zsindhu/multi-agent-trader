@@ -113,6 +113,7 @@ class LLMService:
             messages = [{"role": "user", "content": user_message}]
             total_input_tokens = 0
             total_output_tokens = 0
+            cost_before_cycle = self._daily_cost
 
             # Multi-turn tool use loop
             max_turns = 10
@@ -120,12 +121,18 @@ class LLMService:
                 response = self.client.messages.create(
                     model=self.model,
                     max_tokens=self.max_tokens,
-                    system=system_prompt,
+                    system=[{
+                        "type": "text",
+                        "text": system_prompt,
+                        "cache_control": {"type": "ephemeral"},
+                    }],
                     tools=tools,
                     messages=messages,
                 )
 
-                self._track_usage(response.usage.input_tokens, response.usage.output_tokens)
+                cache_read = getattr(response.usage, "cache_read_input_tokens", 0) or 0
+                cache_create = getattr(response.usage, "cache_creation_input_tokens", 0) or 0
+                self._track_usage(response.usage.input_tokens, response.usage.output_tokens, cache_read, cache_create)
                 total_input_tokens += response.usage.input_tokens
                 total_output_tokens += response.usage.output_tokens
 
@@ -165,7 +172,7 @@ class LLMService:
                     final_text = "".join(
                         block.text for block in response.content if hasattr(block, "text")
                     )
-                    cycle_cost = (total_input_tokens / 1_000_000) * 3.0 + (total_output_tokens / 1_000_000) * 15.0
+                    cycle_cost = self._daily_cost - cost_before_cycle
                     logger.info(
                         f"[LLM] Cycle complete — "
                         f"{total_input_tokens} in / {total_output_tokens} out tokens "
@@ -180,7 +187,7 @@ class LLMService:
                     return decision
 
             logger.warning("[LLM] Hit max tool-use turns — no actions taken")
-            cycle_cost = (total_input_tokens / 1_000_000) * 3.0 + (total_output_tokens / 1_000_000) * 15.0
+            cycle_cost = self._daily_cost - cost_before_cycle
             return {
                 "reasoning": "Hit maximum reasoning turns without a final decision.",
                 "actions": [],
@@ -214,12 +221,20 @@ class LLMService:
             self._daily_cost = 0.0
             self._cost_reset_date = today
 
-    def _track_usage(self, input_tokens: int, output_tokens: int) -> None:
+    def _track_usage(self, input_tokens: int, output_tokens: int, cache_read: int = 0, cache_create: int = 0) -> None:
         self._reset_daily_if_needed()
         self._daily_input_tokens += input_tokens
         self._daily_output_tokens += output_tokens
         # claude-sonnet-4-6: $3/M input, $15/M output
-        self._daily_cost += (input_tokens / 1_000_000) * 3.0 + (output_tokens / 1_000_000) * 15.0
+        # Prompt caching: cache reads are 90% cheaper ($0.30/M), cache writes cost 25% more ($3.75/M)
+        # Non-cached input tokens are billed at the standard rate
+        non_cached = input_tokens - cache_read - cache_create
+        self._daily_cost += (
+            (non_cached / 1_000_000) * 3.0
+            + (cache_read / 1_000_000) * 0.30
+            + (cache_create / 1_000_000) * 3.75
+            + (output_tokens / 1_000_000) * 15.0
+        )
 
     def get_usage_stats(self) -> dict:
         self._reset_daily_if_needed()

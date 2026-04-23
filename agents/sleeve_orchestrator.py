@@ -150,6 +150,15 @@ class SleeveOrchestrator:
                 try:
                     await self.lead._execute_action(action)
                     executed += 1
+                    # Capture estimated_edge for calibration tracking
+                    edge = action.get("estimated_edge")
+                    if edge is not None:
+                        await self._log_action(
+                            "edge_estimate_captured", "stored",
+                            action.get("symbol"),
+                            {"sleeve_id": sleeve_id, "estimated_edge": edge,
+                             "action": action.get("action"), "symbol": action.get("symbol")},
+                        )
                 except Exception as e:
                     logger.error(f"[Orchestrator] Action execution failed: {e}")
             else:
@@ -527,10 +536,14 @@ Which sleeve's thesis better explains why this specific setup is an opportunity 
     async def _log_action(self, action_type: str, outcome: str, reason: Optional[str], payload: Optional[dict]):
         """Write to agent_actions."""
         try:
+            target_symbol = None
+            if payload and "symbol" in payload:
+                target_symbol = payload["symbol"]
             async with AsyncSessionLocal() as session:
                 session.add(AgentAction(
                     agent_name="Sleeve-Orchestrator",
                     action_type=action_type,
+                    target_symbol=target_symbol,
                     target_scope="portfolio",
                     outcome=outcome,
                     reason=reason,

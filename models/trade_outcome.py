@@ -29,4 +29,5 @@ class TradeOutcome(Base):
     holding_days = Column(Integer, nullable=True)
     underlying_return = Column(Float, nullable=True)
     signal_profile = Column(JSON, nullable=True)
+    estimated_edge = Column(Float, nullable=True)  # LLM's pre-trade confidence (0.50-0.95), captured for calibration
     labeled_at = Column(DateTime(timezone=True), server_default=func.now())

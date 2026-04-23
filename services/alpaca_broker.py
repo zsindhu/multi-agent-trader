@@ -312,6 +312,138 @@ class AlpacaBroker(Broker):
             logger.error(f"Order submission failed for {option_symbol}: {e}")
             raise
 
+    # ── Multi-Leg Orders ─────────────────────────────────────────────
+    #
+    # Infrastructure only — not activated in the orchestration loop.
+    # Supports vertical spreads, iron condors, and other multi-leg
+    # strategies for future phases.
+
+    async def submit_multi_leg_order(
+        self,
+        legs: list[dict],
+        order_type: str = "limit",
+        limit_price: Optional[float] = None,
+        time_in_force: str = "day",
+    ) -> dict:
+        """
+        Submit a multi-leg options order (spread, iron condor, etc.).
+
+        NOT ACTIVATED — infrastructure only. The orchestration loop does not
+        call this method. It exists so Phase 2+ can enable multi-leg strategies
+        without broker-layer changes.
+
+        Args:
+            legs: List of leg dicts, each with:
+                - option_symbol: OCC symbol (e.g. "AAPL240119P00150000")
+                - side: "buy" or "sell"
+                - qty: number of contracts (ratio legs supported)
+            order_type: "limit", "market", "net_debit", "net_credit"
+            limit_price: Net price for the combo (required for limit/debit/credit)
+            time_in_force: "day" or "gtc"
+
+        Returns:
+            Dict with order_id, status, legs summary
+
+        Example — bull put spread:
+            await broker.submit_multi_leg_order(
+                legs=[
+                    {"option_symbol": "SPY260501P00540000", "side": "sell", "qty": 1},
+                    {"option_symbol": "SPY260501P00530000", "side": "buy", "qty": 1},
+                ],
+                order_type="limit",
+                limit_price=0.85,  # net credit received
+            )
+        """
+        await self._rate_limiter.acquire()
+
+        if not legs or len(legs) < 2:
+            raise ValueError("Multi-leg orders require at least 2 legs")
+
+        tif_map = {
+            "day": TimeInForce.DAY,
+            "gtc": TimeInForce.GTC,
+        }
+        tif = tif_map.get(time_in_force.lower(), TimeInForce.DAY)
+
+        try:
+            # Build leg order requests
+            order_legs = []
+            for leg in legs:
+                order_side = OrderSide.BUY if leg["side"].lower() == "buy" else OrderSide.SELL
+                order_legs.append({
+                    "symbol": leg["option_symbol"],
+                    "qty": str(leg["qty"]),
+                    "side": order_side,
+                    "type": "market",
+                })
+
+            # Use the Alpaca REST API directly for multi-leg orders
+            # since alpaca-py SDK doesn't have first-class multi-leg support
+            import httpx
+
+            order_payload = {
+                "order_class": "mleg",
+                "time_in_force": time_in_force.lower(),
+                "legs": [
+                    {
+                        "symbol": leg["option_symbol"],
+                        "qty": str(leg["qty"]),
+                        "side": leg["side"].lower(),
+                    }
+                    for leg in legs
+                ],
+            }
+
+            if order_type.lower() == "limit" and limit_price is not None:
+                order_payload["type"] = "limit"
+                order_payload["limit_price"] = str(round(limit_price, 2))
+            else:
+                order_payload["type"] = "market"
+
+            base_url = "https://paper-api.alpaca.markets" if settings.trading_mode == "paper" else "https://api.alpaca.markets"
+            url = f"{base_url}/v2/orders"
+
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.post(
+                    url,
+                    json=order_payload,
+                    headers={
+                        "APCA-API-KEY-ID": settings.alpaca_api_key,
+                        "APCA-API-SECRET-KEY": settings.alpaca_secret_key,
+                        "Content-Type": "application/json",
+                    },
+                )
+
+                if resp.status_code not in (200, 201):
+                    error_text = resp.text[:300]
+                    logger.error(f"[AlpacaBroker] Multi-leg order failed: HTTP {resp.status_code} — {error_text}")
+                    raise RuntimeError(f"Multi-leg order rejected: {error_text}")
+
+                data = resp.json()
+
+            leg_summary = [
+                f"{leg['side'].upper()} {leg['qty']}x {leg['option_symbol']}"
+                for leg in legs
+            ]
+            logger.info(
+                f"[AlpacaBroker] Multi-leg order submitted: {' / '.join(leg_summary)} "
+                f"@ {'$' + str(limit_price) if limit_price else 'MKT'} — ID: {data.get('id')}"
+            )
+
+            return {
+                "order_id": str(data.get("id", "")),
+                "status": data.get("status", ""),
+                "order_class": "mleg",
+                "legs": leg_summary,
+                "type": order_type,
+                "limit_price": limit_price,
+                "submitted_at": data.get("submitted_at", ""),
+            }
+
+        except Exception as e:
+            logger.error(f"[AlpacaBroker] Multi-leg order failed: {e}")
+            raise
+
     # ── Historical Data ───────────────────────────────────────────────
     #
     # NOTE: The alpaca-py StockHistoricalDataClient.get_stock_bars() returns
