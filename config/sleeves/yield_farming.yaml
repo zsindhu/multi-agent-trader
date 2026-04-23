@@ -1,0 +1,30 @@
+sleeve:
+  id: "yield_farming"
+  name: "Yield-Farming Premium"
+  description: "Far-OTM CSPs and covered calls on stable large-caps. The 'sleep well' sleeve."
+
+  capital_allocation: 125000
+
+  scanner_filter:
+    min_market_cap_proxy: 50000000000   # $50B+ (mega-caps only, use daily_dollar_volume as proxy)
+    min_daily_dollar_volume: 500000000  # $500M+ daily dollar volume
+    max_iv_rank: 50                     # Moderate IV — not looking for spikes
+    exclude_earnings_within_days: 14    # No earnings surprises
+
+  strategy:
+    trade_type: "csp"
+    delta_target: -0.15            # Far OTM — high probability of expiring worthless
+    dte_min: 30
+    dte_max: 60                    # Longer-dated for time decay
+    max_concurrent_positions: 8    # More positions, lower risk each
+
+  weight_overrides:
+    volume_zscore: 0.05            # Low weight — we WANT stability, not activity
+    range_expansion: 0.05          # Low weight — same reason
+    gap_zscore: 0.05               # Low weight
+    iv_rank_delta: 0.10            # Moderate IV is fine, not seeking spikes
+    correlation_breakdown: 0.05    # Don't want decoupling — want market-correlated stability
+    volume_oi_ratio: 0.15          # Healthy options market required
+    put_call_ratio: 0.10           # Neutral P/C preferred
+    # This sleeve's "signal" is really "absence of signals" — stable names don't fire change-detection rules
+    # The scanner_filter does the heavy lifting; signal weights are de-emphasized

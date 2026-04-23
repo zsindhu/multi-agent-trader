@@ -29,6 +29,7 @@ class NameObservation(Base):
     cycle_snapshot_id = Column(Integer, index=True)
 
     symbol = Column(String(16), index=True, nullable=False)
+    sleeve_id = Column(String(32), index=True, nullable=True)
     tier = Column(Integer, nullable=False, index=True)
 
     # ── Basic snapshot metrics ─────────────────────────────────

@@ -1,0 +1,31 @@
+sleeve:
+  id: "event_driven"
+  name: "Event-Driven Premium"
+  description: "Sell into elevated IV before earnings announcements. Close before event."
+
+  # Capital allocation (paper experiment)
+  capital_allocation: 125000  # $125K of $500K total
+
+  # Universe filter: only names with upcoming earnings
+  scanner_filter:
+    require_earnings_within_days: 14
+    min_iv_rank_delta: 10          # IV must be rising into the event
+    exclude_post_earnings_days: 5  # Don't enter after earnings already happened
+
+  # Strategy parameters
+  strategy:
+    trade_type: "csp"              # Cash-secured puts primary
+    delta_target: -0.20
+    dte_min: 7                     # Short-dated, expire before or at earnings
+    dte_max: 21
+    max_concurrent_positions: 5
+    close_before_earnings: true    # Hard rule: close 1 day before announcement
+
+  # Tier 2a weight overrides (which signals matter most for this sleeve)
+  weight_overrides:
+    iv_rank_delta: 0.30            # Primary signal — IV acceleration into event
+    earnings_proximity: 0.25       # Core thesis
+    volume_zscore: 0.15            # Confirms positioning activity
+    put_call_ratio: 0.15           # Directional conviction
+    news_density: 0.10             # Catalyst confirmation
+    # All others default to 0.05

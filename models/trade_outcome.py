@@ -22,6 +22,7 @@ class TradeOutcome(Base):
     trade_id = Column(Integer, nullable=False, unique=True, index=True)
     name_observation_id = Column(Integer, nullable=True, index=True)
     funnel_driven = Column(Boolean, default=False)
+    sleeve_id = Column(String(32), index=True, nullable=True)
     outcome = Column(String(16), nullable=False)  # 'win', 'loss', 'breakeven', 'pending'
     pnl_dollars = Column(Float, nullable=True)
     pnl_percent = Column(Float, nullable=True)

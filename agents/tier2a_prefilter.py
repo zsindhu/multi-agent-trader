@@ -542,15 +542,31 @@ class Tier2aPrefilter(BaseAgent):
         min_vol, max_vol = min(all_vols), max(all_vols)
         iv_rank_today = ((current_vol - min_vol) / (max_vol - min_vol) * 100) if max_vol != min_vol else 50.0
 
+        # Compute IV ranks at each point for delta history
+        def iv_rank_at(idx):
+            if idx >= len(all_vols):
+                return None
+            v = all_vols[idx]
+            window_vols = all_vols[idx:]
+            mn, mx = min(window_vols), max(window_vols)
+            return ((v - mn) / (mx - mn) * 100) if mx != mn else 50.0
+
+        iv_rank_today = iv_rank_at(0)
+
         if delta_lookback < len(all_vols):
-            vol_5d = all_vols[delta_lookback]
-            vols_at_5d = all_vols[delta_lookback:]
-            min_5d, max_5d = min(vols_at_5d), max(vols_at_5d)
-            iv_rank_5d = ((vol_5d - min_5d) / (max_5d - min_5d) * 100) if max_5d != min_5d else 50.0
+            iv_rank_5d = iv_rank_at(delta_lookback)
         else:
             iv_rank_5d = iv_rank_today
 
-        return iv_rank_delta(iv_rank_today, iv_rank_5d)
+        # Build historical 5-day IV rank deltas for per-name z-score
+        historical_deltas = []
+        for i in range(delta_lookback, min(60 + delta_lookback, len(all_vols))):
+            rank_i = iv_rank_at(i)
+            rank_prev = iv_rank_at(i - delta_lookback) if i >= delta_lookback else None
+            if rank_i is not None and rank_prev is not None:
+                historical_deltas.append(rank_prev - rank_i)
+
+        return iv_rank_delta(iv_rank_today, iv_rank_5d, historical_deltas)
 
     async def _compute_news_density_new(
         self, symbol: str, cache_ttl_hours: float, min_news_days: int,

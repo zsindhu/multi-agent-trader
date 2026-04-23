@@ -1,0 +1,46 @@
+sleeve:
+  id: "sector_rotation"
+  name: "Sector Rotation Premium"
+  description: "Sector ETFs with macro-driven IV elevation. Sell premium on sectors rotating into strength."
+
+  capital_allocation: 125000
+
+  scanner_filter:
+    asset_type: "etf"              # ETFs only
+    require_symbols:               # Sector SPDR universe
+      - SPY
+      - QQQ
+      - IWM
+      - DIA
+      - XLF
+      - XLE
+      - XLK
+      - XLV
+      - XLI
+      - XLP
+      - XLU
+      - XLY
+      - XLC
+      - XLB
+      - XLRE
+      - SMH
+      - GDX
+      - TLT
+      - HYG
+      - EFA
+      - EEM
+
+  strategy:
+    trade_type: "csp"
+    delta_target: -0.20
+    dte_min: 25
+    dte_max: 45
+    max_concurrent_positions: 6    # More positions, broader sector exposure
+
+  weight_overrides:
+    correlation_breakdown: 0.25    # Sector decoupling = rotation signal
+    iv_rank_delta: 0.20            # IV elevation in the sector
+    volume_zscore: 0.20            # Sector volume = institutional rotation
+    range_expansion: 0.15          # Sector making moves
+    # Earnings proximity irrelevant for ETFs
+    # Short interest / social velocity less meaningful for ETFs

@@ -1,0 +1,27 @@
+sleeve:
+  id: "vol_reversion"
+  name: "Vol Mean Reversion"
+  description: "IV rank spikes above 70 with no catalyst — sell vol betting on reversion."
+
+  capital_allocation: 125000
+
+  scanner_filter:
+    min_iv_rank: 70                # Only elevated IV names
+    max_news_density: 5            # Low news = no catalyst explaining the spike
+    exclude_earnings_within_days: 7  # Earnings is a real catalyst, not a reversion setup
+
+  strategy:
+    trade_type: "csp"
+    delta_target: -0.25
+    dte_min: 20
+    dte_max: 45
+    max_concurrent_positions: 5
+    profit_target_pct: 0.50        # Take profit at 50% — vol reverts, don't wait
+
+  weight_overrides:
+    iv_rank_delta: 0.30            # Primary — spike detection
+    volume_zscore: 0.20            # Volume spike without news = unexplained
+    correlation_breakdown: 0.15    # Decoupling from sector = name-specific vol event
+    gap_zscore: 0.15               # Gap without news is the setup
+    news_density: 0.10             # Low news is GOOD (inverted signal for this sleeve)
+    # Earnings proximity weight = 0.0 (excluded by scanner filter)

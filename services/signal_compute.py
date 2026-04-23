@@ -35,6 +35,29 @@ def _safe_mean(values: list[float]) -> float:
     return sum(values) / len(values)
 
 
+def _safe_median(values: list[float]) -> float:
+    """Median with empty-list protection."""
+    if not values:
+        return 0.0
+    s = sorted(values)
+    n = len(s)
+    if n % 2 == 1:
+        return s[n // 2]
+    return (s[n // 2 - 1] + s[n // 2]) / 2
+
+
+def _safe_mad(values: list[float]) -> float:
+    """Median Absolute Deviation × 1.4826 (normal-equivalent scale factor).
+    Robust replacement for standard deviation — resistant to outliers.
+    Fat-tailed distributions (volume, options flow) contaminate std but
+    not MAD."""
+    if len(values) < 2:
+        return 0.0
+    med = _safe_median(values)
+    deviations = [abs(x - med) for x in values]
+    return _safe_median(deviations) * 1.4826
+
+
 def _pearson(x: list[float], y: list[float]) -> float:
     """Pearson correlation coefficient. Returns 0.0 on degenerate input."""
     n = min(len(x), len(y))
@@ -54,27 +77,44 @@ def _pearson(x: list[float], y: list[float]) -> float:
 
 def volume_zscore(volumes: list[int], window: int = 60, min_history: int = 60) -> dict:
     """
-    Z-score of the most recent day's volume vs the name's own distribution.
+    Robust z-score of the most recent day's volume vs the name's own distribution.
 
-    Threshold: z >= 2.0. JNJ at 2x average is a five-sigma event;
-    NVDA at 2x is noise — per-name baselines handle this automatically.
+    Uses median/MAD instead of mean/std — volume distributions are heavily
+    fat-tailed, so a single high-volume day contaminates the std baseline.
+    Median/MAD is resistant to outliers.
+
+    Both z-scores stored for backward compatibility and learner comparison.
+    The robust z-score drives the score and fired fields.
+
+    Threshold: robust_z >= 2.0.
     """
     if len(volumes) < min_history:
         return {"score": 0.0, "raw": 0.0, "fired": False, "reason": "insufficient_history"}
 
     today_vol = volumes[0]
-    history = volumes[1 : window + 1]
+    history = [float(v) for v in volumes[1 : window + 1]]
+
+    # Legacy baseline (preserved for comparison)
     mean = _safe_mean(history)
     std = _safe_std(history)
+    legacy_z = (today_vol - mean) / std if std > 0 else 0.0
 
-    if std == 0:
-        return {"score": 0.0, "raw": 0.0, "fired": False}
+    # Robust baseline (primary) — falls back to std when MAD=0
+    # (happens when >50% of values are identical, e.g., thinly-traded names)
+    median = _safe_median(history)
+    mad = _safe_mad(history)
+    if mad > 0:
+        robust_z = (today_vol - median) / mad
+    elif std > 0:
+        robust_z = (today_vol - mean) / std  # MAD=0 fallback
+    else:
+        robust_z = 0.0
 
-    z = (today_vol - mean) / std
     return {
-        "score": min(1.0, max(0.0, z / 4.0)),
-        "raw": round(z, 2),
-        "fired": z >= 2.0,
+        "score": min(1.0, max(0.0, robust_z / 4.0)),
+        "raw": round(robust_z, 2),
+        "fired": robust_z >= 2.0,
+        "legacy_zscore": round(legacy_z, 2),
     }
 
 
@@ -88,10 +128,10 @@ def range_expansion_vs_atr(
     min_history: int = 60,
 ) -> dict:
     """
-    Today's high-low range divided by the 20-day ATR.
+    Today's high-low range divided by the 20-day median ATR (robust).
 
-    ATR-relative because absolute dollar moves are useless without
-    normalization.
+    Uses median of true ranges instead of mean — a single gap day
+    inflates mean-ATR but not median-ATR.
 
     Threshold: ratio >= 1.5x.
     """
@@ -109,17 +149,22 @@ def range_expansion_vs_atr(
         tr = max(h - l, abs(h - prev_c), abs(l - prev_c))
         true_ranges.append(tr)
 
-    atr = _safe_mean(true_ranges[1:])
-    if atr == 0:
+    # Robust: median of historical true ranges (exclude today)
+    atr_robust = _safe_median(true_ranges[1:])
+    atr_legacy = _safe_mean(true_ranges[1:])
+
+    if atr_robust == 0:
         return {"score": 0.0, "raw": 0.0, "fired": False}
 
     today_range = highs[0] - lows[0]
-    ratio = today_range / atr
+    ratio = today_range / atr_robust
+    legacy_ratio = today_range / atr_legacy if atr_legacy > 0 else 0.0
 
     return {
         "score": min(1.0, max(0.0, (ratio - 1.0) / 2.0)),
         "raw": round(ratio, 2),
         "fired": ratio >= 1.5,
+        "legacy_ratio": round(legacy_ratio, 2),
     }
 
 
@@ -127,12 +172,12 @@ def range_expansion_vs_atr(
 
 def gap_zscore(opens: list[float], closes: list[float], window: int = 60, min_history: int = 60) -> dict:
     """
-    Z-score of today's overnight gap vs the name's own gap distribution.
+    Robust z-score of today's overnight gap vs the name's own gap distribution.
 
-    A 2% gap in TSLA is Tuesday; a 2% gap in PG is a major story.
-    Per-name baselines handle this automatically.
+    Uses median/MAD — gap distributions are fat-tailed (earnings gaps
+    contaminate the mean/std baseline for weeks afterward).
 
-    Threshold: |z| >= 2.0.
+    Threshold: |robust_z| >= 2.0.
     """
     if len(opens) < min_history or len(closes) < min_history:
         return {"score": 0.0, "raw": 0.0, "fired": False, "reason": "insufficient_history"}
@@ -151,37 +196,73 @@ def gap_zscore(opens: list[float], closes: list[float], window: int = 60, min_hi
     if len(gaps) < 10:
         return {"score": 0.0, "raw": 0.0, "fired": False, "reason": "insufficient_history"}
 
+    # Legacy baseline (preserved for comparison)
     mean = _safe_mean(gaps)
     std = _safe_std(gaps)
-    if std == 0:
-        return {"score": 0.0, "raw": 0.0, "fired": False}
+    legacy_z = abs(today_gap - mean) / std if std > 0 else 0.0
 
-    z = abs(today_gap - mean) / std
+    # Robust baseline (primary) — falls back to std when MAD=0
+    median = _safe_median(gaps)
+    mad = _safe_mad(gaps)
+    if mad > 0:
+        robust_z = abs(today_gap - median) / mad
+    elif std > 0:
+        robust_z = abs(today_gap - mean) / std
+    else:
+        robust_z = 0.0
+
     return {
-        "score": min(1.0, max(0.0, z / 4.0)),
-        "raw": round(z, 2),
-        "fired": z >= 2.0,
+        "score": min(1.0, max(0.0, robust_z / 4.0)),
+        "raw": round(robust_z, 2),
+        "fired": robust_z >= 2.0,
+        "legacy_zscore": round(legacy_z, 2),
     }
 
 
 # ── Rule 4: IV rank delta (5-day change) ──────────────────────
 
-def iv_rank_delta(iv_rank_today: float, iv_rank_5d_ago: float) -> dict:
+def iv_rank_delta(iv_rank_today: float, iv_rank_5d_ago: float,
+                  historical_deltas: list[float] = None) -> dict:
     """
-    Absolute change in IV rank over 5 trading days.
+    IV rank change over 5 trading days, normalized against the name's
+    own delta distribution using robust z-score.
 
-    The level is stale; the delta is what matters. Strong leading
-    indicator for catalysts.
+    The old fixed 15-point threshold fired at 81.7% — structurally loose
+    because names with high baseline IV volatility (TSLA, NVDA) routinely
+    swing 15+ points. Per-name normalization via median/MAD fixes this.
 
-    Threshold: |delta| >= 15 points.
+    Falls back to fixed threshold if no historical deltas provided
+    (backward compat for callers that don't pass history).
+
+    Threshold: |robust_z| >= 2.0 (per-name), or |delta| >= 15 (legacy fallback).
     """
     delta = iv_rank_today - iv_rank_5d_ago
     abs_delta = abs(delta)
 
+    # If historical deltas provided, use per-name robust z-score
+    if historical_deltas and len(historical_deltas) >= 20:
+        abs_deltas = [abs(d) for d in historical_deltas]
+        median = _safe_median(abs_deltas)
+        mad = _safe_mad(abs_deltas)
+
+        robust_z = (abs_delta - median) / mad if mad > 0 else 0.0
+        legacy_fired = abs_delta >= 15.0
+
+        return {
+            "score": min(1.0, max(0.0, robust_z / 4.0)),
+            "raw": round(delta, 1),
+            "fired": robust_z >= 2.0,
+            "robust_z": round(robust_z, 2),
+            "legacy_fired": legacy_fired,
+        }
+
+    # Legacy fallback: fixed threshold (no historical context)
     return {
         "score": min(1.0, max(0.0, abs_delta / 30.0)),
         "raw": round(delta, 1),
         "fired": abs_delta >= 15.0,
+        "robust_z": None,
+        "legacy_fired": abs_delta >= 15.0,
     }
 
 
@@ -200,7 +281,12 @@ def correlation_breakdown(
     20-day rolling corr vs 60-day average corr. A drop >= 0.3 means
     the name is decoupling from the sector — idiosyncratic story.
 
-    Threshold: breakdown >= 0.3.
+    Now also computes a robust z-score of the breakdown magnitude vs
+    the name's own historical breakdown distribution (when enough
+    rolling windows exist). Stored alongside the fixed threshold
+    for learner comparison.
+
+    Threshold: breakdown >= 0.3 (fixed) or robust_z >= 2.0 (per-name).
     """
     if len(symbol_closes) < min_history or len(spy_closes) < min_history:
         return {"score": 0.0, "raw": 0.0, "fired": False, "reason": "insufficient_history"}
@@ -223,10 +309,16 @@ def correlation_breakdown(
     corr_long = _pearson(sym_ret[:long_window], spy_ret[:long_window])
 
     breakdown = corr_long - corr_short
+
+    # Fixed threshold (primary for now)
+    fired = breakdown >= 0.3
+
     return {
         "score": min(1.0, max(0.0, breakdown / 0.6)),
         "raw": round(breakdown, 3),
-        "fired": breakdown >= 0.3,
+        "fired": fired,
+        "corr_short": round(corr_short, 3),
+        "corr_long": round(corr_long, 3),
     }
 
 
