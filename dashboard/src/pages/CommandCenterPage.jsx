@@ -89,7 +89,8 @@ function SystemStatusPanel({ status }) {
 
 function PositionsPanel({ positions }) {
   if (!positions) return <div className="w95-muted">Loading...</div>
-  if (positions.length === 0) return <div className="w95-muted">No active positions</div>
+  const items = Array.isArray(positions) ? positions : []
+  if (items.length === 0) return <div className="w95-muted">No active positions</div>
 
   return (
     <table className="w95-table">
@@ -107,7 +108,7 @@ function PositionsPanel({ positions }) {
         </tr>
       </thead>
       <tbody>
-        {positions.map((p, i) => {
+        {items.map((p, i) => {
           const pnl = p.unrealized_pl ?? p.pnl
           const pnlCls = pnl > 0 ? 'w95-profit' : pnl < 0 ? 'w95-loss' : ''
           return (
@@ -133,9 +134,10 @@ function PositionsPanel({ positions }) {
 
 function PromotionsPanel({ promotions }) {
   const [expandedIdx, setExpandedIdx] = useState(null)
+  const items = Array.isArray(promotions) ? promotions : []
 
   if (!promotions) return <div className="w95-muted">Loading...</div>
-  if (promotions.length === 0) return <div className="w95-muted">No promotions today</div>
+  if (items.length === 0) return <div className="w95-muted">No promotions today</div>
 
   return (
     <table className="w95-table">
@@ -151,7 +153,7 @@ function PromotionsPanel({ promotions }) {
         </tr>
       </thead>
       <tbody>
-        {promotions.slice(0, 20).map((p, i) => (
+        {items.slice(0, 20).map((p, i) => (
           <>
             <tr
               key={`row-${i}`}
@@ -198,14 +200,15 @@ function PromotionsPanel({ promotions }) {
 // ── Signal Fire Rates Panel ──────────────────────────────────
 
 function SignalBarsPanel({ signals }) {
+  const items = Array.isArray(signals) ? signals : []
   if (!signals) return <div className="w95-muted">Loading...</div>
-  if (signals.length === 0) return <div className="w95-muted">No signal data</div>
+  if (items.length === 0) return <div className="w95-muted">No signal data</div>
 
-  const maxRate = Math.max(...signals.map(s => s.rate), 1)
+  const maxRate = Math.max(...items.map(s => s.rate), 1)
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      {signals.map(s => (
+      {items.map(s => (
         <div key={s.signal} className="w95-bar-container">
           <span className="w95-bar-label">{s.signal}</span>
           <div className="w95-bar-track">
@@ -250,10 +253,10 @@ export default function CommandCenterPage() {
 
   const loadAll = useCallback(() => {
     fetchDashboardStatus().then(setStatus).catch(() => {})
-    fetchDashboardPromotions().then(d => setPromotions(d.promotions)).catch(() => {})
-    fetchDashboardSignals().then(d => setSignals(d.signals)).catch(() => {})
+    fetchDashboardPromotions().then(d => setPromotions(d?.promotions || [])).catch(() => setPromotions([]))
+    fetchDashboardSignals().then(d => setSignals(d?.signals || [])).catch(() => setSignals([]))
     fetchDashboardReflection().then(setReflection).catch(() => {})
-    fetchOptions().then(setPositions).catch(() => setPositions([]))
+    fetchOptions().then(d => setPositions(d?.options || [])).catch(() => setPositions([]))
   }, [])
 
   useEffect(() => {

@@ -86,8 +86,9 @@ function TradeSummaryBar({ summary }) {
 // ── Trades Table ─────────────────────────────────────────────
 
 function TradesTable({ trades }) {
-  if (!trades) return <div className="w95-muted">Loading...</div>
-  if (trades.length === 0) return <div className="w95-muted">No trades in this period</div>
+  const items = Array.isArray(trades) ? trades : []
+  if (trades === null) return <div className="w95-muted">Loading...</div>
+  if (items.length === 0) return <div className="w95-muted">No trades in this period</div>
 
   return (
     <table className="w95-table">
@@ -106,7 +107,7 @@ function TradesTable({ trades }) {
         </tr>
       </thead>
       <tbody>
-        {trades.map((t, i) => {
+        {items.map((t, i) => {
           const pnl = t.outcome_pnl
           const pnlCls = t.outcome === 'win' ? 'w95-profit' : t.outcome === 'loss' ? 'w95-loss' : ''
           return (
@@ -132,18 +133,19 @@ function TradesTable({ trades }) {
 // ── Daily PnL Chart ──────────────────────────────────────────
 
 function DailyPnLChart({ daily }) {
-  if (!daily || daily.length === 0) return <div className="w95-muted">No data</div>
+  const items = Array.isArray(daily) ? daily : []
+  if (items.length === 0) return <div className="w95-muted">No data</div>
 
   // Filter to days with trades or equity data
-  const withData = daily.filter(d => d.trades > 0 || d.equity)
+  const withData = items.filter(d => d.trades > 0 || d.equity)
   if (withData.length === 0) {
     // Show cumulative PnL anyway
-    const maxAbs = Math.max(...daily.map(d => Math.abs(d.cumulative_pnl)), 1)
+    const maxAbs = Math.max(...items.map(d => Math.abs(d.cumulative_pnl)), 1)
 
     return (
       <div>
         <div className="w95-chart" style={{ height: 100 }}>
-          {daily.filter((_, i) => i % Math.max(1, Math.floor(daily.length / 60)) === 0).map((d, i) => {
+          {items.filter((_, i) => i % Math.max(1, Math.floor(items.length / 60)) === 0).map((d, i) => {
             const h = Math.abs(d.cumulative_pnl) / maxAbs * 80
             const cls = d.cumulative_pnl >= 0 ? 'positive' : 'negative'
             return (
@@ -160,12 +162,12 @@ function DailyPnLChart({ daily }) {
     )
   }
 
-  const maxAbs = Math.max(...daily.map(d => Math.abs(d.cumulative_pnl)), 1)
+  const maxAbs = Math.max(...items.map(d => Math.abs(d.cumulative_pnl)), 1)
 
   return (
     <div>
       <div className="w95-chart" style={{ height: 100 }}>
-        {daily.filter((_, i) => i % Math.max(1, Math.floor(daily.length / 60)) === 0).map((d, i) => {
+        {items.filter((_, i) => i % Math.max(1, Math.floor(items.length / 60)) === 0).map((d, i) => {
           const h = Math.abs(d.cumulative_pnl) / maxAbs * 80
           const cls = d.cumulative_pnl >= 0 ? 'positive' : 'negative'
           return (
@@ -185,14 +187,15 @@ function DailyPnLChart({ daily }) {
 // ── Promotions Over Time Chart ───────────────────────────────
 
 function PromotionsChart({ daily }) {
-  if (!daily || daily.length === 0) return <div className="w95-muted">No data</div>
+  const items = Array.isArray(daily) ? daily : []
+  if (items.length === 0) return <div className="w95-muted">No data</div>
 
-  const maxPromos = Math.max(...daily.map(d => d.promotions), 1)
+  const maxPromos = Math.max(...items.map(d => d.promotions), 1)
 
   return (
     <div>
       <div className="w95-chart" style={{ height: 100 }}>
-        {daily.filter((_, i) => i % Math.max(1, Math.floor(daily.length / 60)) === 0).map((d, i) => {
+        {items.filter((_, i) => i % Math.max(1, Math.floor(items.length / 60)) === 0).map((d, i) => {
           const h = (d.promotions / maxPromos) * 80
           return (
             <div key={i} className="w95-chart-bar" title={`${d.date}: ${d.promotions} promotions`}>
@@ -211,8 +214,9 @@ function PromotionsChart({ daily }) {
 // ── Playbook Panel ───────────────────────────────────────────
 
 function PlaybookPanel({ entries }) {
-  if (!entries) return <div className="w95-muted">Loading...</div>
-  if (entries.length === 0) return <div className="w95-muted">No playbook entries</div>
+  const items = Array.isArray(entries) ? entries : []
+  if (entries === null) return <div className="w95-muted">Loading...</div>
+  if (items.length === 0) return <div className="w95-muted">No playbook entries</div>
 
   const catColors = {
     lesson_learned: '#800000',
@@ -234,7 +238,7 @@ function PlaybookPanel({ entries }) {
         </tr>
       </thead>
       <tbody>
-        {entries.map((e, i) => (
+        {items.map((e, i) => (
           <tr key={i}>
             <td>
               <span className="w95-badge" style={{ color: catColors[e.category] || '#000' }}>
@@ -255,9 +259,10 @@ function PlaybookPanel({ entries }) {
 
 function CyclesPanel({ cycles }) {
   const [expandedId, setExpandedId] = useState(null)
+  const items = Array.isArray(cycles) ? cycles : []
 
-  if (!cycles) return <div className="w95-muted">Loading...</div>
-  if (cycles.length === 0) return <div className="w95-muted">No cycles recorded</div>
+  if (cycles === null) return <div className="w95-muted">Loading...</div>
+  if (items.length === 0) return <div className="w95-muted">No cycles recorded</div>
 
   return (
     <table className="w95-table">
@@ -271,7 +276,7 @@ function CyclesPanel({ cycles }) {
         </tr>
       </thead>
       <tbody>
-        {cycles.map(c => (
+        {items.map(c => (
           <>
             <tr
               key={`c-${c.id}`}
@@ -321,12 +326,12 @@ export default function HistoryPage() {
 
   const loadAll = useCallback(() => {
     fetchDashboardTrades(days).then(d => {
-      setTrades(d.trades)
-      setSummary(d.summary)
-    }).catch(() => {})
-    fetchDashboardDailyStats(days).then(d => setDaily(d.daily)).catch(() => {})
-    fetchDashboardPlaybook().then(d => setPlaybook(d.entries)).catch(() => {})
-    fetchDashboardCycles().then(d => setCycles(d.cycles)).catch(() => {})
+      setTrades(d?.trades || [])
+      setSummary(d?.summary || null)
+    }).catch(() => { setTrades([]); setSummary(null) })
+    fetchDashboardDailyStats(days).then(d => setDaily(d?.daily || [])).catch(() => setDaily([]))
+    fetchDashboardPlaybook().then(d => setPlaybook(d?.entries || [])).catch(() => setPlaybook([]))
+    fetchDashboardCycles().then(d => setCycles(d?.cycles || [])).catch(() => setCycles([]))
   }, [days])
 
   useEffect(() => { loadAll() }, [loadAll])
