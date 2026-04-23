@@ -18,6 +18,8 @@ from agents.lead_agent import LeadAgent
 from agents.breadth_analyst import BreadthAnalyst
 from agents.tier2a_prefilter import Tier2aPrefilter
 from agents.tier2b_reasoning import Tier2bReasoning
+from agents.sleeve_orchestrator import SleeveOrchestrator
+from services.sleeve_config import load_sleeve_configs
 from services.alpaca_broker import AlpacaBroker
 from services.logger_service import PerformanceLogger
 from services.notifier import Notifier
@@ -71,6 +73,7 @@ class Services:
         self.research_analyst: ResearchAnalyst = None
         self.briefing_service: BriefingService = None
         self.lead_agent: LeadAgent = None
+        self.sleeve_orchestrator: SleeveOrchestrator = None
         # Workers (exposed so main.py can reference them directly if needed)
         self.worker_cc: CoveredCallWorker = None
         self.worker_csp: CashSecuredPutWorker = None
@@ -187,5 +190,13 @@ def build_services() -> Services:
         fundamentals_analyst=s.fundamentals_analyst,
         briefing_service=s.briefing_service,
     )
+
+    # ── Sleeve Orchestrator ──────────────────────────────────────
+    sleeve_configs = load_sleeve_configs()
+    if sleeve_configs:
+        s.sleeve_orchestrator = SleeveOrchestrator(
+            lead_agent=s.lead_agent,
+            sleeve_configs=sleeve_configs,
+        )
 
     return s

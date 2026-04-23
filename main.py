@@ -147,6 +147,9 @@ async def main(mode: str = "paper"):
     # ── Scheduled Execution Loop ──────────────────────────────────
     scheduler = AsyncIOScheduler()
 
+    # Use SleeveOrchestrator if sleeve configs exist, otherwise single Lead Agent
+    orchestrator = svc.sleeve_orchestrator
+
     async def lead_cycle_wrapper():
         if not _is_market_hours():
             try:
@@ -155,11 +158,11 @@ async def main(mode: str = "paper"):
             except Exception as e:
                 logger.debug(f"[Scheduler] Off-hours sync skipped: {e}")
             return
-        # During market hours: always run the full LLM cycle. No parallel
-        # rules-based path. If the LLM fails, run_cycle falls back to safe mode
-        # (emergency-only) — there is no rules-based fallback.
-        await lead.run_cycle()
-        await _write_equity_snapshot(lead.portfolio)
+        if orchestrator:
+            await orchestrator.run_cycle()
+        else:
+            await lead.run_cycle()
+            await _write_equity_snapshot(lead.portfolio)
 
     scheduler.add_job(lead_cycle_wrapper, "interval", minutes=settings.scan_interval_minutes)
 
@@ -322,16 +325,20 @@ async def main(mode: str = "paper"):
     )
 
     scheduler.start()
+    sleeve_status = f"{len(svc.sleeve_orchestrator.sleeve_configs)} sleeves" if svc.sleeve_orchestrator else "single agent"
     logger.info(
-        f"Orchestrator running every {settings.scan_interval_minutes} min, "
+        f"Orchestrator running every {settings.scan_interval_minutes} min ({sleeve_status}), "
         f"Breadth Analyst at 8:00 ET, Tier 2a at 10/12/14 ET, Tier 2b at :10 offset, "
         f"Scanner at 9:35+12:30 ET, Summary at 4:05 PM ET. Ctrl+C to stop."
     )
 
     # Run first orchestration cycle immediately
     try:
-        await lead.run_cycle()
-        await _write_equity_snapshot(portfolio)
+        if orchestrator:
+            await orchestrator.run_cycle()
+        else:
+            await lead.run_cycle()
+            await _write_equity_snapshot(portfolio)
     except Exception as e:
         logger.error(f"Initial cycle failed: {e}")
 

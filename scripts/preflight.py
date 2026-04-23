@@ -85,6 +85,8 @@ MODULES = [
     "agents.research_analyst",
     "services.signal_learner",
     "services.sleeve_config",
+    "services.sleeve_risk_gate",
+    "agents.sleeve_orchestrator",
     "models.pending_change",
     # API
     "api.state",
