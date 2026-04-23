@@ -311,11 +311,13 @@ Tier 1 (6,350 → 4,285 daily)
 
 - `[x]` **Week 1:** Robust statistics migration, sleeve_id migration,
   4 sleeve configs, SleeveConfig loader, EXPERIMENT_CHARTER.md template
-- `[ ]` **Week 2:** SleeveOrchestrator (parallel + consolidation),
-  SleeveRiskGate, per-sleeve Tier 2 queries
-- `[ ]` **Week 3:** Evaluation dashboard, prompt caching, multi-leg
-  infrastructure, edge estimate capture, scheduler wiring
-- `[ ]` **Launch:** $500K paper, 6 months observation
+- `[x]` **Week 2:** SleeveOrchestrator (parallel + consolidation),
+  SleeveRiskGate (5 hard limits), per-sleeve Tier 2 filtering,
+  per-sleeve system prompts, deterministic conflict resolution,
+  scheduler wiring with graceful single-agent fallback
+- `[ ]` **Week 3:** Evaluation dashboard (`/research/experiment`),
+  prompt caching, multi-leg infrastructure, edge estimate capture
+- `[ ]` **Launch:** $500K paper, 6 months, charter filled before Day 1
 
 ### Batch 1.7 — Cross-Database Context Retrieval `[ ]`
 

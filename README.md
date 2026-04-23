@@ -10,32 +10,47 @@ The core thesis about where alpha comes from: the LLM's edge isn't being smarter
 
 ```
 ┌─────────────────────────────────────────────────────────┐
+│  Layer 5 — Multi-Sleeve Orchestration                   │
+│  SleeveOrchestrator (parallel + consolidation) (live)   │
+│  4 sleeves: event-driven, vol-reversion,       (live)   │
+│    sector-rotation, yield-farming                       │
+│  SleeveRiskGate (hard limits)                  (live)   │
+│  Deterministic conflict resolution             (live)   │
+├─────────────────────────────────────────────────────────┤
 │  Layer 4 — Research Interface                           │
-│  Plain-HTML inspector at /research          (planned)   │
-│  CLI tools: scripts/inspect.py              (planned)   │
-│  React dashboard at /                       (live)      │
+│  /research HTML inspector (5 pages)            (live)   │
+│  CLI: scripts/research_inspect.py              (live)   │
+│  /research/experiment dashboard                (planned)│
+│  React dashboard at /                          (live)   │
 ├─────────────────────────────────────────────────────────┤
 │  Layer 3 — Intelligence Agents                          │
-│  Lead Agent (LLM decisions + actions)       (live)      │
-│  Breadth Analyst (Tier 1 universe sweep)    (live)      │
-│  Fundamentals Analyst (10-K/10-Q reading)   (planned)   │
-│  Research Analyst (strategy iteration)      (planned)   │
+│  Lead Agent (Claude, per-sleeve decisions)      (live)  │
+│  Breadth Analyst (Tier 1 universe sweep)        (live)  │
+│  Tier 2a Pre-filter (11 rules, robust stats)    (live)  │
+│  Tier 2b LLM reasoning (Llama 3.3)             (live)  │
+│  Fundamentals Analyst (EDGAR + earnings)        (live)  │
+│  Research Analyst (daily reflection)            (live)  │
+│  Pre-market Briefing (daily assembly)           (live)  │
+│  Outcome Labeler (trade → signal join)          (live)  │
+│  Signal-Weight Learner (logistic regression)    (live)  │
 ├─────────────────────────────────────────────────────────┤
 │  Layer 2 — Research Data Layer                          │
-│  PostgreSQL + pgvector                      (live)      │
-│  cycle_snapshots, name_observations         (live)      │
-│  historical_bars (Stooq + yfinance bulk)    (live)      │
-│  agent_messages, skill_documents            (live)      │
-│  reasoning_embeddings (OpenAI vectors)      (live)      │
-│  agent_actions (unified audit log)          (live)      │
+│  PostgreSQL + pgvector                         (live)   │
+│  cycle_snapshots, name_observations (+sleeve)  (live)   │
+│  historical_bars (3.08M rows, 3 sources)       (live)   │
+│  macro_news_events + symbol_news_headlines     (live)   │
+│  trade_outcomes, pending_changes               (live)   │
+│  agent_messages, skill_documents, embeddings   (live)   │
 ├─────────────────────────────────────────────────────────┤
 │  Layer 1 — Data Foundation                              │
-│  Alpaca (market data, options, execution)   (live)      │
-│  Yahoo Finance (spot VIX)                   (live)      │
-│  Finnhub (earnings, news)                   (live)      │
-│  Stooq + yfinance (historical bar bulk)     (live)      │
-│  FRED (macro indicators)                    (planned)   │
-│  EDGAR (SEC filings)                        (planned)   │
+│  Alpaca (market data, options, execution)      (live)   │
+│  yfinance (options vol/OI, short interest)     (live)   │
+│  Finnhub (earnings bulk, news split)           (live)   │
+│  Stooq + yfinance (historical bulk)            (live)   │
+│  FRED (macro indicators)                       (live)   │
+│  EDGAR (SEC filings + text extraction)         (live)   │
+│  StockTwits (social velocity)                  (live)   │
+│  Together AI / Llama 3.3 (Tier 2b + agents)   (live)   │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -43,12 +58,15 @@ The core thesis about where alpha comes from: the LLM's edge isn't being smarter
 
 ### Trading System
 
-- **Lead Agent** — Claude-powered orchestrator. Runs every 20 minutes during market hours. Calls 9 tools per cycle (regime, scanner, positions, performance, earnings, news, playbook). Produces structured JSON actions dispatched to workers. Falls back to emergency-only safe mode if LLM is unavailable. Full reasoning persisted to `cycle_snapshots` for research.
-- **Worker Agents** — Covered Calls, Cash Secured Puts, and The Wheel (full state machine: `SELLING_PUTS → ASSIGNED → SELLING_CALLS → CALLED_AWAY`). Each worker handles targeted open/close/roll per LLM action.
-- **Scanner Agent** — Dynamic universe discovery from Alpaca's asset list. Batch pre-filter (volume, price, options OI), ETF-aware composite scoring, smart caching (12h bars, 24h support levels). Runs 2x daily (9:35 ET + 12:30 ET).
-- **Breadth Analyst** — Tier 1 of the new scanning pipeline. Daily 8 AM ET sweep over the full optionable universe (~4,500 names). Writes every decision (pass, reject, near-miss) to `name_observations` with full transparency. Owns the persistent `historical_bars` cache.
-- **Order Reconciler** — Matches submitted orders to fills/rejections from Alpaca before every LLM cycle, keeping DB state in sync with broker reality.
-- **Risk Manager** — Portfolio health checks, position sizing, drawdown limits, conservative mode.
+- **Sleeve Orchestrator** — Parallel-plus-consolidation architecture. Runs 4 independent Lead Agent calls (one per strategy sleeve) with per-sleeve system prompts and filtered Tier 2 candidates, followed by a consolidation step for cross-sleeve conflict resolution. Deterministic priority rules (earnings→event-driven, high IV→vol-reversion, ETF→sector-rotation). Falls back to single Lead Agent if no sleeve configs exist.
+- **4 Strategy Sleeves** — Event-driven premium (pre-earnings IV), vol mean reversion (IV spikes without catalyst), sector rotation (ETF macro-driven IV), yield farming (far-OTM on stable large-caps). Each sleeve has its own config, scanner criteria, weight overrides, and capital allocation ($125K each, $500K total paper).
+- **Lead Agent** — Claude-powered per-sleeve decision maker. 15 tools including get_fundamentals (EDGAR filings via Llama 3.3), get_briefing (Research Analyst reflection), get_playbook (institutional memory). Edge estimates captured per trade for future Kelly sizing calibration.
+- **Sleeve Risk Gate** — Hard limits the Lead Agent cannot override: per-sleeve position count, cross-sleeve single-name prevention, sector concentration (30%), capital utilization (80%), portfolio drawdown trigger (8%).
+- **Worker Agents** — Covered Calls, Cash Secured Puts, and The Wheel (full state machine). Each worker handles targeted open/close/roll per LLM action.
+- **Breadth Analyst** — Tier 1 daily sweep over ~6,300 optionable names. Robust statistics (median/MAD) on volume, ATR, gaps. Writes every decision to `name_observations`.
+- **Tier 2a Pre-filter** — 11 change-detection rules with per-name baselines, 2-rule minimum gate, earnings amplification. Runs 3x daily.
+- **Tier 2b Reasoning** — Llama 3.3 narrative reasoning for all Tier 2a promotions (~$3/month).
+- **Order Reconciler** — Syncs broker state to DB before every cycle.
 
 ### Research Data Layer
 
