@@ -28,46 +28,30 @@ from services.sleeve_config import SleeveConfig, load_sleeve_configs
 from services.sleeve_risk_gate import SleeveRiskGate
 
 
-# Conflict resolution: deterministic sleeve priority by setup type
-def _resolve_conflict(symbol: str, competing_sleeves: list[dict], all_signals: dict) -> str:
+def _resolve_conflict_deterministic(symbol: str, competing_sleeves: list[dict], all_signals: dict) -> str:
     """
-    Deterministic conflict resolution when multiple sleeves want the same symbol.
+    Deterministic conflict resolution — ONLY for genuinely non-contested cases.
 
-    Priority:
-    1. Earnings within 14 days → event_driven
-    2. IV rank >70 + low news → vol_reversion
-    3. ETF → sector_rotation
-    4. Mega-cap + low IV → yield_farming
-    5. Fewer current positions → wins (load-balancing)
-    6. Higher composite score → wins
+    Currently only ETFs are non-contested: no other sleeve's scanner filter
+    promotes ETFs, so sector_rotation is the only valid claimant.
+
+    All other conflicts route to LLM consolidation to preserve research
+    integrity — the 6-month experiment needs sleeves competing on equal
+    footing, not biased by a priority table that pre-assumes which sleeve
+    "should" handle which setup type.
+
+    Returns sleeve_id if resolved deterministically, or None if LLM needed.
     """
     signals = all_signals.get(symbol, {})
-    earnings_days = signals.get("earnings_proximity", {}).get("raw")
     asset_type = signals.get("_asset_type", "stock")
-
     sleeve_ids = [s["sleeve_id"] for s in competing_sleeves]
 
-    # Rule 1: Earnings proximity → event_driven
-    if "event_driven" in sleeve_ids and earnings_days and 1 <= earnings_days <= 14:
-        return "event_driven"
-
-    # Rule 2: High IV + no catalyst → vol_reversion
-    iv_delta = signals.get("iv_rank_delta", {}).get("raw", 0)
-    news_fired = signals.get("news_density", {}).get("fired", False)
-    if "vol_reversion" in sleeve_ids and abs(iv_delta or 0) > 15 and not news_fired:
-        return "vol_reversion"
-
-    # Rule 3: ETF → sector_rotation
+    # ETF → sector_rotation (genuinely non-contested)
     if "sector_rotation" in sleeve_ids and asset_type == "etf":
         return "sector_rotation"
 
-    # Rule 4: Mega-cap stable → yield_farming
-    if "yield_farming" in sleeve_ids:
-        return "yield_farming"
-
-    # Rule 5: Load-balance — fewer positions wins
-    min_positions = min(competing_sleeves, key=lambda s: s.get("position_count", 0))
-    return min_positions["sleeve_id"]
+    # Everything else → route to LLM consolidation
+    return None
 
 
 class SleeveOrchestrator:
@@ -96,6 +80,17 @@ class SleeveOrchestrator:
 
         # Step 1: Global operations (run once, not per sleeve)
         await self._run_global_operations()
+
+        # Step 1.5: Load existing positions into risk gate for portfolio-level limits.
+        # Existing (pre-sleeve) positions don't consume sleeve position slots but DO
+        # count toward cross-sleeve name prevention + sector concentration + total
+        # capital deployed. As positions close naturally, the portfolio transitions
+        # to fully sleeve-attributed over ~45-60 days.
+        self.risk_gate._sleeve_positions = {}
+        self.risk_gate._all_positions = {}
+        if self.lead.portfolio:
+            for opt in self.lead.portfolio.options:
+                self.risk_gate._all_positions[opt.symbol] = "legacy"
 
         # Step 2: Load today's Tier 2 promotions (universal — filter per sleeve later)
         all_promotions = await self._load_all_promotions()
@@ -136,7 +131,7 @@ class SleeveOrchestrator:
                 sleeve_decisions[sleeve_id] = {"actions": [], "error": str(e)}
 
         # Step 5: Consolidation — resolve cross-sleeve conflicts
-        all_actions = self._consolidate(sleeve_decisions, all_signals)
+        all_actions = await self._consolidate(sleeve_decisions, all_signals)
         logger.info(f"[Orchestrator] Consolidation: {len(all_actions)} actions after conflict resolution")
 
         # Step 6: Risk gate + execution
@@ -235,6 +230,7 @@ class SleeveOrchestrator:
                     "composite_score": obs.composite_score,
                     "price": obs.price,
                     "asset_type": obs.asset_type,
+                    "daily_dollar_volume": obs.daily_dollar_volume,
                     "signals_fired": analysis.get("signals_fired", 0),
                     "firing_rules": firing,
                     "amplification_applied": analysis.get("amplification_applied", 1.0),
@@ -295,10 +291,11 @@ class SleeveOrchestrator:
                 if news.get("fired") and news.get("raw", 0) > sf["max_news_density"]:
                     continue
 
-            # Dollar volume proxy for mega-cap filter
+            # Dollar volume filter (e.g., yield_farming requires mega-caps)
             if sf.get("min_daily_dollar_volume"):
-                # Use Tier 1 data if available via price * volume
-                pass  # TODO: refine when Tier 1 data is joined
+                ddv = p.get("daily_dollar_volume") or 0
+                if ddv < sf["min_daily_dollar_volume"]:
+                    continue
 
             filtered.append(p)
 
@@ -392,9 +389,70 @@ Valid actions: "close", "hold", "roll", "open_csp", "open_cc", "open_wheel", "no
 
 Be specific. Explain your reasoning before the JSON block."""
 
+    async def _resolve_conflict_via_llm(self, symbol: str, claims: list[dict], all_signals: dict) -> str:
+        """
+        LLM-judged conflict resolution for contested names.
+
+        Used when two sleeves both promote the same underlying with real
+        reasoning — the experiment needs this resolved by thesis-fit analysis,
+        not a priority table that pre-assumes which sleeve should handle which
+        setup type.
+        """
+        if not self.lead.llm_service or not self.lead.llm_service.is_enabled:
+            return None  # Caller falls back to load-balance
+
+        signals = all_signals.get(symbol, {})
+        sleeve_descriptions = []
+        for c in claims:
+            sid = c["sleeve_id"]
+            cfg = self.sleeve_configs.get(sid)
+            reason = c["action"].get("reason", "no reason given")
+            sleeve_descriptions.append(
+                f"- **{cfg.name if cfg else sid}**: {reason}"
+            )
+
+        prompt = f"""Two strategy sleeves both want to trade {symbol}. Each has a different thesis.
+
+{chr(10).join(sleeve_descriptions)}
+
+Signal profile for {symbol}:
+- Signals fired: {[n for n, s in signals.items() if s.get('fired') and not n.startswith('_')]}
+- Asset type: {signals.get('_asset_type', 'unknown')}
+
+Which sleeve's thesis better explains why this specific setup is an opportunity right now? Respond with ONLY the sleeve name, nothing else. Choose based on which edge source is the primary driver for this particular setup."""
+
+        try:
+            from openai import AsyncOpenAI
+            client = AsyncOpenAI(
+                api_key=self.lead.llm_service.client.api_key if hasattr(self.lead.llm_service, 'client') else "",
+                base_url="https://api.together.xyz/v1",
+            )
+            response = await client.chat.completions.create(
+                model="meta-llama/Llama-3.3-70B-Instruct-Turbo",
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=50,
+                temperature=0.1,
+            )
+            answer = response.choices[0].message.content.strip().lower()
+
+            # Match the answer to a sleeve_id
+            for c in claims:
+                sid = c["sleeve_id"]
+                cfg = self.sleeve_configs.get(sid)
+                if sid in answer or (cfg and cfg.name.lower() in answer):
+                    logger.info(f"[Orchestrator] LLM conflict resolution on {symbol}: {sid}")
+                    return sid
+
+            logger.warning(f"[Orchestrator] LLM conflict response didn't match sleeves: '{answer}'")
+            return None
+
+        except Exception as e:
+            logger.warning(f"[Orchestrator] LLM conflict resolution failed for {symbol}: {e}")
+            return None
+
     # ── Consolidation ────────────────────────────────────────────
 
-    def _consolidate(self, sleeve_decisions: dict, all_signals: dict) -> list[dict]:
+    async def _consolidate(self, sleeve_decisions: dict, all_signals: dict) -> list[dict]:
         """
         Merge actions from all sleeves. Resolve conflicts when multiple
         sleeves want the same symbol.
@@ -426,7 +484,7 @@ Be specific. Explain your reasoning before the JSON block."""
             if len(claims) == 1:
                 resolved.append(claims[0])
             else:
-                # Multiple sleeves want this symbol — resolve deterministically
+                # Multiple sleeves want this symbol
                 sleeve_infos = [
                     {
                         "sleeve_id": c["sleeve_id"],
@@ -434,11 +492,25 @@ Be specific. Explain your reasoning before the JSON block."""
                     }
                     for c in claims
                 ]
-                winner = _resolve_conflict(symbol, sleeve_infos, all_signals)
+
+                # Try deterministic resolution first (ETF-only)
+                winner = _resolve_conflict_deterministic(symbol, sleeve_infos, all_signals)
+
+                if winner is None:
+                    # Contested — use LLM consolidation for research integrity
+                    winner = await self._resolve_conflict_via_llm(symbol, claims, all_signals)
+
+                if winner is None:
+                    # LLM failed or unavailable — load-balance tiebreaker
+                    min_pos = min(sleeve_infos, key=lambda s: s.get("position_count", 0))
+                    winner = min_pos["sleeve_id"]
+                    logger.info(f"[Orchestrator] Conflict on {symbol}: load-balance → {winner}")
+
                 for c in claims:
                     if c["sleeve_id"] == winner:
                         resolved.append(c)
-                        logger.info(f"[Orchestrator] Conflict on {symbol}: {winner} wins over {[s['sleeve_id'] for s in sleeve_infos if s['sleeve_id'] != winner]}")
+                        losers = [s["sleeve_id"] for s in sleeve_infos if s["sleeve_id"] != winner]
+                        logger.info(f"[Orchestrator] Conflict on {symbol}: {winner} wins over {losers}")
                         break
 
         # Include close/roll/hold actions (they don't conflict)

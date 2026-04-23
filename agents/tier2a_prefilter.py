@@ -450,6 +450,7 @@ class Tier2aPrefilter(BaseAgent):
             "reason": ", ".join(firing_rules) if firing_rules else "below_min_signals",
             "asset_type": tier1_info.get("asset_type"),
             "price": tier1_info.get("price"),
+            "daily_dollar_volume": tier1_info.get("daily_dollar_volume"),
             "amplification_applied": 1.0,  # Set after amplification step
         }
 
@@ -803,6 +804,7 @@ class Tier2aPrefilter(BaseAgent):
             symbol=scored["symbol"],
             tier=2,
             price=scored.get("price"),
+            daily_dollar_volume=scored.get("daily_dollar_volume"),
             composite_score=scored.get("total_score"),
             asset_type=scored.get("asset_type"),
             selection_reason=selection_reason,
