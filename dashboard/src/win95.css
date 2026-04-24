@@ -426,6 +426,84 @@
   letter-spacing: 0.5px;
 }
 
+/* ── App layout ───────────────────────────────────────────── */
+
+.w95-app {
+  display: flex;
+  height: 100vh;
+}
+
+.w95-sidebar {
+  width: 180px;
+  flex-shrink: 0;
+  background: var(--w95-navy);
+  display: flex;
+  flex-direction: column;
+  border-right: 2px outset var(--w95-gray-light);
+}
+
+.w95-sidebar-header {
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid #0000b0;
+}
+
+.w95-sidebar-title {
+  color: #ffffff;
+  font-family: var(--w95-font-ui);
+  font-weight: bold;
+  font-size: 14px;
+}
+
+.w95-sidebar-subtitle {
+  color: #a0a0ff;
+  font-family: var(--w95-font-ui);
+  font-size: 10px;
+  margin-top: 1px;
+}
+
+.w95-sidebar-nav {
+  flex: 1;
+  padding: 6px 0;
+}
+
+.w95-sidebar-link {
+  display: block;
+  padding: 6px 12px;
+  font-family: var(--w95-font-ui);
+  font-size: 12px;
+  color: #c0c0ff;
+  background: transparent;
+  text-decoration: none;
+  border-left: 3px solid transparent;
+  cursor: pointer;
+}
+
+.w95-sidebar-link.active {
+  color: #ffffff;
+  background: #0000b0;
+  font-weight: bold;
+  border-left-color: #ffffff;
+}
+
+.w95-sidebar-footer {
+  padding: 8px 12px;
+  border-top: 1px solid #0000b0;
+  color: #8080c0;
+  font-family: var(--w95-font-ui);
+  font-size: 10px;
+}
+
+.w95-main {
+  flex: 1;
+  overflow: auto;
+  background: var(--w95-bg);
+}
+
+/* Mobile top bar — hidden on desktop */
+.w95-topbar {
+  display: none;
+}
+
 /* ── Responsive ───────────────────────────────────────────── */
 
 @media (max-width: 900px) {
@@ -433,5 +511,112 @@
   .w95-grid-sidebar,
   .w95-grid-sidebar-r {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  /* Hide sidebar, show top bar */
+  .w95-app {
+    flex-direction: column;
+  }
+
+  .w95-sidebar {
+    display: none;
+  }
+
+  .w95-topbar {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    background: var(--w95-navy);
+    border-bottom: 2px outset var(--w95-gray-light);
+    padding: 0;
+    flex-shrink: 0;
+  }
+
+  .w95-topbar-title {
+    color: #ffffff;
+    font-family: var(--w95-font-ui);
+    font-weight: bold;
+    font-size: 12px;
+    padding: 4px 8px;
+    border-right: 1px solid #0000b0;
+    white-space: nowrap;
+  }
+
+  .w95-topbar-link {
+    color: #c0c0ff;
+    font-family: var(--w95-font-ui);
+    font-size: 11px;
+    text-decoration: none;
+    padding: 6px 8px;
+    white-space: nowrap;
+  }
+
+  .w95-topbar-link.active {
+    color: #ffffff;
+    background: #0000b0;
+    font-weight: bold;
+  }
+
+  /* Stack all grids */
+  .w95-grid-2,
+  .w95-grid-sidebar,
+  .w95-grid-sidebar-r {
+    grid-template-columns: 1fr;
+  }
+
+  /* Reduce font sizes */
+  .w95 {
+    font-size: 11px;
+  }
+
+  .w95-table {
+    font-size: 10px;
+  }
+
+  .w95-table th {
+    font-size: 10px;
+    padding: 2px 4px;
+  }
+
+  .w95-table td {
+    padding: 2px 4px;
+  }
+
+  .w95-titlebar {
+    font-size: 11px;
+  }
+
+  .w95-stat {
+    font-size: 10px;
+  }
+
+  .w95-stat-value {
+    font-size: 11px;
+  }
+
+  .w95-bar-container {
+    font-size: 10px;
+  }
+
+  .w95-bar-label {
+    width: 80px;
+    font-size: 10px;
+  }
+
+  .w95-text-scroll {
+    font-size: 10px;
+  }
+
+  /* Make tables horizontally scrollable */
+  .w95-body {
+    overflow-x: auto;
+  }
+
+  /* Tighter page padding */
+  .w95-page {
+    padding: 2px;
+    gap: 2px;
   }
 }
