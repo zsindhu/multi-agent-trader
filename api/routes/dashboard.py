@@ -18,6 +18,7 @@ from models.cycle_snapshot import CycleSnapshot
 from models.agent_message import AgentMessage
 from models.agent_action import AgentAction
 from models.equity_snapshot import EquitySnapshot
+from models.llm_usage_log import LlmUsageLog
 
 router = APIRouter()
 
@@ -65,12 +66,20 @@ async def dashboard_status():
         )
         last_cycle = r.one_or_none()
 
-        # Today's total LLM cost
+        # Today's total LLM cost (from persistent usage log, survives restarts)
         r = await session.execute(
-            select(sa_func.sum(CycleSnapshot.llm_cost_usd))
-            .where(CycleSnapshot.timestamp >= today_start)
+            select(sa_func.sum(LlmUsageLog.cost_usd))
+            .where(LlmUsageLog.timestamp >= today_start)
         )
-        today_cost = r.scalar() or 0.0
+        today_cost_db = r.scalar() or 0.0
+        # Fall back to cycle_snapshots if no usage log rows yet
+        if today_cost_db == 0:
+            r = await session.execute(
+                select(sa_func.sum(CycleSnapshot.llm_cost_usd))
+                .where(CycleSnapshot.timestamp >= today_start)
+            )
+            today_cost_db = r.scalar() or 0.0
+        today_cost = today_cost_db
 
         # Today's errors (agent_actions with outcome containing 'error' or 'failed')
         r = await session.execute(

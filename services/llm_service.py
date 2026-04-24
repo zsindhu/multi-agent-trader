@@ -7,6 +7,7 @@ on demand and produce structured trading decisions.
 When ANTHROPIC_API_KEY is not set, is_enabled returns False and every call
 returns an empty-actions dict — the Lead Agent falls back to rule-based logic.
 """
+import asyncio
 import json
 import re
 from datetime import datetime, date, timezone, timedelta
@@ -44,11 +45,13 @@ class LLMService:
                 "[LLM] No ANTHROPIC_API_KEY configured — "
                 "Lead Agent will fall back to rule-based decisions"
             )
-        # Daily usage tracking (resets at UTC midnight)
+        # Daily usage tracking (resets at UTC midnight — fast path only)
         self._daily_input_tokens: int = 0
         self._daily_output_tokens: int = 0
         self._daily_cost: float = 0.0
         self._cost_reset_date: date = datetime.utcnow().date()
+        # Caller tag for per-sleeve/per-agent cost attribution
+        self._current_caller: str = "lead_agent"
 
     @property
     def is_enabled(self) -> bool:
@@ -229,14 +232,42 @@ class LLMService:
         # Prompt caching: cache reads are 90% cheaper ($0.30/M), cache writes cost 25% more ($3.75/M)
         # Non-cached input tokens are billed at the standard rate
         non_cached = input_tokens - cache_read - cache_create
-        self._daily_cost += (
+        call_cost = (
             (non_cached / 1_000_000) * 3.0
             + (cache_read / 1_000_000) * 0.30
             + (cache_create / 1_000_000) * 3.75
             + (output_tokens / 1_000_000) * 15.0
         )
+        self._daily_cost += call_cost
         if cache_read > 0 or cache_create > 0:
             logger.info(f"[LLM] Cache: {cache_read:,} read, {cache_create:,} created, {non_cached:,} uncached | Savings: ${((cache_read / 1_000_000) * 2.7):.2f}")
+
+        # Persist to llm_usage_log (fire-and-forget)
+        try:
+            asyncio.get_event_loop().create_task(
+                self._persist_usage(input_tokens, output_tokens, cache_read, cache_create, call_cost)
+            )
+        except RuntimeError:
+            pass  # No event loop — skip persistence (e.g. sync test context)
+
+    async def _persist_usage(self, tokens_in: int, tokens_out: int, cache_read: int, cache_create: int, cost: float) -> None:
+        """Fire-and-forget write to llm_usage_log table."""
+        try:
+            from core.database import AsyncSessionLocal
+            from models.llm_usage_log import LlmUsageLog
+            async with AsyncSessionLocal() as session:
+                session.add(LlmUsageLog(
+                    model=self.model,
+                    caller=self._current_caller,
+                    tokens_in=tokens_in,
+                    tokens_out=tokens_out,
+                    cache_read=cache_read,
+                    cache_create=cache_create,
+                    cost_usd=round(cost, 6),
+                ))
+                await session.commit()
+        except Exception as e:
+            logger.debug(f"[LLM] Usage log write failed (non-critical): {e}")
 
     def get_usage_stats(self) -> dict:
         self._reset_daily_if_needed()

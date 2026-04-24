@@ -64,9 +64,9 @@ function SystemStatusPanel({ status }) {
             {last_cycle?.cost != null && <span className="w95-muted"> (${last_cycle.cost.toFixed(4)})</span>}
           </span>
         </div>
-        <div className="w95-stat" style={{ justifyContent: 'space-between', width: '100%' }}>
+        <div className="w95-stat" style={{ justifyContent: 'space-between', width: '100%' }} title="DB-tracked estimate. Check console.anthropic.com for billing ground truth.">
           <span className="w95-stat-label">LLM Cost Today</span>
-          <span className="w95-stat-value">${today_llm_cost.toFixed(4)}</span>
+          <span className="w95-stat-value">${(today_llm_cost || 0).toFixed(4)}<span className="w95-muted" style={{ fontSize: 9, marginLeft: 3 }}>*</span></span>
         </div>
         <div className="w95-stat" style={{ justifyContent: 'space-between', width: '100%' }}>
           <span className="w95-stat-label">Errors Today</span>

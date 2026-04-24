@@ -324,6 +324,9 @@ class SleeveOrchestrator:
         if not self.lead.llm_service or not self.lead.llm_service.is_enabled:
             return {"actions": [], "summary": "LLM not available", "cost_usd": 0}
 
+        # Tag LLM usage with sleeve_id for per-sleeve cost attribution
+        self.lead.llm_service._current_caller = sleeve_id
+
         system_prompt = self._build_sleeve_prompt(config)
         portfolio_summary = {
             "equity": self.lead.portfolio.equity if self.lead.portfolio else 0,
