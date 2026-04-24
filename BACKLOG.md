@@ -1,6 +1,6 @@
 # Premium Trader — Backlog
 
-Last updated: 2026-04-22
+Last updated: 2026-04-24
 
 ---
 
@@ -68,8 +68,8 @@ that's a long-term measurement. The near-term success criteria are:
 │  Breadth Analyst (universe screening)     ← exists  │
 │  Tier 2a Pre-filter (11/11 rules)        ← exists  │
 │  Tier 2b LLM reasoning (Llama 3.3)       ← exists  │
-│  Fundamentals Analyst (10-K/10-Q reading) ← planned │
-│  Research Analyst (strategy iteration)    ← planned │
+│  Fundamentals Analyst (10-K/10-Q reading) ← exists  │
+│  Research Analyst (strategy iteration)    ← exists  │
 ├─────────────────────────────────────────────────────┤
 │  Layer 2 — Research Data Layer                      │
 │  PostgreSQL + JSONB + pgvector            ← exists  │
@@ -112,41 +112,66 @@ file, add it under PARKING LOT and keep working on the current phase.
 
 ## BUILD NOW vs NEXT WEEK
 
-### Build now (Week 2-3 of multi-sleeve launch)
+### Build now (post-fix stabilization)
 
-**Priority 1 — Sleeve Orchestrator.** Parallel-plus-consolidation
-architecture: 4 independent Lead Agent calls (one per sleeve) with
-per-sleeve system prompts and Tier 2 top-15 lists, followed by a
-consolidation call for cross-sleeve conflict resolution. Deterministic
-primary (earnings → event-driven, high IV no catalyst → vol-reversion,
-ETF → sector-rotation), LLM secondary for ambiguous cases.
+All Week 3 items shipped. Critical bugs fixed 2026-04-24. System is now
+in observation mode.
 
-**Priority 2 — SleeveRiskGate.** Pre-execution hard limits: sector
-concentration (30%), single-name cross-sleeve (10%), per-sleeve position
-count, per-sleeve drawdown trigger (-10%), portfolio-level Greek limits.
-Sector lookup via yfinance.
+**Priority 1 — Verify prompt caching effectiveness.** ✅ Cache logging
+deployed. Check hit rates after 2:20 PM cycle with new logging. If
+cache reads are >50% of input tokens, cost drops to ~$100/month.
 
-**Priority 3 — Experiment evaluation dashboard.** `/research/experiment`
-page: per-sleeve Sharpe (rolling 20d), drawdown, win rate, position
-count, pairwise correlations.
+**Priority 2 — Observe first funnel-driven trade execution.** Monday
+2026-04-28 10:20 AM ET will be the first clean cycle with all fixes
+live. Risk gate, scheduling, and CycleSnapshot all corrected.
 
-**Priority 4 — Prompt caching + multi-leg infrastructure.** Prompt
-caching in llm_service.py (~$15/month savings). Multi-leg order support
-in alpaca_broker.py (infrastructure, not activated).
+**Priority 3 — Let the system run 2-4 weeks.** Accumulate funnel-driven
+trades for signal attribution. No code changes unless bugs found.
+
+### Shipped (Weeks 1-3 + hotfixes)
+
+- ✅ Sleeve Orchestrator (parallel + consolidation, 4 sleeves)
+- ✅ SleeveRiskGate (5 hard limits, now using real equity)
+- ✅ Evaluation dashboard (`/research/experiment`)
+- ✅ Prompt caching (`cache_control` on system prompt)
+- ✅ Multi-leg order infrastructure (not activated)
+- ✅ Edge estimate capture (`estimated_edge` on trade_outcomes)
+- ✅ Research dashboard (Win95 UI, 3 screens, 7 API endpoints)
+- ✅ CycleSnapshot writes restored in orchestrator
+- ✅ Risk gate total_capital fixed (was $500K, now portfolio equity)
+- ✅ Lead Agent scheduling (20-min interval → 3x daily cron)
+- ✅ Legacy scanner disabled (redundant, caused rate limit hangs)
+- ✅ Together AI key fix (was sending Anthropic key)
+- ✅ Cache hit/miss logging for cost visibility
 
 ### On hold for 6-month experiment
 
 - No new sleeves (4 only)
 - No signal weight changes without backtester validation
 - No Kelly sizing activation
-- No Phase 2 React dashboard
 - No Phase 3 architecture transfer
 - Allowed: bug fixes, data quality, monitoring, prompt tuning
+
+### Cost projections (updated 2026-04-24)
+
+With cron scheduling (3 cycles/day × 4 sleeves):
+
+| Service | Monthly estimate |
+|---------|-----------------|
+| Claude API (Lead Agent sleeves) | ~$187 (or ~$100 with cache hits) |
+| Claude API (Fundamentals + Research) | ~$8 |
+| Together AI (Tier 2b) | ~$2.80 |
+| OpenAI (embeddings) | ~$2 |
+| DigitalOcean | ~$18 |
+| **Total** | **~$218** (or ~$131 with caching) |
+
+April actual: $95.80 as of Apr 24. Apr 24 alone was $38.70 due to
+20-min interval before cron fix deployed.
 
 ### Operator tasks
 
 1. Rotate compromised credentials (Postgres password + Finnhub key)
-2. Fill EXPERIMENT_CHARTER.md specifics before Day 1
+2. Fill EXPERIMENT_CHARTER.md specifics
 
 ---
 
@@ -239,7 +264,7 @@ all promoted names, 25/batch, narrative reasoning stored in
 
 Lead Agent reads from Tier 2 promotions (top 50 by composite_score) with
 signal profiles + Tier 2b reasoning. Open positions managed independently.
-Cost: ~$1.50/cycle via Claude Sonnet 4.6. Daily cap: $10.
+Cost: ~$1.50/cycle via Claude Sonnet 4.6. Daily cap: $15.
 
 **Full pipeline closed end-to-end:**
 ```
@@ -260,7 +285,9 @@ Tier 1 (6,350 → 4,285 daily)
   reflection. ~$0.05/month.
 - `[x]` **1.4.1.3/1.4.2.4 Pre-market briefing** — Daily 7:30 AM ET. No
   LLM. Assembles Research Analyst reflection + playbook. $0/month.
-- `[ ]` **1.4.1.4 Prompt caching** — Scheduled for Week 3 of sleeve launch.
+- `[x]` **1.4.1.4 Prompt caching** — `cache_control: {"type": "ephemeral"}`
+  on system prompt. Cache-aware cost tracking. Hit/miss logging added
+  2026-04-24.
 
 ### Batch 1.4.2 — Learning Loop Activation `[x]` SHIPPED (core items)
 
@@ -315,9 +342,12 @@ Tier 1 (6,350 → 4,285 daily)
   SleeveRiskGate (5 hard limits), per-sleeve Tier 2 filtering,
   per-sleeve system prompts, deterministic conflict resolution,
   scheduler wiring with graceful single-agent fallback
-- `[ ]` **Week 3:** Evaluation dashboard (`/research/experiment`),
-  prompt caching, multi-leg infrastructure, edge estimate capture
-- `[ ]` **Launch:** $500K paper, 6 months, charter filled before Day 1
+- `[x]` **Week 3:** Evaluation dashboard (`/research/experiment`),
+  prompt caching, multi-leg infrastructure, edge estimate capture,
+  Win95 research dashboard (3 screens, 7 API endpoints),
+  CycleSnapshot fix, risk gate fix, scheduling fix, scanner disabled
+- `[~]` **Launch:** ~$97K paper, 6 months, charter filled before Day 1.
+  All critical bugs fixed 2026-04-24. First clean cycle: Mon 2026-04-28.
 
 ### Batch 1.7 — Cross-Database Context Retrieval `[ ]`
 
@@ -339,7 +369,7 @@ Build when Research Analyst needs cross-table queries. Deferred.
 
 ## PARKING LOT
 
-- Prompt caching across agents (1.4.1.4)
+- ~~Prompt caching across agents (1.4.1.4)~~ ✅ SHIPPED 2026-04-24
 - pgvector semantic search via CLI
 - Consolidate HistoricalBar reads into single helper
 - Credential rotation (Postgres password + Finnhub key)
@@ -350,19 +380,14 @@ Build when Research Analyst needs cross-table queries. Deferred.
 - Earnings proximity weight tuning (after outcome labeler)
 - Coverage floor sanity checks on yfinance + StockTwits fetches
 - Alpaca options chain pagination fix (100 contract cap, calls only)
-
-### UI fixes (deferred until Phase 2)
-- Active Positions card / "Unassigned" badges
-- Risk Monitor computation broken
-- UTC instead of Eastern
-- System Assessment JSON rendering
-- Last Cycle Actions placement
-- Sector Rotation empty
-- Breadth stuck at 50%
+- Sector Rotation sleeve: 0 candidates every cycle since launch — keep
+  running for data but investigate scanner_filter criteria
+- Legacy agents/scanner.py: disabled, not deleted. May reference later.
+- Internal cost tracker underreports vs Anthropic console (counter resets
+  on container restart). Anthropic console is ground truth.
 
 ### Bugs
 - Two regime classifiers produce parallel outputs
-- Frontend `buildEquityData` is dead code
 - Legacy dead code: universe_loader.py, tier_writer.py, etc.
 
 ---
@@ -378,10 +403,30 @@ Build when Research Analyst needs cross-table queries. Deferred.
 - **O8**: RESOLVED — min_news_days lowered to 5, now firing on 14 names.
 - **O9**: RESOLVED — All 11 rules contributing to composite landscape.
 - **O10**: Alpaca OptionsSnapshot lacks daily_bar/volume. Fixed via yfinance.
-- **O11**: Lead Agent cost cap raised $5 → $10 for richer Tier 2 context.
+- **O11**: Lead Agent cost cap raised $5 → $10 → $15 for richer Tier 2 context.
 - **O12**: SQLAlchemy json column needs flag_modified() for mutations.
 - **O13**: First autonomous funnel cycle (2026-04-20): Lead Agent correctly
   held NXE on merit, declined earnings-contaminated scanner names.
+- **O14**: RESOLVED — Lead Agent scheduling changed from 20-min interval
+  (~19 cycles/day, $25+/day) to 3x daily cron at 10:20/12:20/14:20 ET.
+- **O15**: Sector Rotation sleeve has had 0 candidates in every cycle
+  since launch. Not disabled — keeping for data collection.
+- **O16**: CRITICAL (RESOLVED) — Sleeve orchestrator was not writing
+  CycleSnapshot records since launch. Entire learning flywheel (outcome
+  labeler, Research Analyst, signal attribution) was blind to all trade
+  decisions. Fixed 2026-04-24.
+- **O17**: CRITICAL (RESOLVED) — SleeveRiskGate total_capital hardcoded at
+  $500K while actual portfolio equity is ~$97K. Drawdown calculated as
+  80.6%, silently blocking every single trade proposal. System spent ~$95
+  on LLM calls in April with zero funnel-driven trades executing. Fixed
+  2026-04-24.
+- **O18**: Two parallel scanning systems were running — legacy
+  agents/scanner.py (individual Alpaca bar fetches, rate limit prone)
+  alongside the Tier 2a funnel (database reads, fast). Legacy scanner
+  disabled 2026-04-24.
+- **O19**: Anthropic billing shows $38.70 for Apr 24 vs internal tracker
+  showing ~$16. Counter resets on container restart cause underreporting.
+  Anthropic console is the ground truth for cost tracking.
 
 ---
 
@@ -391,7 +436,9 @@ Build when Research Analyst needs cross-table queries. Deferred.
    Falsifiable via control Lead Agent (1.4.2.10).
 2. **Q2**: Does the validation pipeline catch overfitting?
 3. **Q3**: At what trade count do signal weights stabilize? (200 is a guess)
-4. **Q4**: Does $150/month hold with all agents? Current: ~$103/month.
+4. **Q4**: Does $150/month hold with all agents? Current: ~$218/month
+   (or ~$131 with effective prompt caching). Apr actual: $95.80 through
+   Apr 24, but includes $38.70 from pre-cron-fix 20-min interval day.
 5. **Q5**: Does the full 11-rule composite produce meaningfully different
    rankings than the old IV-rank-delta-dominated scores?
 6. **Q6**: Lead Agent requesting n=10 despite default=50 — monitor.
@@ -399,6 +446,31 @@ Build when Research Analyst needs cross-table queries. Deferred.
 ---
 
 ## CHANGELOG
+
+### 2026-04-24 — Critical fixes: risk gate, scheduling, scanner, CycleSnapshot
+
+**Fixes shipped:**
+- CycleSnapshot writes restored in sleeve_orchestrator.py — learning
+  flywheel was completely disconnected since sleeve architecture launched
+- Risk gate total_capital fixed: was hardcoded at $500K, actual equity
+  ~$97K, drawdown computed at 80.6% → every trade blocked silently
+- Lead Agent scheduling: 20-min interval → 3x daily cron (10:20/12:20/
+  14:20 ET), saving ~$20/day in redundant LLM calls
+- Legacy scanner disabled: agents/scanner.py hanging container 10+ min
+  on startup via Alpaca 429s, output unused by sleeve orchestrator
+- Together AI key fix: conflict resolver was sending Anthropic key → 401
+- Markdown fence stripping on stored summaries
+- Prompt cache hit/miss logging for cost visibility
+- Daily LLM cost cap $10 → $15
+- Research dashboard: 3 Win95 screens, 7 API endpoints, mobile responsive
+
+**Key discoveries:**
+- Zero funnel-driven trades executed since sleeve orchestrator launched
+  (every proposal blocked by $500K risk gate bug)
+- April Anthropic spend: $95.80 (console) vs ~$50 (internal tracker —
+  resets on container restart, underreports)
+- Apr 24 alone: $38.70 due to 20-min interval + 4 sleeves before fix
+- Sector Rotation sleeve: 0 candidates every cycle (not disabled)
 
 ### 2026-04-22 — 11/11 rules + Tier 2b + Lead Agent rewiring + yfinance fix
 
