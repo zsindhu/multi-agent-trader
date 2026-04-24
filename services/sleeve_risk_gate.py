@@ -47,14 +47,15 @@ class SleeveRiskGate:
     def __init__(
         self,
         portfolio: Portfolio,
-        total_capital: float = 500_000,
+        total_capital: float = 0,
         max_sector_pct: float = 0.30,
         max_single_name_pct: float = 0.10,
         max_sleeve_drawdown_pct: float = 0.10,
         max_portfolio_drawdown_pct: float = 0.08,
     ):
         self.portfolio = portfolio
-        self.total_capital = total_capital
+        # Use portfolio equity as baseline; fall back to explicit value if portfolio not synced yet
+        self.total_capital = (portfolio.equity if portfolio and portfolio.equity > 0 else total_capital) or 100_000
         self.max_sector_pct = max_sector_pct
         self.max_single_name_pct = max_single_name_pct
         self.max_sleeve_drawdown_pct = max_sleeve_drawdown_pct

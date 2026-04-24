@@ -62,7 +62,6 @@ class SleeveOrchestrator:
         self.sleeve_configs = sleeve_configs or load_sleeve_configs()
         self.risk_gate = SleeveRiskGate(
             portfolio=lead_agent.portfolio,
-            total_capital=sum(c.capital_allocation for c in self.sleeve_configs.values()),
         )
 
     async def run_cycle(self) -> dict:
@@ -80,6 +79,10 @@ class SleeveOrchestrator:
 
         # Step 1: Global operations (run once, not per sleeve)
         await self._run_global_operations()
+
+        # Refresh risk gate baseline from live portfolio equity each cycle
+        if self.lead.portfolio and self.lead.portfolio.equity > 0:
+            self.risk_gate.total_capital = self.lead.portfolio.equity
 
         # Step 1.5: Load existing positions into risk gate for portfolio-level limits.
         # Existing (pre-sleeve) positions don't consume sleeve position slots but DO
