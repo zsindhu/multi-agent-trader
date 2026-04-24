@@ -235,6 +235,8 @@ class LLMService:
             + (cache_create / 1_000_000) * 3.75
             + (output_tokens / 1_000_000) * 15.0
         )
+        if cache_read > 0 or cache_create > 0:
+            logger.info(f"[LLM] Cache: {cache_read:,} read, {cache_create:,} created, {non_cached:,} uncached | Savings: ${((cache_read / 1_000_000) * 2.7):.2f}")
 
     def get_usage_stats(self) -> dict:
         self._reset_daily_if_needed()
