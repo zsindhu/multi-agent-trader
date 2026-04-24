@@ -341,20 +341,23 @@ async def main(mode: str = "paper"):
     scheduler.start()
     sleeve_status = f"{len(svc.sleeve_orchestrator.sleeve_configs)} sleeves" if svc.sleeve_orchestrator else "single agent"
     logger.info(
-        f"Orchestrator running every {settings.scan_interval_minutes} min ({sleeve_status}), "
+        f"Lead Agent cron at 10:20/12:20/14:20 ET ({sleeve_status}), "
         f"Breadth Analyst at 8:00 ET, Tier 2a at 10/12/14 ET, Tier 2b at :10 offset, "
-        f"Scanner at 9:35+12:30 ET, Summary at 4:05 PM ET. Ctrl+C to stop."
+        f"Regime at 9:35+12:30 ET, Summary at 4:05 PM ET. Ctrl+C to stop."
     )
 
-    # Run first orchestration cycle immediately
-    try:
-        if orchestrator:
-            await orchestrator.run_cycle()
-        else:
-            await lead.run_cycle()
-            await _write_equity_snapshot(portfolio)
-    except Exception as e:
-        logger.error(f"Initial cycle failed: {e}")
+    # Only run startup cycle during market hours (avoids $2-3 wasted cycles on restart)
+    if _is_market_hours():
+        try:
+            if orchestrator:
+                await orchestrator.run_cycle()
+            else:
+                await lead.run_cycle()
+                await _write_equity_snapshot(portfolio)
+        except Exception as e:
+            logger.error(f"Initial cycle failed: {e}")
+    else:
+        logger.info("[Main] Outside market hours — skipping startup cycle")
 
     try:
         while True:
