@@ -169,7 +169,7 @@ async def main(mode: str = "paper"):
             await lead.run_cycle()
             await _write_equity_snapshot(lead.portfolio)
 
-    scheduler.add_job(lead_cycle_wrapper, "interval", minutes=settings.scan_interval_minutes)
+    scheduler.add_job(lead_cycle_wrapper, "cron", hour="10,12,14", minute="20", timezone="US/Eastern", id="lead_cycle")
 
     # Legacy scanner DISABLED — redundant with Tier 2a funnel, causes Alpaca 429 hangs.
     # Regime refresh decoupled into standalone job below.
