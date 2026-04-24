@@ -141,8 +141,13 @@ async def main(mode: str = "paper"):
         f"(VIX~{strategy_manager.vix_level:.1f})"
     )
 
-    # ── Run initial Scanner + Regime cycle before first trade cycle ──
-    await run_scanner_cycle(scanner, regime_service)
+    # ── Initial regime refresh (legacy scanner disabled — redundant with Tier 2a funnel) ──
+    # await run_scanner_cycle(scanner, regime_service)  # DISABLED: causes Alpaca 429 hangs
+    if regime_service:
+        try:
+            await regime_service.compute()
+        except Exception as e:
+            logger.warning(f"[Main] Initial regime compute failed: {e}")
 
     # ── Scheduled Execution Loop ──────────────────────────────────
     scheduler = AsyncIOScheduler()
@@ -166,15 +171,24 @@ async def main(mode: str = "paper"):
 
     scheduler.add_job(lead_cycle_wrapper, "interval", minutes=settings.scan_interval_minutes)
 
-    # Scanner + Regime: runs 2x daily at market open (9:35 ET) and midday (12:30 ET)
+    # Legacy scanner DISABLED — redundant with Tier 2a funnel, causes Alpaca 429 hangs.
+    # Regime refresh decoupled into standalone job below.
+    # scheduler.add_job(
+    #     run_scanner_cycle, "cron", args=[scanner, regime_service],
+    #     hour="9,12", minute="35,30", timezone="US/Eastern", id="scanner_morning",
+    # )
+
+    # Regime refresh: runs 2x daily at market open (9:35 ET) and midday (12:30 ET)
+    async def _refresh_regime():
+        if regime_service:
+            try:
+                await regime_service.compute()
+            except Exception as e:
+                logger.warning(f"[Main] Regime compute failed: {e}")
+
     scheduler.add_job(
-        run_scanner_cycle,
-        "cron",
-        args=[scanner, regime_service],
-        hour="9,12",
-        minute="35,30",
-        timezone="US/Eastern",
-        id="scanner_morning",
+        _refresh_regime, "cron",
+        hour="9,12", minute="35,30", timezone="US/Eastern", id="regime_refresh",
     )
 
     # Breadth Analyst sweep: runs daily at 8:00 AM ET (before market open)
