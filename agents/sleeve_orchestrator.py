@@ -186,6 +186,9 @@ class SleeveOrchestrator:
         await self._log_action("sleeve_cycle_completed", "executed", None, summary)
         logger.info(f"[Orchestrator] ═══ Cycle complete: {executed} executed, {rejected} rejected, ${total_cost:.4f} ═══")
 
+        # Step 8: Write CycleSnapshot (feeds outcome labeler, Research Analyst, dashboard)
+        await self._write_cycle_snapshot(sleeve_decisions, total_cost, executed, len(all_actions), rejected, elapsed)
+
         # Write equity snapshot
         from main import _write_equity_snapshot
         await _write_equity_snapshot(self.lead.portfolio)
@@ -432,8 +435,13 @@ Which sleeve's thesis better explains why this specific setup is an opportunity 
 
         try:
             from openai import AsyncOpenAI
+            from config.settings import settings as app_settings
+            together_key = app_settings.together_api_key
+            if not together_key:
+                logger.warning("[Orchestrator] TOGETHER_API_KEY not set — skipping LLM conflict resolution")
+                return None
             client = AsyncOpenAI(
-                api_key=self.lead.llm_service.client.api_key if hasattr(self.lead.llm_service, 'client') else "",
+                api_key=together_key,
                 base_url="https://api.together.xyz/v1",
             )
             response = await client.chat.completions.create(
@@ -530,6 +538,84 @@ Which sleeve's thesis better explains why this specific setup is an opportunity 
                     resolved.append(entry)
 
         return resolved
+
+    # ── CycleSnapshot ──────────────────────────────────────────
+
+    @staticmethod
+    def _strip_fences(text: str) -> str:
+        """Strip markdown code fences from LLM output before storing."""
+        if not text:
+            return text
+        import re
+        text = re.sub(r'```json\s*', '', text)
+        text = re.sub(r'```\s*', '', text)
+        return text.strip()
+
+    async def _write_cycle_snapshot(
+        self, sleeve_decisions: dict, total_cost: float,
+        executed: int, total_actions: int, rejected: int, elapsed: float,
+    ):
+        """Write a CycleSnapshot so the learning flywheel can see today's decisions."""
+        try:
+            from services.research_data import ResearchDataService
+            rd = ResearchDataService()
+
+            # Aggregate reasoning from all sleeves
+            reasoning_parts = []
+            total_tokens_in = 0
+            total_tokens_out = 0
+            all_actions_list = []
+
+            for sid, decision in sleeve_decisions.items():
+                reasoning_parts.append(f"=== {sid} ===\n{decision.get('reasoning', '(no reasoning)')}")
+                total_tokens_in += decision.get("tokens_in", 0)
+                total_tokens_out += decision.get("tokens_out", 0)
+                all_actions_list.extend(decision.get("actions", []))
+
+            combined_reasoning = "\n\n".join(reasoning_parts)
+
+            # Build summary text
+            sleeve_summaries = []
+            for sid, decision in sleeve_decisions.items():
+                s = self._strip_fences(decision.get("summary", ""))
+                n_actions = len(decision.get("actions", []))
+                sleeve_summaries.append(f"{sid}: {n_actions} actions — {s[:100]}")
+            summary_text = f"{executed} executed, {rejected} rejected, ${total_cost:.4f} | " + " | ".join(sleeve_summaries)
+
+            # Get regime info
+            regime_summary = {}
+            if self.lead.strategy_manager:
+                try:
+                    regime_summary = self.lead.strategy_manager.get_regime_summary() or {}
+                except Exception:
+                    pass
+
+            await rd.write_cycle_snapshot(
+                regime=regime_summary.get("regime"),
+                vix_level=regime_summary.get("vix_level"),
+                equity=self.lead.portfolio.equity if self.lead.portfolio else None,
+                cash=self.lead.portfolio.cash if self.lead.portfolio else None,
+                buying_power=self.lead.portfolio.buying_power if self.lead.portfolio else None,
+                open_positions_count=len(self.lead.portfolio.options) if self.lead.portfolio else None,
+                actions_decided=total_actions,
+                actions_executed=executed,
+                summary=summary_text[:512],
+                reasoning=combined_reasoning,
+                llm_tokens_in=total_tokens_in,
+                llm_tokens_out=total_tokens_out,
+                llm_cost_usd=total_cost,
+                llm_model=self.lead.llm_service.model if self.lead.llm_service else None,
+                full_context={
+                    "sleeves": list(sleeve_decisions.keys()),
+                    "actions": all_actions_list,
+                    "risk_rejected": rejected,
+                    "elapsed_seconds": elapsed,
+                },
+            )
+            logger.info(f"[Orchestrator] CycleSnapshot written ({total_tokens_in} in / {total_tokens_out} out)")
+
+        except Exception as e:
+            logger.error(f"[Orchestrator] Failed to write CycleSnapshot: {e}")
 
     # ── Logging ──────────────────────────────────────────────────
 
