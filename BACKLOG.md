@@ -1,6 +1,6 @@
 # Premium Trader — Backlog
 
-Last updated: 2026-04-24
+Last updated: 2026-04-27
 
 ---
 
@@ -87,6 +87,7 @@ that's a long-term measurement. The near-term success criteria are:
 │  Technical indicators (pure Python)       ← exists  │
 │  StockTwits (social velocity)             ← exists  │
 │  Together AI / Llama 3.3 (Tier 2b)        ← exists  │
+│  Together AI / DeepSeek V4-Flash (Chat)    ← planned │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -128,6 +129,10 @@ live. Risk gate, scheduling, and CycleSnapshot all corrected.
 **Priority 3 — Let the system run 2-4 weeks.** Accumulate funnel-driven
 trades for signal attribution. No code changes unless bugs found.
 
+**Priority 4 — 1.7 RAG Chat Agent.** Natural language interface for querying
+system data. DeepSeek V4-Flash on Together AI. High value for learning and
+system inspection at ~$0.50/month. Depends on existing data layer (already built).
+
 ### Shipped (Weeks 1-3 + hotfixes)
 
 - ✅ Sleeve Orchestrator (parallel + consolidation, 4 sleeves)
@@ -162,6 +167,7 @@ With cron scheduling (3 cycles/day × 4 sleeves):
 | Claude API (Fundamentals + Research) | ~$8 |
 | Together AI (Tier 2b) | ~$2.80 |
 | OpenAI (embeddings) | ~$2 |
+| Together AI (Chat Agent, DeepSeek V4-Flash) | ~$0.50 |
 | DigitalOcean | ~$18 |
 | **Total** | **~$218** (or ~$131 with caching) |
 
@@ -334,6 +340,60 @@ Tier 1 (6,350 → 4,285 daily)
 - `[x]` Rule 7 enriched with corr_short/corr_long diagnostic fields
 - `[x]` MAD=0 fallback to std for thinly-traded names
 
+### Batch 1.7 — RAG Chat Agent `[ ]`
+
+**Purpose:** Natural language interface for querying all system data — cycle
+history, trade outcomes, promotions, signal scores, agent reasoning, config,
+and logs. Ask questions in plain English instead of writing SQL or CLI commands.
+
+**Architecture:**
+- **Dual retrieval:** SQL generation for structured queries (cycle_snapshots,
+  name_observations, trade_outcomes) + pgvector semantic search for unstructured
+  data (agent_messages, skill_documents, reasoning_embeddings)
+- **Model:** DeepSeek V4-Flash on Together AI (~$0.20/M input, ~$0.60/M output).
+  Fast, cheap, good at instruction-following and code generation (SQL).
+- **UI:** Win95-themed chat panel in the research dashboard (matches existing
+  design language)
+
+**Example queries and retrieval strategies:**
+1. "What were the top 5 promotions last cycle?" → SQL on name_observations
+2. "Why did the Lead Agent pass on AAPL yesterday?" → semantic search on
+   agent_messages filtered by symbol + date
+3. "What's my total PnL this week?" → SQL on trade_outcomes
+4. "What did the Research Analyst learn about earnings plays?" → semantic
+   search on skill_documents
+5. "Show me all trades where estimated_edge > 0.15" → SQL on trade_outcomes
+6. "Which rules fired most often this month?" → SQL aggregate on
+   name_observations analysis JSON
+7. "Compare Momentum sleeve vs Mean Reversion sleeve win rates" → SQL on
+   trade_outcomes joined to cycle_snapshots
+
+**Implementation (4 components, no new tables):**
+1. `agents/chat_agent.py` — Query classifier (SQL vs semantic vs hybrid),
+   SQL generator with schema context, pgvector search, response formatter.
+   Uses DeepSeek V4-Flash via Together AI client (same pattern as Tier 2b).
+2. `routes/chat.py` — Flask route `/api/chat` (POST). Session history in
+   memory (not persisted). Rate limit: 30 req/min.
+3. Dashboard component — Chat panel in research dashboard. Collapsible sidebar
+   or dedicated `/research/chat` page. Markdown rendering for responses.
+4. Schema context — Static schema description injected into system prompt so
+   DeepSeek can generate correct SQL without hallucinating column names.
+
+**Cost:** ~$0.50/month assuming ~20 queries/day, avg 2K tokens/query.
+
+**Dependencies:** PostgreSQL with pgvector (exists), Together AI client
+(exists), research dashboard (exists), agent_messages table (exists).
+
+**Model choice rationale — three-model architecture:**
+- **Claude Sonnet 4.6** — Lead Agent trade decisions. Needs maximum reasoning
+  quality for capital allocation. ~$187/month (or ~$100 with caching).
+- **Llama 3.3 70B (Together AI)** — Tier 2b reasoning, Fundamentals Analyst,
+  Research Analyst. Bulk narrative generation where good-enough quality at
+  1/50th the cost matters. ~$3/month.
+- **DeepSeek V4-Flash (Together AI)** — RAG Chat Agent. Fast, cheap,
+  instruction-following. Perfect for SQL generation and Q&A where latency
+  and cost matter more than frontier reasoning. ~$0.50/month.
+
 ### Phase 1.5 — Multi-Sleeve Experiment `[~]` IN PROGRESS
 
 - `[x]` **Week 1:** Robust statistics migration, sleeve_id migration,
@@ -349,7 +409,7 @@ Tier 1 (6,350 → 4,285 daily)
 - `[~]` **Launch:** ~$97K paper, 6 months, charter filled before Day 1.
   All critical bugs fixed 2026-04-24. First clean cycle: Mon 2026-04-28.
 
-### Batch 1.7 — Cross-Database Context Retrieval `[ ]`
+### Batch 1.8 — Cross-Database Context Retrieval `[ ]`
 
 Build when Research Analyst needs cross-table queries. Deferred.
 
@@ -362,8 +422,10 @@ Build when Research Analyst needs cross-table queries. Deferred.
 ## PHASE 4 — Model Diversification (partially realized)
 
 - **4a — Ensemble**: second opinion on critical cycles.
-- **4b — Specialized models**: ✅ PARTIALLY REALIZED — Tier 2b uses Llama
-  3.3 ($2.80/month), Lead Agent uses Claude Sonnet (~$100/month).
+- **4b — Three-model architecture:** ✅ PARTIALLY REALIZED
+  - Claude Sonnet 4.6: Lead Agent trade decisions (~$187/month, ~$100 with caching)
+  - Llama 3.3 70B (Together AI): Tier 2b + Fundamentals + Research Analyst (~$3/month)
+  - DeepSeek V4-Flash (Together AI): RAG Chat Agent (~$0.50/month) — planned
 
 ---
 
@@ -446,6 +508,11 @@ Build when Research Analyst needs cross-table queries. Deferred.
 ---
 
 ## CHANGELOG
+
+### 2026-04-27 — RAG Chat Agent roadmap + three-model architecture
+
+- Added RAG Chat Agent to roadmap (Batch 1.7)
+- Three-model architecture finalized: Claude (trade decisions), Llama (bulk reasoning), DeepSeek (chat Q&A)
 
 ### 2026-04-24 — Critical fixes: risk gate, scheduling, scanner, CycleSnapshot
 
