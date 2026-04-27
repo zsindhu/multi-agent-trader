@@ -107,6 +107,121 @@ function FunnelPanel() {
   )
 }
 
+// ── Daily Schedule ───────────────────────────────────────────
+
+const SCHEDULE = [
+  { time: '6:00 AM', job: 'Earnings Refresh', desc: 'Finnhub bulk earnings calendar — fetches upcoming earnings for the full universe. Updates the earnings_event table so Rule 8 and the Lead Agent have fresh data.', llm: false, cost: null, group: 'pre' },
+  { time: '7:30 AM', job: 'Pre-Market Briefing', desc: 'Assembles yesterday\'s Research Analyst reflection + active playbook entries into a briefing document. No LLM — pure template assembly. The Lead Agent reads this as its first tool call each cycle.', llm: false, cost: null, group: 'pre' },
+  { time: '8:00 AM', job: 'Breadth Analyst (Tier 1)', desc: 'Sweeps ~6,350 optionable US equities through mechanical filters: price $5-$10K, volume > 100K, market cap > $500M. Produces ~4,285 names that enter the Tier 2 pipeline. Results stored in name_observations (tier=1).', llm: false, cost: null, group: 'pre' },
+  { time: '9:00 AM', job: 'News Refresh', desc: 'Finnhub macro news headlines — broad market news for the Lead Agent\'s context. Not symbol-specific; symbol news is fetched on-demand during Tier 2a for the top 200 names.', llm: false, cost: null, group: 'pre' },
+  { time: '9:35 AM', job: 'Regime Refresh', desc: 'Computes market regime from VIX level, SPY trend (20MA/50MA), market breadth (% above 20MA), sector rotation, and credit stress. Determines risk-on/risk-off/neutral classification that guides all trade decisions.', llm: false, cost: null, group: 'pre' },
+
+  { time: '10:00 AM', job: 'Tier 2a Pre-Filter', desc: 'Scores all ~4,285 Tier 1 names against 11 mechanical rules. Fetches on-demand data for top names: news (top 200), yfinance options (top 100), StockTwits (top 50). Produces ~525 promoted names with composite scores. Runtime: ~3 minutes.', llm: false, cost: null, group: 'cycle1' },
+  { time: '10:10 AM', job: 'Tier 2b Reasoning', desc: 'Llama 3.3 70B (Together AI) reads each promoted name\'s signal profile and writes a narrative explanation of why the signal combination matters. 25 names per batch. Stored in analysis.tier2b_reasoning.', llm: true, cost: '$0.93', group: 'cycle1' },
+  { time: '10:20 AM', job: 'Lead Agent Cycle', desc: '4 parallel Claude calls (one per sleeve: vol_reversion, event_driven, yield_farming, sector_rotation). Each sees its filtered candidates from Tier 2, reads briefing/playbook/regime, makes trade decisions. Conflict resolution via Llama 3.3 if two sleeves want the same name. SleeveRiskGate checks every action.', llm: true, cost: '$2-3', group: 'cycle1' },
+
+  { time: '12:00 PM', job: 'News Refresh + Tier 2a', desc: 'Re-scores the universe with fresh intraday data. Names that spiked mid-morning get picked up here. Same 11-rule pipeline as 10:00 AM.', llm: false, cost: null, group: 'cycle2' },
+  { time: '12:10 PM', job: 'Tier 2b Reasoning', desc: 'Re-reasons on the updated promotion list. Names that were promoted at 10:00 AM but not at 12:00 PM drop off; new ones appear.', llm: true, cost: '$0.93', group: 'cycle2' },
+  { time: '12:20 PM', job: 'Lead Agent Cycle', desc: 'Second daily sleeve cycle. Positions opened at 10:20 AM are now 2 hours old — the Lead Agent manages them (hold/close/roll) alongside evaluating new candidates.', llm: true, cost: '$2-3', group: 'cycle2' },
+  { time: '12:30 PM', job: 'Regime Refresh', desc: 'Mid-day regime re-computation. Catches intraday VIX spikes or breadth collapses that should change the risk posture.', llm: false, cost: null, group: 'cycle2' },
+
+  { time: '2:00 PM', job: 'Tier 2a Pre-Filter', desc: 'Final scoring run. Captures afternoon movers. Last chance for new names to enter the funnel before market close.', llm: false, cost: null, group: 'cycle3' },
+  { time: '2:10 PM', job: 'Tier 2b Reasoning', desc: 'Final reasoning run. Llama 3.3 reasons on afternoon promotion list.', llm: true, cost: '$0.93', group: 'cycle3' },
+  { time: '2:20 PM', job: 'Lead Agent Cycle', desc: 'Final daily sleeve cycle. Focus shifts toward position management: any position with < 5 DTE or > 50% profit target gets evaluated for close/roll. New positions rare this late unless a strong setup appeared in the afternoon Tier 2a run.', llm: true, cost: '$2-3', group: 'cycle3' },
+
+  { time: '4:05 PM', job: 'Daily Summary', desc: 'Discord notification with today\'s trade activity, P&L, and position changes. No LLM — template-based.', llm: false, cost: null, group: 'post' },
+  { time: '4:30 PM', job: 'Performance Analytics', desc: 'Computes daily stats: win rate by delta bucket, regime correlation, per-symbol track record, strategy breakdown. Stored for the Research Analyst to read tomorrow.', llm: false, cost: null, group: 'post' },
+  { time: '5:00 PM', job: 'Outcome Labeler', desc: 'Labels completed trades with PnL, holding period, underlying return, and signal profile at entry. Links trades to the name_observations that surfaced them (funnel attribution). This is the ground truth for the signal-weight learner.', llm: false, cost: null, group: 'post' },
+  { time: '5:30 PM', job: 'Research Analyst', desc: 'Daily reflection: reads today\'s cycle snapshots, top promotions, trade outcomes, and writes a narrative about what patterns emerged. Tomorrow\'s Lead Agent reads this reflection in its pre-market briefing. This is how the system learns across days.', llm: true, cost: '$0.05', group: 'post' },
+]
+
+const GROUP_LABELS = {
+  pre: { label: 'Pre-Market', color: '#808000' },
+  cycle1: { label: 'Cycle 1 — Morning', color: '#000080' },
+  cycle2: { label: 'Cycle 2 — Midday', color: '#000080' },
+  cycle3: { label: 'Cycle 3 — Afternoon', color: '#000080' },
+  post: { label: 'Post-Market', color: '#800000' },
+}
+
+function SchedulePanel() {
+  const [openGroups, setOpenGroups] = useState({ pre: false, cycle1: true, cycle2: false, cycle3: false, post: false })
+
+  const toggle = (g) => setOpenGroups(prev => ({ ...prev, [g]: !prev[g] }))
+
+  const groups = ['pre', 'cycle1', 'cycle2', 'cycle3', 'post']
+
+  return (
+    <div>
+      <div style={{ fontSize: 11, marginBottom: 6, fontFamily: 'var(--w95-font-ui)', lineHeight: 1.6 }}>
+        The system runs <strong>3 scoring cycles per day</strong> during market hours (10:00, 12:00, 2:00 PM ET).
+        Each cycle follows the same pipeline: Tier 2a scores {'\u2192'} Tier 2b reasons {'\u2192'} Lead Agent decides.
+        Data feeds and the learning loop run before and after market hours.
+      </div>
+
+      <div style={{ fontSize: 11, marginBottom: 8, padding: '3px 6px', background: '#f0f0f0', border: '1px solid #c0c0c0' }}>
+        <strong>Daily estimated cost:</strong>{' '}
+        <span style={{ fontFamily: 'var(--w95-font-mono)' }}>
+          3 \u00d7 ($0.93 Tier2b + $2.50 Lead) + $0.05 Research = <strong>~$10.34/day</strong> (~$218/month)
+        </span>
+        <span className="w95-muted"> · With prompt caching: ~$6/day (~$131/month)</span>
+      </div>
+
+      {groups.map(g => {
+        const groupInfo = GROUP_LABELS[g]
+        const jobs = SCHEDULE.filter(s => s.group === g)
+        const groupCost = jobs.filter(j => j.cost).map(j => j.cost).join(' + ') || 'Free'
+        const isOpen = openGroups[g]
+
+        return (
+          <div key={g} style={{ marginBottom: 2 }}>
+            <div
+              onClick={() => toggle(g)}
+              style={{
+                padding: '3px 6px', cursor: 'pointer', userSelect: 'none',
+                background: isOpen ? '#e8e8ff' : '#f0f0f0',
+                borderBottom: '1px solid #808080',
+                display: 'flex', alignItems: 'center', gap: 6,
+                fontFamily: 'var(--w95-font-ui)', fontSize: 12, fontWeight: 'bold',
+              }}
+            >
+              <span style={{ fontFamily: 'var(--w95-font-mono)', fontSize: 10, width: 12 }}>
+                {isOpen ? '\u25be' : '\u25b8'}
+              </span>
+              <span style={{ color: groupInfo.color }}>{groupInfo.label}</span>
+              <span style={{ fontWeight: 'normal', color: '#808080', fontSize: 10, marginLeft: 'auto' }}>
+                {jobs.length} jobs · {groupCost}
+              </span>
+            </div>
+            {isOpen && (
+              <table className="w95-table" style={{ marginBottom: 0 }}>
+                <thead>
+                  <tr><th style={{ width: 75 }}>Time</th><th style={{ width: 160 }}>Job</th><th>Description</th><th style={{ width: 35 }}>LLM</th><th style={{ width: 50 }}>Cost</th></tr>
+                </thead>
+                <tbody>
+                  {jobs.map((s, i) => (
+                    <tr key={i}>
+                      <td style={{ fontFamily: 'var(--w95-font-mono)', fontWeight: 'bold' }}>{s.time}</td>
+                      <td className="w95-bold">{s.job}</td>
+                      <td style={{ whiteSpace: 'normal', fontSize: 10, lineHeight: 1.5 }}>{s.desc}</td>
+                      <td style={{ textAlign: 'center' }}>{s.llm ? <span style={{ color: '#000080', fontWeight: 'bold' }}>Yes</span> : <span className="w95-muted">No</span>}</td>
+                      <td style={{ fontFamily: 'var(--w95-font-mono)', textAlign: 'right' }}>{s.cost || '\u2014'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )
+      })}
+
+      <div style={{ fontSize: 10, color: '#808080', marginTop: 6, fontFamily: 'var(--w95-font-ui)' }}>
+        All times Eastern. The Lead Agent only runs during market hours (9:30 AM – 4:00 PM ET, weekdays).
+        Container restarts outside market hours skip the startup cycle to avoid wasted LLM spend.
+      </div>
+    </div>
+  )
+}
+
 // ── Rule Data ────────────────────────────────────────────────
 
 const RULES = [
@@ -330,6 +445,11 @@ export default function RulesPage() {
         {/* The Funnel */}
         <W95Window title="The Funnel" icon="&#128376;">
           <FunnelPanel />
+        </W95Window>
+
+        {/* Daily Schedule */}
+        <W95Window title="Daily Schedule (All Times ET)" icon="&#128339;">
+          <SchedulePanel />
         </W95Window>
 
         {/* Pre-Filters */}
