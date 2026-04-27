@@ -129,30 +129,51 @@ function TradesPanel({ trades }) {
 
   if (trades === null) return <div className="w95-muted">Loading...</div>
 
+  const filterButtons = [
+    { value: 'all', label: 'All' },
+    { value: 'open', label: 'Open' },
+    { value: 'closed', label: 'Closed' },
+    { value: 'won', label: 'Won' },
+    { value: 'lost', label: 'Lost' },
+  ]
+
   const filtered = items.filter(t => {
-    if (statusFilter !== 'all') {
-      if (statusFilter === 'with_outcome') {
-        if (!t.outcome) return false
-      } else if (t.status !== statusFilter && t.outcome !== statusFilter) return false
+    if (statusFilter === 'open') {
+      if (!(t.status === 'filled' && !t.outcome)) return false
+    } else if (statusFilter === 'closed') {
+      if (!(['closed', 'expired', 'assigned'].includes(t.status) || t.outcome)) return false
+    } else if (statusFilter === 'won') {
+      if (t.outcome !== 'win') return false
+    } else if (statusFilter === 'lost') {
+      if (t.outcome !== 'loss') return false
     }
     if (symbolSearch && !t.symbol?.toLowerCase().includes(symbolSearch.toLowerCase())) return false
     if (funnelOnly && !t.funnel_driven) return false
     return true
   })
 
-  const statusOpts = [
-    { value: 'all', label: 'All' },
-    { value: 'with_outcome', label: 'With outcome' },
-    { value: 'win', label: 'Wins' },
-    { value: 'loss', label: 'Losses' },
-    { value: 'filled', label: 'Filled' },
-    { value: 'expired', label: 'Expired' },
-  ]
+  // Per-filter summary stats (computed from filtered set)
+  const filteredWins = filtered.filter(t => t.outcome === 'win').length
+  const filteredLosses = filtered.filter(t => t.outcome === 'loss').length
+  const filteredPnl = filtered.reduce((sum, t) => sum + (t.outcome_pnl || 0), 0)
+  const filteredWinRate = filteredWins + filteredLosses > 0
+    ? Math.round(filteredWins / (filteredWins + filteredLosses) * 100)
+    : null
 
   return (
     <div>
       <FilterBar>
-        <FilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} options={statusOpts} />
+        {filterButtons.map(b => (
+          <button
+            key={b.value}
+            className="w95-btn"
+            style={statusFilter === b.value ? { borderStyle: 'inset', fontWeight: 'bold' } : {}}
+            onClick={() => setStatusFilter(b.value)}
+          >
+            {b.label}
+          </button>
+        ))}
+        <span style={{ width: 1, height: 16, background: '#808080', margin: '0 2px' }} />
         <FilterInput label="Symbol" value={symbolSearch} onChange={setSymbolSearch} placeholder="AAPL..." />
         <label style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10 }}>
           <input type="checkbox" checked={funnelOnly} onChange={e => setFunnelOnly(e.target.checked)} />
@@ -163,6 +184,17 @@ function TradesPanel({ trades }) {
         }
         <span className="w95-muted" style={{ marginLeft: 'auto', fontSize: 10 }}>{filtered.length}/{items.length}</span>
       </FilterBar>
+      {filtered.length > 0 && (
+        <div className="w95-stats" style={{ borderBottom: '1px solid #808080' }}>
+          <div className="w95-stat"><span className="w95-stat-label">Count</span><span className="w95-stat-value">{filtered.length}</span></div>
+          <div className="w95-stat"><span className="w95-stat-label">PnL</span><span className={`w95-stat-value ${filteredPnl >= 0 ? 'w95-profit' : 'w95-loss'}`}>{fmtDollar(filteredPnl)}</span></div>
+          {filteredWinRate !== null && (
+            <div className="w95-stat"><span className="w95-stat-label">Win Rate</span><span className="w95-stat-value">{filteredWinRate}%</span></div>
+          )}
+          <div className="w95-stat"><span className="w95-stat-label">Wins</span><span className="w95-stat-value w95-profit">{filteredWins}</span></div>
+          <div className="w95-stat"><span className="w95-stat-label">Losses</span><span className="w95-stat-value w95-loss">{filteredLosses}</span></div>
+        </div>
+      )}
       {filtered.length === 0 ? (
         <div className="w95-muted" style={{ padding: 8 }}>No trades match filters</div>
       ) : (
