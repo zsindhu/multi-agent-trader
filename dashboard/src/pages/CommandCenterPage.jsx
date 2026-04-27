@@ -7,6 +7,7 @@ import {
   fetchDashboardSignals,
   fetchDashboardReflection,
   fetchOptions,
+  fetchPositionAlerts,
 } from '../api'
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -85,14 +86,43 @@ function SystemStatusPanel({ status }) {
   )
 }
 
+// ── Position Alert Banner ────────────────────────────────────
+
+function PositionAlertBanner({ alerts }) {
+  if (!alerts || alerts.length === 0) return null
+  const danger = alerts.filter(a => a.level === 'CRITICAL' || a.level === 'DANGER')
+  if (danger.length === 0) return null
+
+  const hasCritical = danger.some(a => a.level === 'CRITICAL')
+  const bgColor = hasCritical ? '#c00' : '#c90'
+  const textColor = hasCritical ? '#fff' : '#000'
+
+  return (
+    <div style={{
+      background: bgColor, color: textColor, padding: '3px 8px',
+      fontSize: 11, fontFamily: 'var(--w95-font-ui)', fontWeight: 'bold',
+      borderBottom: '1px solid #808080',
+    }}>
+      {danger.map((a, i) => (
+        <span key={i}>
+          {i > 0 && ' | '}
+          {a.level === 'CRITICAL' ? '\u26A0' : '\u26A0'} {a.symbol} {a.level === 'CRITICAL' ? 'BELOW' : 'within ' + a.distance_pct + '% of'} strike ${a.strike}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 // ── Active Positions Panel ───────────────────────────────────
 
-function PositionsPanel({ positions }) {
+function PositionsPanel({ positions, alerts }) {
   if (!positions) return <div className="w95-muted">Loading...</div>
   const items = Array.isArray(positions) ? positions : []
   if (items.length === 0) return <div className="w95-muted">No active positions</div>
 
   return (
+    <>
+    <PositionAlertBanner alerts={alerts} />
     <table className="w95-table">
       <thead>
         <tr>
@@ -127,6 +157,7 @@ function PositionsPanel({ positions }) {
         })}
       </tbody>
     </table>
+    </>
   )
 }
 
@@ -250,6 +281,7 @@ export default function CommandCenterPage() {
   const [signals, setSignals] = useState(null)
   const [reflection, setReflection] = useState(null)
   const [positions, setPositions] = useState(null)
+  const [positionAlerts, setPositionAlerts] = useState([])
 
   const loadAll = useCallback(() => {
     fetchDashboardStatus().then(setStatus).catch(() => {})
@@ -257,6 +289,7 @@ export default function CommandCenterPage() {
     fetchDashboardSignals().then(d => setSignals(d?.signals || [])).catch(() => setSignals([]))
     fetchDashboardReflection().then(setReflection).catch(() => {})
     fetchOptions().then(d => setPositions(d?.options || [])).catch(() => setPositions([]))
+    fetchPositionAlerts().then(d => setPositionAlerts(d?.alerts || [])).catch(() => setPositionAlerts([]))
   }, [])
 
   useEffect(() => {
@@ -275,7 +308,7 @@ export default function CommandCenterPage() {
           </W95Window>
 
           <W95Window title="Active Positions" icon="&#128200;">
-            <PositionsPanel positions={positions} />
+            <PositionsPanel positions={positions} alerts={positionAlerts} />
           </W95Window>
         </div>
 

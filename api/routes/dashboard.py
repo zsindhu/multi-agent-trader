@@ -449,3 +449,22 @@ async def dashboard_trades(days: int = Query(30, ge=1, le=365)):
             "avg_hold_days": round(avg_hold, 1),
         },
     }
+
+
+@router.get("/position-alerts")
+async def dashboard_position_alerts():
+    """Latest position sentinel results for each monitored position."""
+    from services.position_sentinel import get_results
+
+    results = get_results()
+    alerts = list(results.values())
+    alerts.sort(key=lambda a: {"CRITICAL": 0, "DANGER": 1, "WARNING": 2, "OK": 3}.get(a.get("level", "OK"), 4))
+
+    danger_or_critical = [a for a in alerts if a["level"] in ("CRITICAL", "DANGER")]
+
+    return {
+        "alerts": alerts,
+        "has_critical": any(a["level"] == "CRITICAL" for a in alerts),
+        "has_danger": any(a["level"] in ("CRITICAL", "DANGER") for a in alerts),
+        "danger_count": len(danger_or_critical),
+    }

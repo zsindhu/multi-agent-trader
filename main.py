@@ -318,6 +318,19 @@ async def main(mode: str = "paper"):
         id="premarket_briefing",
     )
 
+    # Position sentinel: every 5 minutes during market hours
+    from services.position_sentinel import check_positions as _sentinel_check
+
+    async def _run_sentinel():
+        try:
+            await _sentinel_check(broker, portfolio, svc.notifier)
+        except Exception as e:
+            logger.warning(f"[Main] Position sentinel failed: {e}")
+
+    scheduler.add_job(
+        _run_sentinel, "interval", minutes=5, id="position_sentinel",
+    )
+
     # Performance analytics: runs after market close (4:30 PM ET)
     scheduler.add_job(
         performance_service.compute_all,
