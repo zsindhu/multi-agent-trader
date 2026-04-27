@@ -8,7 +8,7 @@ from datetime import datetime, date, timezone, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Query
-from sqlalchemy import select, desc, func as sa_func, cast, Date, text
+from sqlalchemy import select, desc, func as sa_func, cast, Date, text, case
 
 from core.database import AsyncSessionLocal
 from models.name_observation import NameObservation
@@ -301,12 +301,13 @@ async def dashboard_cycles(limit: int = Query(10, ge=1, le=50)):
 
 
 @router.get("/daily-stats")
-async def dashboard_daily_stats(days: int = Query(30, ge=7, le=365)):
+async def dashboard_daily_stats(days: int = Query(30, ge=1, le=365)):
     """Daily promotion counts + PnL for charts."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff_tz = datetime.now(timezone.utc) - timedelta(days=days)
+    cutoff_naive = datetime.utcnow() - timedelta(days=days)
 
     async with AsyncSessionLocal() as session:
-        # Daily promotion counts
+        # Daily promotion counts (NameObservation.timestamp is tz-aware)
         r = await session.execute(
             select(
                 cast(NameObservation.timestamp, Date).label("day"),
@@ -315,36 +316,34 @@ async def dashboard_daily_stats(days: int = Query(30, ge=7, le=365)):
             .where(
                 NameObservation.tier == 2,
                 NameObservation.was_considered == True,
-                NameObservation.timestamp >= cutoff,
+                NameObservation.timestamp >= cutoff_tz,
             )
             .group_by("day")
             .order_by("day")
         )
         promo_by_day = {str(row[0]): row[1] for row in r.all()}
 
-        # Daily PnL from trade outcomes
+        # Daily PnL from trade outcomes (TradeOutcome.labeled_at is tz-aware)
         r = await session.execute(
             select(
                 cast(TradeOutcome.labeled_at, Date).label("day"),
                 sa_func.sum(TradeOutcome.pnl_dollars),
                 sa_func.count(TradeOutcome.id),
-                sa_func.sum(
-                    sa_func.cast(TradeOutcome.outcome == "win", sa_func.Integer)
-                ),
+                sa_func.sum(case((TradeOutcome.outcome == "win", 1), else_=0)),
             )
-            .where(TradeOutcome.labeled_at >= cutoff)
+            .where(TradeOutcome.labeled_at >= cutoff_tz)
             .group_by("day")
             .order_by("day")
         )
         pnl_rows = r.all()
 
-        # Equity history
+        # Equity history (EquitySnapshot.recorded_at is naive DateTime)
         r = await session.execute(
             select(
                 cast(EquitySnapshot.recorded_at, Date).label("day"),
                 sa_func.avg(EquitySnapshot.equity),
             )
-            .where(EquitySnapshot.recorded_at >= cutoff)
+            .where(EquitySnapshot.recorded_at >= cutoff_naive)
             .group_by("day")
             .order_by("day")
         )
@@ -386,13 +385,14 @@ async def dashboard_daily_stats(days: int = Query(30, ge=7, le=365)):
 @router.get("/trades")
 async def dashboard_trades(days: int = Query(30, ge=1, le=365)):
     """Trade history with outcomes for the trades table."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    # Trade.created_at is naive DateTime — use naive cutoff to avoid tz mismatch
+    cutoff_naive = datetime.utcnow() - timedelta(days=days)
 
     async with AsyncSessionLocal() as session:
         r = await session.execute(
             select(Trade, TradeOutcome)
             .outerjoin(TradeOutcome, TradeOutcome.trade_id == Trade.id)
-            .where(Trade.created_at >= cutoff)
+            .where(Trade.created_at >= cutoff_naive)
             .order_by(Trade.created_at.desc())
             .limit(200)
         )
