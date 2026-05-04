@@ -14,7 +14,8 @@ from datetime import datetime, date, timezone, timedelta
 from typing import Optional
 
 from loguru import logger
-from sqlalchemy import select, func as sa_func
+from sqlalchemy import select, and_, func as sa_func
+from sqlalchemy.orm import aliased
 
 from core.database import AsyncSessionLocal
 from models.trade import Trade
@@ -120,22 +121,43 @@ class OutcomeLabeler:
 
     async def _find_round_trip_trades(self, session) -> list:
         """
-        Find sell_to_open trades that have a matching buy_to_close with
-        status 'filled'. These are completed round-trips closed before
-        expiration. Returns the sell_to_open trades (the entry decisions).
+        Find sell_to_open trades (status='filled') that have a matching
+        buy_to_close (status='filled') on (symbol, strike, expiration)
+        and don't already have a trade_outcomes row.
+
+        Returns the sell_to_open trades (the entry decisions) and populates
+        self._round_trip_map so _label_trade can find the matching BTC.
         """
-        # All sell_to_open trades
+        BTC = aliased(Trade)
+
+        # SQL JOIN: STO joined to BTC on (symbol, strike, expiration),
+        # LEFT JOIN trade_outcomes to exclude already-labeled
         sto_result = await session.execute(
             select(Trade)
+            .join(
+                BTC,
+                and_(
+                    Trade.symbol == BTC.symbol,
+                    Trade.strike == BTC.strike,
+                    Trade.expiration == BTC.expiration,
+                    BTC.trade_type == "buy_to_close",
+                    BTC.status == "filled",
+                ),
+            )
+            .outerjoin(TradeOutcome, Trade.id == TradeOutcome.trade_id)
             .where(Trade.trade_type == "sell_to_open")
+            .where(Trade.status == "filled")
+            .where(TradeOutcome.id.is_(None))
             .order_by(Trade.created_at)
         )
-        sto_trades = list(sto_result.scalars().all())
+        sto_trades = list(sto_result.scalars().unique().all())
 
         if not sto_trades:
+            self._round_trip_map = {}
+            logger.info("[Labeler] Found 0 round-trip trades (sell_to_open + buy_to_close)")
             return []
 
-        # All buy_to_close trades with status filled
+        # Fetch matching BTC trades to populate the round-trip map
         btc_result = await session.execute(
             select(Trade)
             .where(Trade.trade_type == "buy_to_close")
@@ -144,28 +166,22 @@ class OutcomeLabeler:
         )
         btc_trades = list(btc_result.scalars().all())
 
-        # Index BTC trades by (symbol, strike, expiration) for matching
-        btc_by_key = {}
+        # Index BTC by (symbol, strike, expiration)
+        btc_by_key: dict[tuple, list[Trade]] = {}
         for btc in btc_trades:
-            key = (btc.symbol, str(btc.strike), str(btc.expiration))
+            key = (btc.symbol, btc.strike, btc.expiration)
             btc_by_key.setdefault(key, []).append(btc)
 
-        # Store round-trip mapping for use during labeling
-        self._round_trip_map = {}  # sell_to_open.id -> buy_to_close Trade
-        round_trip_entries = []
-
+        self._round_trip_map = {}
         for sto in sto_trades:
-            key = (sto.symbol, str(sto.strike), str(sto.expiration))
-            matches = btc_by_key.get(key, [])
-            # Find the first BTC that happened after the STO
-            for btc in matches:
+            key = (sto.symbol, sto.strike, sto.expiration)
+            for btc in btc_by_key.get(key, []):
                 if btc.created_at and sto.created_at and btc.created_at >= sto.created_at:
                     self._round_trip_map[sto.id] = btc
-                    round_trip_entries.append(sto)
                     break
 
-        logger.info(f"[Labeler] Found {len(round_trip_entries)} round-trip trades (sell_to_open + buy_to_close)")
-        return round_trip_entries
+        logger.info(f"[Labeler] Found {len(sto_trades)} round-trip trades (sell_to_open + buy_to_close)")
+        return sto_trades
 
     async def _label_trade(self, trade: Trade) -> Optional[TradeOutcome]:
         """Compute outcome for a single trade."""
