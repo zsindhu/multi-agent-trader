@@ -296,6 +296,56 @@ class LeadAgent:
             return True
         return False
 
+    @staticmethod
+    def _regime_materially_changed(prev_content: str, new_content: str) -> bool:
+        """
+        Check if a regime_observation has materially changed vs the previous one.
+        Returns True if the new entry should be written.
+
+        Material changes: regime shift (normal/elevated/crisis), VIX crossing
+        a threshold (20, 25, 30), SPY trend reversal, or genuinely new pattern.
+        """
+        import re
+
+        prev_lower = prev_content.lower()
+        new_lower = new_content.lower()
+
+        # Extract regime state
+        regime_words = {"normal", "elevated", "crisis", "high", "low", "neutral", "bullish", "bearish"}
+        prev_regime = {w for w in regime_words if w in prev_lower}
+        new_regime = {w for w in regime_words if w in new_lower}
+        if prev_regime != new_regime:
+            return True
+
+        # Extract VIX values — check if crossed a threshold band
+        def extract_vix(text):
+            match = re.search(r'vix[:\s~]*(\d+\.?\d*)', text)
+            return float(match.group(1)) if match else None
+
+        prev_vix = extract_vix(prev_lower)
+        new_vix = extract_vix(new_lower)
+        if prev_vix is not None and new_vix is not None:
+            # Material if crossed a threshold or moved more than 1 point
+            thresholds = [15, 20, 25, 30]
+            for t in thresholds:
+                if (prev_vix < t) != (new_vix < t):
+                    return True
+            if abs(new_vix - prev_vix) > 1.0:
+                return True
+
+        # Extract SPY trend direction
+        trend_words = {"uptrend", "downtrend", "sideways", "rally", "selloff", "sell-off", "correction"}
+        prev_trend = {w for w in trend_words if w in prev_lower}
+        new_trend = {w for w in trend_words if w in new_lower}
+        if prev_trend and new_trend and prev_trend != new_trend:
+            return True
+
+        # If content is substantially different in length (new info added), allow it
+        if abs(len(new_content) - len(prev_content)) > len(prev_content) * 0.5:
+            return True
+
+        return False
+
     # ── LLM MODE METHODS ──────────────────────────────────────────
 
     def _build_system_prompt(self) -> str:
@@ -766,10 +816,34 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
 
         if tool_name == "add_playbook_entry":
             from models.playbook_entry import PlaybookEntry
+            category = tool_input["category"]
+            content = tool_input["content"]
+
+            # Deduplicate regime_observation entries — only write on
+            # material regime changes (regime shift, VIX threshold cross,
+            # SPY trend reversal)
+            if category == "regime_observation":
+                async with AsyncSessionLocal() as session:
+                    from sqlalchemy import select as sa_select
+                    last_result = await session.execute(
+                        sa_select(PlaybookEntry)
+                        .where(PlaybookEntry.category == "regime_observation")
+                        .where(PlaybookEntry.active == True)
+                        .order_by(PlaybookEntry.created_at.desc())
+                        .limit(1)
+                    )
+                    last_entry = last_result.scalar_one_or_none()
+
+                if last_entry and not self._regime_materially_changed(last_entry.content, content):
+                    logger.info(
+                        f"[Lead] Regime unchanged, skipping duplicate playbook entry"
+                    )
+                    return {"status": "skipped", "reason": "regime unchanged"}
+
             async with AsyncSessionLocal() as session:
                 entry = PlaybookEntry(
-                    category=tool_input["category"],
-                    content=tool_input["content"],
+                    category=category,
+                    content=content,
                     source="lead_agent",
                     confidence=tool_input.get("confidence", 0.5),
                 )
