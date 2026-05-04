@@ -49,13 +49,27 @@ class OutcomeLabeler:
                 )
                 labeled_ids = {r[0] for r in labeled_result.all()}
 
-                # Get completed trades
+                # Get trades with completed statuses (existing logic)
                 result = await session.execute(
                     select(Trade)
                     .where(Trade.status.in_(COMPLETED_STATUSES))
                     .order_by(Trade.created_at)
                 )
-                all_trades = list(result.scalars().all())
+                status_trades = list(result.scalars().all())
+
+                # Get round-trip trades: sell_to_open with a matching
+                # buy_to_close (status=filled). These are actively managed
+                # positions closed before expiration.
+                round_trip_trades = await self._find_round_trip_trades(session)
+
+                # Merge, dedup by trade id
+                seen_ids = {t.id for t in status_trades}
+                all_trades = list(status_trades)
+                for t in round_trip_trades:
+                    if t.id not in seen_ids:
+                        all_trades.append(t)
+                        seen_ids.add(t.id)
+
         except Exception as e:
             logger.error(f"[Labeler] Failed to fetch trades: {e}")
             return {"error": str(e)}
@@ -104,11 +118,63 @@ class OutcomeLabeler:
         logger.info(f"[Labeler] Complete: {summary}")
         return summary
 
+    async def _find_round_trip_trades(self, session) -> list:
+        """
+        Find sell_to_open trades that have a matching buy_to_close with
+        status 'filled'. These are completed round-trips closed before
+        expiration. Returns the sell_to_open trades (the entry decisions).
+        """
+        # All sell_to_open trades
+        sto_result = await session.execute(
+            select(Trade)
+            .where(Trade.trade_type == "sell_to_open")
+            .order_by(Trade.created_at)
+        )
+        sto_trades = list(sto_result.scalars().all())
+
+        if not sto_trades:
+            return []
+
+        # All buy_to_close trades with status filled
+        btc_result = await session.execute(
+            select(Trade)
+            .where(Trade.trade_type == "buy_to_close")
+            .where(Trade.status == "filled")
+            .order_by(Trade.created_at)
+        )
+        btc_trades = list(btc_result.scalars().all())
+
+        # Index BTC trades by (symbol, strike, expiration) for matching
+        btc_by_key = {}
+        for btc in btc_trades:
+            key = (btc.symbol, str(btc.strike), str(btc.expiration))
+            btc_by_key.setdefault(key, []).append(btc)
+
+        # Store round-trip mapping for use during labeling
+        self._round_trip_map = {}  # sell_to_open.id -> buy_to_close Trade
+        round_trip_entries = []
+
+        for sto in sto_trades:
+            key = (sto.symbol, str(sto.strike), str(sto.expiration))
+            matches = btc_by_key.get(key, [])
+            # Find the first BTC that happened after the STO
+            for btc in matches:
+                if btc.created_at and sto.created_at and btc.created_at >= sto.created_at:
+                    self._round_trip_map[sto.id] = btc
+                    round_trip_entries.append(sto)
+                    break
+
+        logger.info(f"[Labeler] Found {len(round_trip_entries)} round-trip trades (sell_to_open + buy_to_close)")
+        return round_trip_entries
+
     async def _label_trade(self, trade: Trade) -> Optional[TradeOutcome]:
         """Compute outcome for a single trade."""
 
+        # Check if this is a round-trip trade with a matching buy_to_close
+        btc_trade = getattr(self, '_round_trip_map', {}).get(trade.id)
+
         # Compute PnL
-        pnl_dollars = self._compute_pnl(trade)
+        pnl_dollars = self._compute_pnl(trade, btc_trade=btc_trade)
         premium_at_risk = self._compute_premium_at_risk(trade)
         pnl_percent = (pnl_dollars / premium_at_risk * 100) if premium_at_risk and pnl_dollars is not None else None
 
@@ -122,11 +188,11 @@ class OutcomeLabeler:
         else:
             outcome = "breakeven"
 
-        # Holding period
-        holding_days = self._compute_holding_days(trade)
+        # Holding period — use BTC close date for round-trips
+        holding_days = self._compute_holding_days(trade, btc_trade=btc_trade)
 
         # Underlying return during holding period
-        underlying_return = await self._compute_underlying_return(trade)
+        underlying_return = await self._compute_underlying_return(trade, btc_trade=btc_trade)
 
         # Join to name_observations (funnel-driven trades only)
         obs_id = None
@@ -151,8 +217,19 @@ class OutcomeLabeler:
             signal_profile=signal_profile,
         )
 
-    def _compute_pnl(self, trade: Trade) -> Optional[float]:
+    def _compute_pnl(self, trade: Trade, btc_trade: Optional[Trade] = None) -> Optional[float]:
         """Compute PnL for a completed trade."""
+        # Round-trip trade: PnL from the buy_to_close record
+        if btc_trade is not None:
+            # If the BTC record has an explicit PnL, use it
+            if btc_trade.pnl is not None:
+                return float(btc_trade.pnl)
+            # Otherwise compute: sold premium - bought premium (per contract * 100)
+            sell_premium = float(trade.premium or trade.price or 0)
+            buy_premium = float(btc_trade.premium or btc_trade.price or 0)
+            qty = abs(trade.quantity or 1)
+            return (sell_premium - buy_premium) * qty * 100
+
         # Use existing PnL if populated
         if trade.pnl is not None:
             return float(trade.pnl)
@@ -191,10 +268,14 @@ class OutcomeLabeler:
             # Long option: premium paid is the risk
             return premium * 100 * qty if premium > 0 else None
 
-    def _compute_holding_days(self, trade: Trade) -> Optional[int]:
+    def _compute_holding_days(self, trade: Trade, btc_trade: Optional[Trade] = None) -> Optional[int]:
         """Compute days from entry to exit."""
         if not trade.created_at:
             return None
+
+        # Round-trip: use buy_to_close created_at as exit date
+        if btc_trade is not None and btc_trade.created_at:
+            return (btc_trade.created_at.date() - trade.created_at.date()).days
 
         exit_date = trade.closed_at
         if exit_date is None and trade.expiration:
@@ -211,7 +292,7 @@ class OutcomeLabeler:
 
         return (exit_date.date() - trade.created_at.date()).days if hasattr(exit_date, 'date') else None
 
-    async def _compute_underlying_return(self, trade: Trade) -> Optional[float]:
+    async def _compute_underlying_return(self, trade: Trade, btc_trade: Optional[Trade] = None) -> Optional[float]:
         """Compute the underlying stock's return during the trade's holding period."""
         if not trade.created_at or not trade.symbol:
             return None
@@ -219,7 +300,10 @@ class OutcomeLabeler:
         entry_date = trade.created_at.date()
 
         exit_date = None
-        if trade.closed_at:
+        # Round-trip: use buy_to_close date
+        if btc_trade is not None and btc_trade.created_at:
+            exit_date = btc_trade.created_at.date()
+        elif trade.closed_at:
             exit_date = trade.closed_at.date()
         elif trade.expiration:
             try:
