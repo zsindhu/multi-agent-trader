@@ -6,7 +6,6 @@ WebSocket for live streaming updates.
 """
 from __future__ import annotations
 
-import asyncio
 import json
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -23,27 +22,6 @@ from api.state import AppState
 from api.routes import portfolio, trades, agents, scanner, backtest, settings, proposals, account, executions, intelligence, diagnostics, research, dashboard
 
 
-# ── Background Scanner ──────────────────────────────────────────────
-
-async def _periodic_scanner(state: AppState, interval_minutes: int = 30):
-    """
-    Refresh scanner opportunities every N minutes.
-    Persists results to DB — does NOT execute any trades.
-    This keeps the dashboard's Trade Desk populated without user interaction.
-    """
-    await asyncio.sleep(90)  # let startup settle before first background scan
-    while True:
-        try:
-            logger.info("[API] Background scanner running...")
-            raw = await state.scanner.scan()
-            scored = await state.scanner.evaluate(raw)
-            await state.scanner.execute(scored)  # execute() = save to DB, no broker orders
-            logger.info(f"[API] Background scanner: {len(scored)} opportunities refreshed")
-        except Exception as e:
-            logger.warning(f"[API] Background scanner error: {e}")
-        await asyncio.sleep(interval_minutes * 60)
-
-
 # ── Lifespan ────────────────────────────────────────────────────────
 
 @asynccontextmanager
@@ -53,14 +31,8 @@ async def lifespan(app: FastAPI):
     state = AppState()
     await state.initialize()
     app.state.app = state
-    scanner_task = asyncio.create_task(_periodic_scanner(state))
     yield
     logger.info("[API] Shutting down...")
-    scanner_task.cancel()
-    try:
-        await scanner_task
-    except asyncio.CancelledError:
-        pass
 
 
 # ── App ─────────────────────────────────────────────────────────────
