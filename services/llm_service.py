@@ -120,6 +120,10 @@ class LLMService:
 
             # Multi-turn tool use loop
             max_turns = 10
+            # Add cache_control to last tool so the entire tools block is cached
+            cached_tools = list(tools)
+            if cached_tools:
+                cached_tools[-1] = {**cached_tools[-1], "cache_control": {"type": "ephemeral"}}
             for turn in range(max_turns):
                 response = self.client.messages.create(
                     model=self.model,
@@ -129,7 +133,7 @@ class LLMService:
                         "text": system_prompt,
                         "cache_control": {"type": "ephemeral"},
                     }],
-                    tools=tools,
+                    tools=cached_tools,
                     messages=messages,
                 )
 
