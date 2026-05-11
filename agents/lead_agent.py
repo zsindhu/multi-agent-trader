@@ -609,7 +609,10 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
                     "Get the strategy playbook — accumulated lessons, observations, and rules "
                     "from past trading. Read this at the start of every cycle to benefit from "
                     "what we've learned. Contains qualitative insights about symbols, regimes, "
-                    "parameters, and strategy performance."
+                    "parameters, strategy performance, and weekly/monthly digests.\n\n"
+                    "Call with no arguments for the default tiered view (all strategy content + "
+                    "recent regime + weekly/monthly digests). Use 'query' for semantic search "
+                    "(e.g. 'earnings plays that lost money'). Use 'category' for a specific type."
                 ),
                 "input_schema": {
                     "type": "object",
@@ -618,7 +621,16 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
                             "type": "string",
                             "description": (
                                 "Optional filter: lesson_learned, parameter_adjustment, "
-                                "symbol_note, regime_observation, strategy_rule, market_insight"
+                                "symbol_note, regime_observation, strategy_rule, market_insight, "
+                                "weekly_digest, monthly_digest"
+                            ),
+                        },
+                        "query": {
+                            "type": "string",
+                            "description": (
+                                "Optional semantic search query. When provided, returns the "
+                                "most relevant playbook entries matching this query via "
+                                "embedding similarity. Example: 'CHTR loss lessons'"
                             ),
                         },
                         "limit": {"type": "integer", "default": 20},
@@ -792,6 +804,22 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
             from sqlalchemy import select as sa_select
 
             category = tool_input.get("category")
+            semantic_query = tool_input.get("query")
+
+            # Semantic search mode — return most relevant entries by embedding similarity
+            if semantic_query:
+                try:
+                    from services.context_retrieval import ContextRetrievalService
+                    retrieval = ContextRetrievalService()
+                    if retrieval.is_enabled:
+                        results = await retrieval.search_playbook(
+                            semantic_query, limit=tool_input.get("limit", 10)
+                        )
+                        return {"entries": results, "total": len(results), "mode": "semantic"}
+                except Exception as e:
+                    logger.debug(f"[Lead] Semantic playbook search failed: {e}")
+                # Fall through to default retrieval if semantic fails
+
             async with AsyncSessionLocal() as session:
                 if category:
                     # Caller asked for a specific category — honor it
@@ -805,7 +833,8 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
                     result = await session.execute(query)
                     entries = list(result.scalars().all())
                 else:
-                    # Smart retrieval: ALL strategy content + last 7 days of regime
+                    # Tiered retrieval: strategy + regime + digests
+                    # Part 1: ALL strategy content (always)
                     strategy_cats = [
                         "strategy_rule", "lesson_learned", "parameter_adjustment",
                         "symbol_note", "market_insight",
@@ -818,6 +847,7 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
                     )
                     strategy_entries = list(strat_result.scalars().all())
 
+                    # Part 2: Last 7 days of regime observations
                     week_ago = datetime.utcnow() - timedelta(days=7)
                     regime_result = await session.execute(
                         sa_select(PlaybookEntry)
@@ -828,7 +858,27 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
                     )
                     regime_entries = list(regime_result.scalars().all())
 
-                    entries = strategy_entries + regime_entries
+                    # Part 3: Last 4 weekly digests (~1 month of context)
+                    weekly_result = await session.execute(
+                        sa_select(PlaybookEntry)
+                        .where(PlaybookEntry.active == True)
+                        .where(PlaybookEntry.category == "weekly_digest")
+                        .order_by(PlaybookEntry.created_at.desc())
+                        .limit(4)
+                    )
+                    weekly_entries = list(weekly_result.scalars().all())
+
+                    # Part 4: Last 12 monthly digests (~1 year of context)
+                    monthly_result = await session.execute(
+                        sa_select(PlaybookEntry)
+                        .where(PlaybookEntry.active == True)
+                        .where(PlaybookEntry.category == "monthly_digest")
+                        .order_by(PlaybookEntry.created_at.desc())
+                        .limit(12)
+                    )
+                    monthly_entries = list(monthly_result.scalars().all())
+
+                    entries = strategy_entries + regime_entries + weekly_entries + monthly_entries
 
                 return {
                     "entries": [
