@@ -20,7 +20,7 @@ Assignment Rules:
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 from uuid import uuid4
 
@@ -790,15 +790,46 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
         if tool_name == "get_playbook":
             from models.playbook_entry import PlaybookEntry
             from sqlalchemy import select as sa_select
+
             category = tool_input.get("category")
-            limit = tool_input.get("limit", 20)
             async with AsyncSessionLocal() as session:
-                query = sa_select(PlaybookEntry).where(PlaybookEntry.active == True)
                 if category:
-                    query = query.where(PlaybookEntry.category == category)
-                query = query.order_by(PlaybookEntry.created_at.desc()).limit(limit)
-                result = await session.execute(query)
-                entries = result.scalars().all()
+                    # Caller asked for a specific category — honor it
+                    query = (
+                        sa_select(PlaybookEntry)
+                        .where(PlaybookEntry.active == True)
+                        .where(PlaybookEntry.category == category)
+                        .order_by(PlaybookEntry.created_at.desc())
+                        .limit(tool_input.get("limit", 20))
+                    )
+                    result = await session.execute(query)
+                    entries = list(result.scalars().all())
+                else:
+                    # Smart retrieval: ALL strategy content + last 7 days of regime
+                    strategy_cats = [
+                        "strategy_rule", "lesson_learned", "parameter_adjustment",
+                        "symbol_note", "market_insight",
+                    ]
+                    strat_result = await session.execute(
+                        sa_select(PlaybookEntry)
+                        .where(PlaybookEntry.active == True)
+                        .where(PlaybookEntry.category.in_(strategy_cats))
+                        .order_by(PlaybookEntry.created_at.desc())
+                    )
+                    strategy_entries = list(strat_result.scalars().all())
+
+                    week_ago = datetime.utcnow() - timedelta(days=7)
+                    regime_result = await session.execute(
+                        sa_select(PlaybookEntry)
+                        .where(PlaybookEntry.active == True)
+                        .where(PlaybookEntry.category == "regime_observation")
+                        .where(PlaybookEntry.created_at >= week_ago)
+                        .order_by(PlaybookEntry.created_at.desc())
+                    )
+                    regime_entries = list(regime_result.scalars().all())
+
+                    entries = strategy_entries + regime_entries
+
                 return {
                     "entries": [
                         {
