@@ -1,6 +1,6 @@
 # Premium Trader — Backlog
 
-Last updated: 2026-04-27
+Last updated: 2026-05-11
 
 ---
 
@@ -59,9 +59,9 @@ that's a long-term measurement. The near-term success criteria are:
 ```
 ┌─────────────────────────────────────────────────────┐
 │  Layer 4 — Research Interface                       │
-│  Plain-HTML inspector at /research                  │
-│  CLI tools for ad-hoc queries                       │
-│  Eventually: real research dashboard                │
+│  Win95 dashboard (3 screens)               ← exists │
+│  CLI tools for ad-hoc queries              ← exists │
+│  RAG Chat Agent                            ← planned│
 ├─────────────────────────────────────────────────────┤
 │  Layer 3 — Intelligence Agents                      │
 │  Lead Agent (decisions + actions)         ← exists  │
@@ -70,12 +70,14 @@ that's a long-term measurement. The near-term success criteria are:
 │  Tier 2b LLM reasoning (Llama 3.3)       ← exists  │
 │  Fundamentals Analyst (10-K/10-Q reading) ← exists  │
 │  Research Analyst (strategy iteration)    ← exists  │
+│  Position Sentinel (5-min price monitor)  ← exists  │
 ├─────────────────────────────────────────────────────┤
 │  Layer 2 — Research Data Layer                      │
 │  PostgreSQL + JSONB + pgvector            ← exists  │
 │  Eight core tables + historical_bars      ← exists  │
 │  macro_news_events + symbol_news_headlines← exists  │
 │  Skill documents, embeddings, msg bus     ← exists  │
+│  LLM usage log (persistent cost tracking) ← exists  │
 ├─────────────────────────────────────────────────────┤
 │  Layer 1 — Data Foundation                          │
 │  Alpaca (market data, options, execution) ← exists  │
@@ -90,6 +92,36 @@ that's a long-term measurement. The near-term success criteria are:
 │  Together AI / DeepSeek V4-Flash (Chat)    ← planned │
 └─────────────────────────────────────────────────────┘
 ```
+
+---
+
+## System state (as of May 11, 2026)
+
+**What's running:**
+- Full pipeline: Tier 1 (6,346) → Tier 2a (514 promoted, 11 rules) → Tier 2b (Llama reasoning) → Lead Agent (4 sleeves, 3 cron cycles/day)
+- Learning flywheel: outcome labeler → Research Analyst reflection → pre-market briefing → Lead Agent reads
+- Position sentinel: 5-min price checks during market hours, Discord alerts
+- Dashboard: Win95 aesthetic — Command Center + History + Rules & Logic
+
+**Performance to date:**
+- 44 labeled outcomes: 32 wins (86%), 5 losses (14%)
+- 14 funnel-driven outcomes: 5 wins (71%), 2 losses (29%)
+- Total PnL: +$3,752.70 (avg win +$128.62, avg loss -$72.60)
+- Current positions: AMGN (2 CSPs, one at DANGER alert level)
+
+**What's working well:**
+- Funnel producing real, profitable trades
+- Lead Agent learning from losses (CHTR lesson → proactive UNP close)
+- Strategy rules being created and applied (DDOG post-earnings IV distinction)
+- Signal attribution data accumulating (14 funnel-driven outcomes)
+
+**What's broken or suboptimal:**
+- Playbook bloat: 148K tokens of regime observations drowning 2.9K tokens of strategy
+- Research Analyst reflections are formulaic/repetitive
+- 21 ghost trades (March, pre-funnel) polluting the trades table
+- Prompt caching showing minimal savings (~$0.01-0.09 per call)
+- Cost tracking underreports due to container restart counter resets
+- Monthly API cost: ~$200-220/month (over $150 target)
 
 ---
 
@@ -111,55 +143,143 @@ file, add it under PARKING LOT and keep working on the current phase.
 
 ---
 
-## BUILD NOW vs NEXT WEEK
+## ROADMAP — Current priorities
 
-### Build now (post-fix stabilization)
+### Phase 0 — Critical Fixes `[~]`
 
-All Week 3 items shipped. Critical bugs fixed 2026-04-24. System is now
-in observation mode.
+*Unblocking issues that cost money or degrade system quality.*
 
-**Priority 1 — Verify prompt caching effectiveness.** ✅ Cache logging
-deployed. Check hit rates after 2:20 PM cycle with new logging. If
-cache reads are >50% of input tokens, cost drops to ~$100/month.
+- `[x]` **0.1** Remove `_periodic_scanner` from `api/main.py` — was blocking
+  event loop and flooding Alpaca API. SHIPPED 2026-05-05.
+- `[ ]` **0.2** Smart playbook retrieval — `get_playbook()` returns all strategy
+  entries + latest 10 regime only. Currently a flat query returning 20 most
+  recent regardless of category (`lead_agent.py:790`). Drops per-cycle tokens
+  from 151K to ~28K, saves ~$0.35/cycle.
+- `[ ]` **0.3** Clean 21 ghost trades (March, pre-funnel, status=submitted, no
+  order_id) — mark as `cancelled`. No cancellation mechanism exists yet.
+- `[x]` **0.4** Playbook dedup — regime observations only written on material
+  change. `_regime_materially_changed()` in `lead_agent.py:300-347`. SHIPPED 2026-05-04.
+- `[?]` **0.5** Fix prompt caching effectiveness — cache_control format is correct
+  (`llm_service.py:130`), hit/miss logging exists, but savings are $0.01-0.09
+  instead of expected $0.50+. Needs investigation.
 
-**Priority 2 — Observe first funnel-driven trade execution.** Monday
-2026-04-28 10:20 AM ET will be the first clean cycle with all fixes
-live. Risk gate, scheduling, and CycleSnapshot all corrected.
+**Expected outcome:** Per-cycle cost drops from ~$1.30 to ~$0.80. Playbook reads are fast and focused.
 
-**Priority 3 — Let the system run 2-4 weeks.** Accumulate funnel-driven
-trades for signal attribution. No code changes unless bugs found.
+### Phase 1 — Tiered Memory & Context Retrieval `[ ]`
 
-**Priority 4 — 1.7 RAG Chat Agent.** Natural language interface for querying
-system data. DeepSeek V4-Flash on Together AI. High value for learning and
-system inspection at ~$0.50/month. Depends on existing data layer (already built).
+*The Lead Agent reads smarter, not more. Build once, three agents consume.*
 
-### Shipped (Weeks 1-3 + hotfixes)
+- `[ ]` **1.9** Embed playbook entries on write (pgvector, OpenAI text-embedding-3-small).
+  Currently only CycleSnapshots get embedded (`lead_agent.py:1213-1221`).
+- `[ ]` **1.10** Embed trade outcomes on label.
+- `[ ]` **1.11** `services/context_retrieval.py` — shared retrieval layer for
+  semantic + SQL retrieval. Does not exist yet.
+- `[ ]` **1.12** Update `get_playbook()` to use semantic retrieval — top 10
+  relevant entries + pinned strategy content.
+- `[ ]` **1.13** Weekly summarizer — Sunday cron, reads week's reflections +
+  regime observations, writes weekly digest.
+- `[ ]` **1.14** Monthly summarizer — 1st of month cron, reads weekly digests,
+  writes monthly summary.
+- `[ ]` **1.15** Tiered playbook read — all strategy + 7d raw + 4 weekly + 12
+  monthly + annual summaries. Full historical context in ~28K tokens vs 151K.
 
-- ✅ Sleeve Orchestrator (parallel + consolidation, 4 sleeves)
-- ✅ SleeveRiskGate (5 hard limits, now using real equity)
-- ✅ Evaluation dashboard (`/research/experiment`)
-- ✅ Prompt caching (`cache_control` on system prompt)
-- ✅ Multi-leg order infrastructure (not activated)
-- ✅ Edge estimate capture (`estimated_edge` on trade_outcomes)
-- ✅ Research dashboard (Win95 UI, 3 screens, 7 API endpoints)
-- ✅ CycleSnapshot writes restored in orchestrator
-- ✅ Risk gate total_capital fixed (was $500K, now portfolio equity)
-- ✅ Lead Agent scheduling (20-min interval → 3x daily cron)
-- ✅ Legacy scanner disabled (redundant, caused rate limit hangs)
-- ✅ Together AI key fix (was sending Anthropic key)
-- ✅ Cache hit/miss logging for cost visibility
+**Dependencies:** 1.9-1.10 are independent. 1.11 depends on 1.9-1.10. 1.12
+depends on 1.11. 1.13-1.15 are independent of 1.11 (LLM summarization, not
+embedding retrieval).
 
-### On hold for 6-month experiment
+### Phase 2 — RAG Chat Agent `[ ]`
 
-- No new sleeves (4 only)
-- No signal weight changes without backtester validation
-- No Kelly sizing activation
-- No Phase 3 architecture transfer
-- Allowed: bug fixes, data quality, monitoring, prompt tuning
+*Natural language interface for querying system data and writing strategy.
+DeepSeek V4-Flash on Together AI (~$0.50/month).*
 
-### Cost projections (updated 2026-04-24)
+- `[ ]` **2.1** `agents/chat_agent.py` — query router + SQL executor + context
+  assembler + Together AI call. Does not exist yet.
+- `[ ]` **2.2** `api/routes/chat.py` — POST `/api/chat` endpoint. Does not exist.
+- `[ ]` **2.3** Dashboard chat panel — Win95 text input + message history.
+  Currently 3 pages only (CommandCenter, History, Rules).
+- `[ ]` **2.4** Write-back capability — chat agent can write playbook entries +
+  pending_changes.
+- `[ ]` **2.5** Claude Code prompt generation — chat agent generates prompts for
+  code changes.
 
-With cron scheduling (3 cycles/day × 4 sleeves):
+**Dependencies:** Depends on Phase 1 context retrieval layer (1.11). Can start
+2.1-2.2 in parallel with 1.13-1.15.
+
+### Phase 3 — Research Analyst Upgrade `[ ]`
+
+*Better reflections, less boilerplate.*
+
+- `[ ]` **3.1** Tune Research Analyst prompt — require specific observations, not
+  generic summaries. Current prompt at `research_analyst.py:32-42` is generic.
+- `[ ]` **3.2** Add trade outcome awareness — reflection includes analysis of any
+  trades that closed today.
+- `[ ]` **3.3** Add week-over-week comparison — reflection compares today's
+  promotions/signals to last week.
+- `[ ]` **3.4** Add anomaly detection — flag when today's signal landscape differs
+  significantly from recent baseline.
+
+### Phase 4 — Execution Reliability `[ ]`
+
+*The system decides correctly but fails to execute. Fix the plumbing.*
+
+- `[ ]` **4.1** Investigate hard close execution failure pattern — CHTR (10
+  cycles), AMGN (4 cycles).
+- `[ ]` **4.2** Add order retry logic — if a limit order doesn't fill within 2
+  minutes, resubmit at market or more aggressive limit. Currently only 429
+  rate-limit retry exists (`alpaca_broker.py:758-780`).
+- `[ ]` **4.3** Add order status dashboard panel.
+- `[ ]` **4.4** Kill switch — emergency endpoint to close all positions. Does not
+  exist.
+
+### Phase 5 — Signal Learner Activation `[?]` BLOCKED
+
+*Requires ~50 funnel-driven outcomes. Currently at 14.*
+
+- `[x]` **5.1** Signal learner — `services/signal_learner.py`. Logistic regression,
+  L2 regularized, MIN_SAMPLES=50, CONFIDENCE_THRESHOLD=200, bounded drift
+  (0.3x-3x). Output: `config/learned_weights.json` (human-reviewed).
+- `[x]` **5.2** Config backtester — `scripts/run_backtest_config.py` (238 lines).
+  Replays historical observations under two configs, writes to pending_changes.
+- `[ ]` **5.3** Review and apply first weight update — `config/learned_weights.json`
+  does not exist yet (created on-demand when learner runs).
+- `[ ]` **5.4** Control Lead Agent (1.4.2.10) — frozen baseline for comparison.
+
+**Gating:** At ~2 funnel-driven trades/week, need ~18 more weeks to reach 50.
+Estimated late June 2026.
+
+### Phase 6 — Cost Optimization `[ ]`
+
+*Stay within budget as the system scales.*
+
+- `[?]` **6.1** Fix prompt caching (same as 0.5).
+- `[ ]` **6.2** Reduce sleeve count if Sector Rotation continues showing 0 candidates.
+- `[ ]` **6.3** Move Fundamentals + Research Analyst to DeepSeek V4-Flash.
+- `[ ]` **6.4** Tiered playbook read (same as 1.15).
+- `[ ]` **6.5** Evaluate Llama 4 Scout or DeepSeek V4-Flash for Tier 2b.
+
+**Monthly cost targets:**
+- Current: ~$220/month
+- After Phase 0+1: ~$160/month
+- After Phase 6: ~$120-140/month
+- Target: under $150/month
+
+### Phase 7 — Strategy Expansion (Q3 2026) `[ ]`
+
+*Only after CSP strategy is validated with 100+ funnel-driven outcomes.*
+
+- `[ ]` **7.1** Post-earnings momentum sleeve.
+- `[ ]` **7.2** Iron condors / strangles for range-bound names.
+- `[ ]` **7.3** Multi-leg order activation (infrastructure already built).
+- `[ ]` **7.4** Architecture transferability test — BTC perpetuals or prediction markets.
+
+**Gating:** Don't build until CSP strategy has 100+ funnel-driven outcomes and a
+validated edge.
+
+---
+
+## Cost projections (updated 2026-05-11)
+
+With cron scheduling (3 cycles/day x 4 sleeves):
 
 | Service | Monthly estimate |
 |---------|-----------------|
@@ -167,7 +287,7 @@ With cron scheduling (3 cycles/day × 4 sleeves):
 | Claude API (Fundamentals + Research) | ~$8 |
 | Together AI (Tier 2b) | ~$2.80 |
 | OpenAI (embeddings) | ~$2 |
-| Together AI (Chat Agent, DeepSeek V4-Flash) | ~$0.50 |
+| Together AI (Chat Agent, DeepSeek V4-Flash) | ~$0.50 (planned) |
 | DigitalOcean | ~$18 |
 | **Total** | **~$218** (or ~$131 with caching) |
 
@@ -177,11 +297,11 @@ April actual: $95.80 as of Apr 24. Apr 24 alone was $38.70 due to
 ### Operator tasks
 
 1. Rotate compromised credentials (Postgres password + Finnhub key)
-2. Fill EXPERIMENT_CHARTER.md specifics
+2. Fill EXPERIMENT_CHARTER.md specifics (exists as template, no values filled)
 
 ---
 
-## PHASE 1 — Data Foundation
+## PHASE 1 — Data Foundation (SHIPPED)
 
 **Goal:** Build the substrate that all future research and intelligence
 builds on. Capture every signal the system produces, expand the universe
@@ -274,20 +394,20 @@ Cost: ~$1.50/cycle via Claude Sonnet 4.6. Daily cap: $15.
 
 **Full pipeline closed end-to-end:**
 ```
-Tier 1 (6,350 → 4,285 daily)
-  → Tier 2a (4,285 → ~525, 11 rules, ~186s)
-    → Tier 2b (~525 → reasoning strings, Llama 3.3, ~8 min)
-      → Lead Agent (top 50 + reasoning, Claude Sonnet, ~$1.50/cycle)
-        → Trade decisions + position management
+Tier 1 (6,350 -> 4,285 daily)
+  -> Tier 2a (4,285 -> ~525, 11 rules, ~186s)
+    -> Tier 2b (~525 -> reasoning strings, Llama 3.3, ~8 min)
+      -> Lead Agent (top 50 + reasoning, Claude Sonnet, ~$1.50/cycle)
+        -> Trade decisions + position management
 ```
 
 ### Batch 1.4.1 — Specialized Agents `[x]` SHIPPED
 
 - `[x]` **1.4.1.1 Fundamentals Analyst** — On-demand via Lead Agent tool
   `get_fundamentals(symbol)`. EDGAR filing text + earnings + FRED macro +
-  news → Llama 3.3 summary. Cached 24h in agent_messages. ~$0.30/month.
+  news -> Llama 3.3 summary. Cached 24h in agent_messages. ~$0.30/month.
 - `[x]` **1.4.1.2/1.4.2.3 Research Analyst** — Daily 5:30 PM ET. Reads
-  cycle_snapshots + top 20 promotions + trade outcomes → narrative
+  cycle_snapshots + top 20 promotions + trade outcomes -> narrative
   reflection. ~$0.05/month.
 - `[x]` **1.4.1.3/1.4.2.4 Pre-market briefing** — Daily 7:30 AM ET. No
   LLM. Assembles Research Analyst reflection + playbook. $0/month.
@@ -298,11 +418,13 @@ Tier 1 (6,350 → 4,285 daily)
 ### Batch 1.4.2 — Learning Loop Activation `[x]` SHIPPED (core items)
 
 - `[x]` **1.4.2.1 Outcome labeler** — Nightly 5 PM ET. Joins trades to
-  observations, computes PnL (sell/buy guards), holding period, underlying
-  return. 23 pre-funnel outcomes labeled.
+  observations, computes PnL (sell/buy guards + round-trip matching),
+  holding period, underlying return. 44 outcomes labeled (14 funnel-driven).
+  Round-trip fix shipped 2026-05-04 — SQL JOIN for sell_to_open + buy_to_close.
 - `[x]` **1.4.2.2 Signal-weight learner** — numpy logistic regression.
   L2 regularized, bounded drift (0.3x-3x), CI diagnostics. Min 50
   funnel-driven outcomes. Output: config/learned_weights.json (human-reviewed).
+  EXISTS but WAITING — only 14 funnel-driven outcomes, needs 50.
 - `[x]` **1.4.2.3 Research Analyst** — See 1.4.1.2 above.
 - `[x]` **1.4.2.4 Pre-market briefing** — See 1.4.1.3 above.
 - `[ ]` **1.4.2.5 Citation tracking** — Deferred to post-experiment.
@@ -356,23 +478,23 @@ and logs. Ask questions in plain English instead of writing SQL or CLI commands.
   design language)
 
 **Example queries and retrieval strategies:**
-1. "What were the top 5 promotions last cycle?" → SQL on name_observations
-2. "Why did the Lead Agent pass on AAPL yesterday?" → semantic search on
+1. "What were the top 5 promotions last cycle?" -> SQL on name_observations
+2. "Why did the Lead Agent pass on AAPL yesterday?" -> semantic search on
    agent_messages filtered by symbol + date
-3. "What's my total PnL this week?" → SQL on trade_outcomes
-4. "What did the Research Analyst learn about earnings plays?" → semantic
+3. "What's my total PnL this week?" -> SQL on trade_outcomes
+4. "What did the Research Analyst learn about earnings plays?" -> semantic
    search on skill_documents
-5. "Show me all trades where estimated_edge > 0.15" → SQL on trade_outcomes
-6. "Which rules fired most often this month?" → SQL aggregate on
+5. "Show me all trades where estimated_edge > 0.15" -> SQL on trade_outcomes
+6. "Which rules fired most often this month?" -> SQL aggregate on
    name_observations analysis JSON
-7. "Compare Momentum sleeve vs Mean Reversion sleeve win rates" → SQL on
+7. "Compare Momentum sleeve vs Mean Reversion sleeve win rates" -> SQL on
    trade_outcomes joined to cycle_snapshots
 
 **Implementation (4 components, no new tables):**
 1. `agents/chat_agent.py` — Query classifier (SQL vs semantic vs hybrid),
    SQL generator with schema context, pgvector search, response formatter.
    Uses DeepSeek V4-Flash via Together AI client (same pattern as Tier 2b).
-2. `routes/chat.py` — Flask route `/api/chat` (POST). Session history in
+2. `routes/chat.py` — POST `/api/chat` endpoint. Session history in
    memory (not persisted). Rate limit: 30 req/min.
 3. Dashboard component — Chat panel in research dashboard. Collapsible sidebar
    or dedicated `/research/chat` page. Markdown rendering for responses.
@@ -383,6 +505,7 @@ and logs. Ask questions in plain English instead of writing SQL or CLI commands.
 
 **Dependencies:** PostgreSQL with pgvector (exists), Together AI client
 (exists), research dashboard (exists), agent_messages table (exists).
+Depends on context retrieval layer (Phase 1, item 1.11).
 
 **Model choice rationale — three-model architecture:**
 - **Claude Sonnet 4.6** — Lead Agent trade decisions. Needs maximum reasoning
@@ -394,7 +517,7 @@ and logs. Ask questions in plain English instead of writing SQL or CLI commands.
   instruction-following. Perfect for SQL generation and Q&A where latency
   and cost matter more than frontier reasoning. ~$0.50/month.
 
-### Phase 1.5 — Multi-Sleeve Experiment `[~]` IN PROGRESS
+### Phase 1.5 — Multi-Sleeve Experiment `[x]` SHIPPED
 
 - `[x]` **Week 1:** Robust statistics migration, sleeve_id migration,
   4 sleeve configs, SleeveConfig loader, EXPERIMENT_CHARTER.md template
@@ -406,32 +529,61 @@ and logs. Ask questions in plain English instead of writing SQL or CLI commands.
   prompt caching, multi-leg infrastructure, edge estimate capture,
   Win95 research dashboard (3 screens, 7 API endpoints),
   CycleSnapshot fix, risk gate fix, scheduling fix, scanner disabled
-- `[~]` **Launch:** ~$97K paper, 6 months, charter filled before Day 1.
-  All critical bugs fixed 2026-04-24. First clean cycle: Mon 2026-04-28.
+- `[x]` **Launch:** ~$97K paper, running since 2026-04-28. All critical
+  bugs fixed. 44 outcomes labeled, 14 funnel-driven.
 
 ### Batch 1.8 — Cross-Database Context Retrieval `[ ]`
 
 Build when Research Analyst needs cross-table queries. Deferred.
+Superseded by Phase 1 tiered memory roadmap (items 1.9-1.15).
 
 ---
 
-## PHASE 2 — Real Dashboard (deferred)
+## PHASE 2 — Real Dashboard `[x]` SHIPPED (v1)
+
+Win95 aesthetic dashboard with 3 screens:
+- **Command Center** — portfolio overview, positions, sentinel alerts
+- **History** — trade history with status filters, per-filter summary stats
+- **Rules & Logic** — daily schedule, system configuration
+
+---
 
 ## PHASE 3 — Architecture Transferability (deferred)
 
 ## PHASE 4 — Model Diversification (partially realized)
 
 - **4a — Ensemble**: second opinion on critical cycles.
-- **4b — Three-model architecture:** ✅ PARTIALLY REALIZED
+- **4b — Three-model architecture:** PARTIALLY REALIZED
   - Claude Sonnet 4.6: Lead Agent trade decisions (~$187/month, ~$100 with caching)
   - Llama 3.3 70B (Together AI): Tier 2b + Fundamentals + Research Analyst (~$3/month)
   - DeepSeek V4-Flash (Together AI): RAG Chat Agent (~$0.50/month) — planned
 
 ---
 
+## Shipped (post-Apr-24 through May 11)
+
+- Position sentinel — 5-min price checks, 3 alert levels, Discord notifications (2026-05-02)
+- Trade status filters in History page with toggle buttons + per-filter summary stats
+- Daily Schedule panel in Rules page with collapsible cycle groups
+- History page empty panel fix + filtering on all tables
+- Market hours guard on startup cycle
+- LLM persistent usage log table (survives container restarts)
+- Outcome labeler round-trip fix — SQL JOIN for sell_to_open + buy_to_close matching (2026-05-04)
+- Playbook regime observation dedup — only writes on material change (2026-05-04)
+- Background scanner removed from API container (2026-05-05)
+
+### On hold for 6-month experiment
+
+- No new sleeves (4 only)
+- No signal weight changes without backtester validation
+- No Kelly sizing activation
+- No Phase 3 architecture transfer
+- Allowed: bug fixes, data quality, monitoring, prompt tuning
+
+---
+
 ## PARKING LOT
 
-- ~~Prompt caching across agents (1.4.1.4)~~ ✅ SHIPPED 2026-04-24
 - pgvector semantic search via CLI
 - Consolidate HistoricalBar reads into single helper
 - Credential rotation (Postgres password + Finnhub key)
@@ -446,7 +598,11 @@ Build when Research Analyst needs cross-table queries. Deferred.
   running for data but investigate scanner_filter criteria
 - Legacy agents/scanner.py: disabled, not deleted. May reference later.
 - Internal cost tracker underreports vs Anthropic console (counter resets
-  on container restart). Anthropic console is ground truth.
+  on container restart). Anthropic console is ground truth. Persistent
+  llm_usage_log table added but verify dashboard reads from it.
+- Discord webhook for notifications (notifier built, no webhook configured)
+- Daily health check email/alert
+- Annual summarizer (when system has 12+ months of data)
 
 ### Bugs
 - Two regime classifiers produce parallel outputs
@@ -456,58 +612,133 @@ Build when Research Analyst needs cross-table queries. Deferred.
 
 ## OBSERVATIONS
 
-- **O1**: UPDATED — Flywheel's first turn happening: Tier 2b reasoning
-  written, Lead Agent reading it, playbook entries updated from funnel.
+- **O1**: UPDATED — Flywheel running: Tier 2b reasoning written, Lead Agent
+  reading it, playbook entries updated from funnel, outcome labeler closing
+  the loop. 44 labeled outcomes, 14 funnel-driven.
 - **O2**: RESOLVED 2026-04-22 — Lead Agent rewired (1.4.0c).
-- **O3**: Real learning requires outcome labeler + Research Analyst +
-  pre-market briefing. These are the next builds.
+- **O3**: RESOLVED — Outcome labeler + Research Analyst + pre-market briefing
+  all shipped and running.
 - **O4-O7**: RESOLVED (source-scoping, data feeds, volume bug, earnings).
 - **O8**: RESOLVED — min_news_days lowered to 5, now firing on 14 names.
 - **O9**: RESOLVED — All 11 rules contributing to composite landscape.
 - **O10**: Alpaca OptionsSnapshot lacks daily_bar/volume. Fixed via yfinance.
-- **O11**: Lead Agent cost cap raised $5 → $10 → $15 for richer Tier 2 context.
+- **O11**: Lead Agent cost cap raised $5 -> $10 -> $15 for richer Tier 2 context.
 - **O12**: SQLAlchemy json column needs flag_modified() for mutations.
 - **O13**: First autonomous funnel cycle (2026-04-20): Lead Agent correctly
   held NXE on merit, declined earnings-contaminated scanner names.
-- **O14**: RESOLVED — Lead Agent scheduling changed from 20-min interval
-  (~19 cycles/day, $25+/day) to 3x daily cron at 10:20/12:20/14:20 ET.
-- **O15**: Sector Rotation sleeve has had 0 candidates in every cycle
-  since launch. Not disabled — keeping for data collection.
-- **O16**: CRITICAL (RESOLVED) — Sleeve orchestrator was not writing
-  CycleSnapshot records since launch. Entire learning flywheel (outcome
-  labeler, Research Analyst, signal attribution) was blind to all trade
-  decisions. Fixed 2026-04-24.
-- **O17**: CRITICAL (RESOLVED) — SleeveRiskGate total_capital hardcoded at
-  $500K while actual portfolio equity is ~$97K. Drawdown calculated as
-  80.6%, silently blocking every single trade proposal. System spent ~$95
-  on LLM calls in April with zero funnel-driven trades executing. Fixed
-  2026-04-24.
-- **O18**: Two parallel scanning systems were running — legacy
-  agents/scanner.py (individual Alpaca bar fetches, rate limit prone)
-  alongside the Tier 2a funnel (database reads, fast). Legacy scanner
-  disabled 2026-04-24.
-- **O19**: Anthropic billing shows $38.70 for Apr 24 vs internal tracker
-  showing ~$16. Counter resets on container restart cause underreporting.
-  Anthropic console is the ground truth for cost tracking.
+- **O14**: RESOLVED — Lead Agent scheduling: 20-min interval -> 3x daily cron.
+- **O15**: Sector Rotation sleeve: 0 candidates every cycle since launch.
+- **O16**: RESOLVED — CycleSnapshot writes restored 2026-04-24.
+- **O17**: RESOLVED — SleeveRiskGate total_capital fixed 2026-04-24.
+- **O18**: RESOLVED — Legacy scanner disabled 2026-04-24, removed from API 2026-05-05.
+- **O19**: Anthropic billing vs internal tracker discrepancy — persistent
+  llm_usage_log table shipped to fix counter reset issue.
+- **O20**: Playbook bloat — 148K tokens of regime observations drowning 2.9K
+  tokens of strategy. get_playbook() returns flat 20 most recent entries
+  regardless of category. Needs smart retrieval (Phase 0, item 0.2).
+- **O21**: Research Analyst reflections are formulaic and repetitive. Same
+  structure every day regardless of what happened. Needs prompt tuning
+  (Phase 3).
+- **O22**: 21 ghost trades from March (pre-funnel, status=submitted, no
+  order_id) polluting trades table and dashboard. Need cancellation (Phase 0, item 0.3).
+- **O23**: Prompt caching showing minimal savings ($0.01-0.09 per call) despite
+  correct cache_control format. Expected $0.50+ savings. Needs investigation
+  (Phase 0, item 0.5).
+- **O24**: Lead Agent learning from losses: CHTR loss -> proactive UNP close.
+  DDOG post-earnings IV distinction noted as strategy_rule. First evidence
+  of genuine learning loop.
+- **O25**: Hard close execution failures — CHTR took 10 cycles to close,
+  AMGN taking 4+ cycles. Limit orders not filling. Needs order retry logic
+  (Phase 4).
 
 ---
 
 ## STRATEGIC OPEN QUESTIONS
 
 1. **Q1**: Marginal contribution of LLM narrative vs statistical baseline?
-   Falsifiable via control Lead Agent (1.4.2.10).
+   Falsifiable via control Lead Agent (Phase 5, item 5.4).
 2. **Q2**: Does the validation pipeline catch overfitting?
 3. **Q3**: At what trade count do signal weights stabilize? (200 is a guess)
-4. **Q4**: Does $150/month hold with all agents? Current: ~$218/month
-   (or ~$131 with effective prompt caching). Apr actual: $95.80 through
-   Apr 24, but includes $38.70 from pre-cron-fix 20-min interval day.
+4. **Q4**: Does $150/month hold with all agents? Current: ~$220/month.
+   Needs Phase 0 + Phase 6 optimizations.
 5. **Q5**: Does the full 11-rule composite produce meaningfully different
    rankings than the old IV-rank-delta-dominated scores?
 6. **Q6**: Lead Agent requesting n=10 despite default=50 — monitor.
 
 ---
 
+## Decision Log
+
+| Date | Decision | Rationale |
+|---|---|---|
+| Apr 22 | 11 rules, absolute thresholds (v1) | Ship and validate before z-score v2 |
+| Apr 22 | Llama 3.3 for Tier 2b, Claude for Lead Agent | Cost tier matching: cheap model for bulk, expensive for decisions |
+| Apr 24 | 3x daily cron instead of 20-min interval | Eliminate redundant cycles reading same Tier 2 data |
+| Apr 24 | Dynamic risk gate capital from portfolio equity | Hardcoded $500K was blocking all trades |
+| May 2 | Keep all 4 sleeves despite Sector Rotation 0 candidates | Accumulate data before disabling |
+| May 4 | Keep CSP-only strategy, don't add directional trades yet | Validate premium selling with 100+ outcomes before expanding |
+| May 11 | Tiered memory over raw playbook dump | 148K tokens of regime noise vs 2.9K of strategy |
+| May 11 | DeepSeek V4-Flash for chat agent, not Claude | Data Q&A doesn't need frontier reasoning |
+| May 11 | Preserve all regime observations in DB, compress for retrieval | Historical patterns have long-term value |
+
+---
+
+## Success Metrics
+
+**Existence stage (now through June 2026):**
+- [ ] 50 funnel-driven outcomes labeled (currently 14)
+- [ ] Signal learner produces first weight proposal
+- [ ] Win rate on funnel-driven trades > 60% (currently 71%)
+- [ ] Profit factor > 2.0 (gross wins / gross losses)
+- [ ] Monthly API cost under $150 (currently ~$220)
+- [x] Lead Agent demonstrates learning (cites playbook lessons in trade decisions)
+
+**Growth stage (July-September 2026):**
+- [ ] 100+ funnel-driven outcomes
+- [ ] Control Lead Agent comparison completed
+- [ ] First weight update applied and validated
+- [ ] Weekly and monthly summaries producing actionable insights
+- [ ] Chat agent operational for system inspection
+
+**Maturity stage (Q4 2026+):**
+- [ ] Strategy expansion (directional trades) validated
+- [ ] Architecture transfer to second market tested
+- [ ] Annual cost under $1,800 ($150/month)
+- [ ] System operates autonomously with weekly human review only
+
+---
+
 ## CHANGELOG
+
+### 2026-05-11 — Roadmap reconciliation + backlog rewrite
+
+- Reconciled roadmap with codebase: verified built/not-built status of all items
+- Added phased roadmap (Phases 0-7) with accurate implementation status
+- Updated performance data: 44 outcomes, 14 funnel-driven, +$3,752.70 PnL
+- Added system state section, decision log, success metrics
+- Recorded 8 post-Apr-27 shipped items in changelog
+
+### 2026-05-05 — Background scanner removed from API
+
+- `_periodic_scanner` removed from api/main.py lifespan
+- API container now only serves HTTP — no background Alpaca calls
+
+### 2026-05-04 — Outcome labeler round-trip fix + playbook dedup
+
+- Outcome labeler: SQL JOIN for sell_to_open + buy_to_close matching
+  (was missing all actively-managed positions with status=filled)
+- Playbook dedup: regime_observation only written on material change
+  (regime shift, VIX threshold cross, SPY trend reversal)
+
+### 2026-05-02 — Position sentinel + dashboard improvements
+
+- Position sentinel: 5-min price checks, 3 alert levels (WARNING/DANGER/CRITICAL),
+  Discord notifications for DANGER+
+- Trade status filters in History page with toggle buttons
+- Daily Schedule panel in Rules page with collapsible cycle groups
+- History page filtering on all tables
+- Market hours guard on startup cycle
+- LLM persistent usage log table
 
 ### 2026-04-27 — RAG Chat Agent roadmap + three-model architecture
 
@@ -520,15 +751,15 @@ Build when Research Analyst needs cross-table queries. Deferred.
 - CycleSnapshot writes restored in sleeve_orchestrator.py — learning
   flywheel was completely disconnected since sleeve architecture launched
 - Risk gate total_capital fixed: was hardcoded at $500K, actual equity
-  ~$97K, drawdown computed at 80.6% → every trade blocked silently
-- Lead Agent scheduling: 20-min interval → 3x daily cron (10:20/12:20/
+  ~$97K, drawdown computed at 80.6% -> every trade blocked silently
+- Lead Agent scheduling: 20-min interval -> 3x daily cron (10:20/12:20/
   14:20 ET), saving ~$20/day in redundant LLM calls
 - Legacy scanner disabled: agents/scanner.py hanging container 10+ min
   on startup via Alpaca 429s, output unused by sleeve orchestrator
-- Together AI key fix: conflict resolver was sending Anthropic key → 401
+- Together AI key fix: conflict resolver was sending Anthropic key -> 401
 - Markdown fence stripping on stored summaries
 - Prompt cache hit/miss logging for cost visibility
-- Daily LLM cost cap $10 → $15
+- Daily LLM cost cap $10 -> $15
 - Research dashboard: 3 Win95 screens, 7 API endpoints, mobile responsive
 
 **Key discoveries:**
@@ -541,12 +772,12 @@ Build when Research Analyst needs cross-table queries. Deferred.
 
 ### 2026-04-22 — 11/11 rules + Tier 2b + Lead Agent rewiring + yfinance fix
 
-- News density min_news_days 14 → 5
+- News density min_news_days 14 -> 5
 - Tier 2b shipped (Llama 3.3, $2.80/month, 633/633 reasoned)
 - flag_modified() fix for json column persistence
 - Lead Agent rewired to Tier 2 promotions (1.4.0c)
-- Daily cost cap $5 → $10
-- Rules 5/6 wired (Alpaca → discovered volume=0 → switched to yfinance)
+- Daily cost cap $5 -> $10
+- Rules 5/6 wired (Alpaca -> discovered volume=0 -> switched to yfinance)
 - Rule 9 wired (yfinance short interest)
 - Rule 11 wired (StockTwits social velocity)
 - Combined yfinance fetch for rules 5/6/9
