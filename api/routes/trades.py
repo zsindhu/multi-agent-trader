@@ -25,6 +25,7 @@ async def get_trade_history(
     request: Request,
     agent: Optional[str] = Query(None, description="Filter by agent name"),
     symbol: Optional[str] = Query(None, description="Filter by symbol"),
+    include_cancelled: bool = Query(False, description="Include cancelled/ghost trades"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ):
@@ -36,6 +37,9 @@ async def get_trade_history(
     trades = await state.perf_logger.get_trade_history(
         agent_name=agent, symbol=symbol, limit=limit, offset=offset,
     )
+
+    if not include_cancelled:
+        trades = [t for t in trades if t.status != "cancelled"]
 
     return {
         "trades": [
