@@ -100,12 +100,12 @@ class EmbeddingsService:
             async with AsyncSessionLocal() as session:
                 base_query = """
                     SELECT id, source_table, source_id, text_excerpt,
-                           1 - (embedding <=> :query_vec::vector) AS similarity
+                           1 - (embedding <=> CAST(:query_vec AS vector)) AS similarity
                     FROM reasoning_embeddings
                 """
                 if source_table:
                     base_query += " WHERE source_table = :src_table"
-                base_query += " ORDER BY embedding <=> :query_vec::vector LIMIT :lim"
+                base_query += " ORDER BY embedding <=> CAST(:query_vec AS vector) LIMIT :lim"
 
                 params = {"query_vec": str(query_vector), "lim": limit}
                 if source_table:
