@@ -300,6 +300,50 @@ async def main(mode: str = "paper"):
         id="research_reflection",
     )
 
+    # Weekly summarizer: Sunday 6 PM ET (after research reflection)
+    from agents.weekly_summarizer import WeeklySummarizer
+    weekly_summarizer = WeeklySummarizer()
+
+    async def _run_weekly_summary():
+        try:
+            logger.info("[Main] -- Weekly summarizer starting --")
+            result = await weekly_summarizer.run()
+            logger.info(f"[Main] -- Weekly summary done -- {result}")
+        except Exception as e:
+            logger.error(f"[Main] Weekly summarizer failed: {e}")
+
+    scheduler.add_job(
+        _run_weekly_summary,
+        "cron",
+        day_of_week="sun",
+        hour="18",
+        minute="0",
+        timezone="US/Eastern",
+        id="weekly_summary",
+    )
+
+    # Monthly summarizer: 1st of month at 6:30 PM ET
+    from agents.monthly_summarizer import MonthlySummarizer
+    monthly_summarizer = MonthlySummarizer()
+
+    async def _run_monthly_summary():
+        try:
+            logger.info("[Main] -- Monthly summarizer starting --")
+            result = await monthly_summarizer.run()
+            logger.info(f"[Main] -- Monthly summary done -- {result}")
+        except Exception as e:
+            logger.error(f"[Main] Monthly summarizer failed: {e}")
+
+    scheduler.add_job(
+        _run_monthly_summary,
+        "cron",
+        day="1",
+        hour="18",
+        minute="30",
+        timezone="US/Eastern",
+        id="monthly_summary",
+    )
+
     # Pre-market briefing: runs at 7:30 AM ET (before Breadth Analyst at 8 AM)
     async def _run_briefing():
         try:
