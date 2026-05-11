@@ -884,6 +884,20 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
                 logger.info(
                     f"[Lead] Playbook entry added: [{entry.category}] {entry.content[:80]}"
                 )
+
+                # Embed for semantic retrieval
+                try:
+                    from services.embeddings import EmbeddingsService
+                    emb = EmbeddingsService()
+                    if emb.is_enabled:
+                        await emb.embed_and_store(
+                            text=f"[{entry.category}] {entry.content}",
+                            source_table="playbook_entries",
+                            source_id=entry.id,
+                        )
+                except Exception as e:
+                    logger.debug(f"[Lead] Playbook embedding failed: {e}")
+
                 return {"status": "added", "id": entry.id}
 
         if tool_name == "get_strategy_insights":

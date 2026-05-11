@@ -103,7 +103,13 @@ class OutcomeLabeler:
                     for outcome in outcomes:
                         session.add(outcome)
                     await session.commit()
+                    # Refresh to get IDs for embedding
+                    for outcome in outcomes:
+                        await session.refresh(outcome)
                 logger.info(f"[Labeler] Wrote {len(outcomes)} outcomes")
+
+                # Embed outcomes for semantic retrieval
+                await self._embed_outcomes(outcomes, unlabeled)
             except Exception as e:
                 logger.error(f"[Labeler] Failed to write outcomes: {e}")
                 errors += 1
@@ -382,6 +388,32 @@ class OutcomeLabeler:
             logger.debug(f"[Labeler] Observation lookup failed for {symbol}: {e}")
 
         return None, None
+
+    async def _embed_outcomes(self, outcomes: list, trades: list):
+        """Embed trade outcomes for semantic retrieval."""
+        try:
+            from services.embeddings import EmbeddingsService
+            emb = EmbeddingsService()
+            if not emb.is_enabled:
+                return
+            # Build trade lookup for symbol context
+            trade_by_id = {t.id: t for t in trades}
+            for outcome in outcomes:
+                trade = trade_by_id.get(outcome.trade_id)
+                symbol = trade.symbol if trade else "unknown"
+                text = (
+                    f"Trade outcome: {symbol} {outcome.outcome} "
+                    f"PnL=${outcome.pnl_dollars or 0:.2f} ({outcome.pnl_percent or 0:.1f}%) "
+                    f"held {outcome.holding_days or '?'} days "
+                    f"funnel_driven={outcome.funnel_driven}"
+                )
+                await emb.embed_and_store(
+                    text=text,
+                    source_table="trade_outcomes",
+                    source_id=outcome.id,
+                )
+        except Exception as e:
+            logger.debug(f"[Labeler] Outcome embedding failed: {e}")
 
     def _print_outcome(self, trade: Trade, outcome: TradeOutcome):
         """Print a dry-run outcome for inspection."""
