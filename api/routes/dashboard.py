@@ -267,14 +267,17 @@ async def dashboard_playbook(limit: int = Query(30, ge=1, le=100)):
 
 
 @router.get("/cycles")
-async def dashboard_cycles(limit: int = Query(10, ge=1, le=50)):
+async def dashboard_cycles(
+    limit: int = Query(10, ge=1, le=100),
+    days: int = Query(None, ge=1, le=365),
+):
     """Recent Lead Agent cycles with summaries."""
     async with AsyncSessionLocal() as session:
-        r = await session.execute(
-            select(CycleSnapshot)
-            .order_by(desc(CycleSnapshot.timestamp))
-            .limit(limit)
-        )
+        query = select(CycleSnapshot).order_by(desc(CycleSnapshot.timestamp))
+        if days:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+            query = query.where(CycleSnapshot.timestamp >= cutoff)
+        r = await session.execute(query.limit(limit))
         cycles = list(r.scalars().all())
 
     return {
@@ -362,7 +365,7 @@ async def dashboard_daily_stats(days: int = Query(30, ge=1, le=365)):
         }
 
     # Generate complete date range
-    current = cutoff.date()
+    current = cutoff_tz.date()
     end = datetime.now(timezone.utc).date()
     while current <= end:
         day_str = str(current)
@@ -394,7 +397,6 @@ async def dashboard_trades(days: int = Query(30, ge=1, le=365)):
             .outerjoin(TradeOutcome, TradeOutcome.trade_id == Trade.id)
             .where(Trade.created_at >= cutoff_naive)
             .order_by(Trade.created_at.desc())
-            .limit(200)
         )
         results = r.all()
 
@@ -408,22 +410,31 @@ async def dashboard_trades(days: int = Query(30, ge=1, le=365)):
 
     trades = []
     for trade, outcome in results:
-        # Compute display_pnl: outcome_pnl → trade.pnl → None
+        # Compute display_pnl priority: outcome_pnl → trade.pnl → None
         display_pnl = None
         if outcome and outcome.pnl_dollars is not None:
             display_pnl = outcome.pnl_dollars
         elif trade.pnl is not None:
             display_pnl = float(trade.pnl)
+        elif trade.trade_type == "sell_to_open":
+            # Check if matching buy_to_close has PnL
+            key = (trade.symbol, str(trade.strike), str(trade.expiration))
+            for btc in btc_by_key.get(key, []):
+                if btc.created_at and trade.created_at and btc.created_at >= trade.created_at and btc.pnl is not None:
+                    display_pnl = float(btc.pnl)
+                    break
 
         # Compute display_outcome based on trade type and state
         if trade.trade_type == "buy_to_close":
             display_outcome = "Close"
         elif outcome and outcome.outcome:
             display_outcome = outcome.outcome.capitalize()  # Win, Loss, Breakeven
-        elif trade.status == "expired":
-            display_outcome = "Expired"
+        elif trade.status in ("expired", "assigned"):
+            display_outcome = trade.status.capitalize()
+        elif trade.status == "closed":
+            display_outcome = "Closed"
         elif trade.trade_type == "sell_to_open":
-            # Check if there's a matching buy_to_close
+            # Check if there's a matching buy_to_close or broker-side close
             key = (trade.symbol, str(trade.strike), str(trade.expiration))
             has_close = any(
                 btc.created_at >= trade.created_at
@@ -461,7 +472,7 @@ async def dashboard_trades(days: int = Query(30, ge=1, le=365)):
             "estimated_edge": outcome.estimated_edge if outcome else None,
         })
 
-    # Summary stats (only count trades with labeled outcomes)
+    # Summary stats from full dataset (not capped)
     completed = [t for t in trades if t["outcome"] in ("win", "loss", "breakeven")]
     wins = sum(1 for t in completed if t["outcome"] == "win")
     losses = sum(1 for t in completed if t["outcome"] == "loss")
