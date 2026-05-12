@@ -224,8 +224,8 @@ class ChatAgent:
         else:
             final_response = plan_text
 
-        # Clean action blocks from final response for display
-        clean_response = re.sub(r'```action\n.*?\n```', '', final_response, flags=re.DOTALL).strip()
+        # Clean action/code blocks from final response for display
+        clean_response = re.sub(r'```(?:action|json|sql)?\s*\n.*?\n```', '', final_response, flags=re.DOTALL).strip()
 
         return {
             "response": clean_response or final_response,
@@ -234,16 +234,48 @@ class ChatAgent:
         }
 
     def _extract_actions(self, text: str) -> list[dict]:
-        """Extract ```action {...}``` blocks from LLM output."""
+        """
+        Extract action blocks from LLM output. Handles multiple formats:
+        - ```action\n{...}\n```
+        - ```json\n{...}\n```
+        - ```\n{...}\n```
+        - Bare JSON objects with "type" key in text
+        """
         actions = []
-        pattern = r'```action\s*\n(.*?)\n```'
-        for match in re.finditer(pattern, text, re.DOTALL):
-            try:
-                action = json.loads(match.group(1).strip())
-                actions.append(action)
-            except json.JSONDecodeError:
-                continue
+        seen = set()
+
+        # Pattern 1: fenced code blocks (```action, ```json, or plain ```)
+        for match in re.finditer(r'```(?:action|json|sql)?\s*\n(.*?)\n```', text, re.DOTALL):
+            self._try_parse_action(match.group(1).strip(), actions, seen)
+
+        # Pattern 2: bare JSON objects with "type" key anywhere in text
+        if not actions:
+            for match in re.finditer(r'\{[^{}]*"type"\s*:\s*"(?:sql|semantic|write_playbook|deactivate_playbook)"[^{}]*\}', text):
+                self._try_parse_action(match.group(0), actions, seen)
+
+        # Pattern 3: look for SELECT statements directly (LLM wrote SQL without JSON wrapper)
+        if not actions:
+            for match in re.finditer(r'(SELECT\s+.+?(?:LIMIT\s+\d+|;|\Z))', text, re.DOTALL | re.IGNORECASE):
+                sql = match.group(1).strip().rstrip(';')
+                key = sql[:100]
+                if key not in seen:
+                    seen.add(key)
+                    actions.append({"type": "sql", "query": sql})
+
         return actions
+
+    @staticmethod
+    def _try_parse_action(text: str, actions: list, seen: set):
+        """Try to parse a JSON action, dedup by content."""
+        try:
+            obj = json.loads(text)
+            if isinstance(obj, dict) and "type" in obj:
+                key = json.dumps(obj, sort_keys=True)
+                if key not in seen:
+                    seen.add(key)
+                    actions.append(obj)
+        except json.JSONDecodeError:
+            pass
 
     async def _execute_action(self, action: dict) -> dict:
         """Execute a classified action and return results."""
