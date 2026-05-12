@@ -108,12 +108,14 @@ When you need to query data, output a JSON action block:
 
 After receiving query results, provide a clear, specific answer. Include numbers, dates, and symbol names. If the data doesn't support an answer, say so.
 
-## Rules
+## SQL Rules
 - ONLY generate SELECT queries — never INSERT, UPDATE, DELETE, DROP, or ALTER
 - Limit results to 100 rows max
 - When querying JSONB fields, use PostgreSQL JSONB operators: analysis->>'tier2b_reasoning', analysis->'signals'->signal_name->>'fired'
 - For time filters use: timestamp >= NOW() - INTERVAL '7 days'
 - Always qualify ambiguous column names with table aliases
+- NEVER use "to", "no", "do", "in", "is", "as", "by", "on" as table aliases — they are PostgreSQL reserved keywords
+- Use these standard aliases: trades → t, trade_outcomes → tro, name_observations → nobs, cycle_snapshots → cs, playbook_entries → pb, agent_messages → am, journal_entries → je, llm_usage_log → ul, historical_bars → hb, earnings_events → ee, equity_snapshots → es, pending_changes → pc
 - Be concise but specific in your analysis"""
 
 
@@ -282,7 +284,20 @@ class ChatAgent:
         action_type = action.get("type", "")
 
         if action_type == "sql":
-            return await self._execute_sql(action.get("query", ""))
+            query = action.get("query", "")
+            result = await self._execute_sql(query)
+            # Retry up to 2 times if SQL fails
+            if "error" in result:
+                for attempt in range(2):
+                    corrected_query = await self._get_corrected_sql(query, result["error"])
+                    if not corrected_query or corrected_query == query:
+                        break
+                    logger.info(f"[Chat] SQL retry {attempt + 1}: {corrected_query[:120]}")
+                    query = corrected_query
+                    result = await self._execute_sql(query)
+                    if "error" not in result:
+                        break
+            return result
 
         elif action_type == "semantic":
             query = action.get("query", "")
@@ -333,6 +348,33 @@ class ChatAgent:
                 }
         except Exception as e:
             return {"error": f"SQL execution failed: {e}", "query": query}
+
+    async def _get_corrected_sql(self, failed_query: str, error: str) -> Optional[str]:
+        """Ask the LLM to fix a failed SQL query. Returns corrected SQL or None."""
+        try:
+            response = await self._client.chat.completions.create(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": "You are a PostgreSQL expert. Fix the SQL query based on the error. Respond with ONLY the corrected SELECT query, nothing else."},
+                    {"role": "user", "content": f"This SQL query failed:\n{failed_query}\n\nError: {error}\n\nGenerate a corrected SELECT query."},
+                ],
+                max_tokens=500,
+                temperature=0.1,
+            )
+            text = response.choices[0].message.content.strip()
+            # Extract SQL from response
+            actions = self._extract_actions(text)
+            if actions and actions[0].get("type") == "sql":
+                return actions[0]["query"]
+            # Maybe it returned raw SQL without wrapper
+            for line in text.split('\n'):
+                line = line.strip().rstrip(';')
+                if line.upper().startswith("SELECT"):
+                    return line
+            return None
+        except Exception as e:
+            logger.debug(f"[Chat] SQL correction failed: {e}")
+            return None
 
     async def _write_playbook(self, category: str, content: str, confidence: float = 0.5) -> dict:
         """Write a new playbook entry via the chat agent."""
