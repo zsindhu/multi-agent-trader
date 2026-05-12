@@ -7,6 +7,37 @@ function formatTimestamp() {
   return new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
 }
 
+/** Lightweight markdown → HTML for agent responses. Handles bold, code blocks, inline code, headers, and lists. */
+function renderMarkdown(text) {
+  if (!text) return ''
+  let html = text
+    // Escape HTML
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    // Code blocks (``` ... ```)
+    .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre style="background:#e0e0e0;padding:4px 6px;border:1px solid #c0c0c0;overflow-x:auto;margin:4px 0;font-size:11px">$2</pre>')
+    // Inline code
+    .replace(/`([^`]+)`/g, '<code style="background:#e0e0e0;padding:1px 3px;font-size:11px">$1</code>')
+    // Bold
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    // Italic
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    // Headers (### → h4, ## → h3, # → h2)
+    .replace(/^### (.+)$/gm, '<strong style="font-size:12px">$1</strong>')
+    .replace(/^## (.+)$/gm, '<strong style="font-size:13px">$1</strong>')
+    .replace(/^# (.+)$/gm, '<strong style="font-size:14px">$1</strong>')
+    // Bullet lists
+    .replace(/^[-*] (.+)$/gm, '&nbsp;&nbsp;• $1')
+    // Numbered lists
+    .replace(/^(\d+)\. (.+)$/gm, '&nbsp;&nbsp;$1. $2')
+    // Line breaks
+    .replace(/\n/g, '<br/>')
+  return html
+}
+
+function MarkdownContent({ text }) {
+  return <span dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }} />
+}
+
 export default function ChatPage() {
   const [messages, setMessages] = useState([
     { role: 'assistant', content: 'Premium Trader Chat Agent ready. Ask me anything about trades, strategy, performance, or system data.', time: formatTimestamp() }
@@ -127,10 +158,13 @@ export default function ChatPage() {
               padding: '4px 8px',
               backgroundColor: msg.role === 'user' ? '#e8e8ff' : msg.isError ? '#ffe8e8' : '#f0f0f0',
               border: '1px solid #c0c0c0',
-              whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
             }}>
-              {msg.content}
+              {msg.role === 'user' ? (
+                <span style={{ whiteSpace: 'pre-wrap' }}>{msg.content}</span>
+              ) : (
+                <MarkdownContent text={msg.content} />
+              )}
             </div>
             {msg.actions && msg.actions.length > 0 && (
               <div style={{ fontSize: 10, color: '#808080', marginTop: 2 }}>

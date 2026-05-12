@@ -425,6 +425,7 @@ Scales from 0 at threshold (10) to 1.0 at 3\u00d7 threshold (30 messages).`,
 
 export default function RulesPage() {
   const [fireRates, setFireRates] = useState({})
+  const [fireRatesError, setFireRatesError] = useState(false)
 
   useEffect(() => {
     fetchDashboardSignals(14)
@@ -434,8 +435,9 @@ export default function RulesPage() {
           rates[s.signal] = s.rate
         }
         setFireRates(rates)
+        setFireRatesError(false)
       })
-      .catch(() => {})
+      .catch(() => setFireRatesError(true))
   }, [])
 
   return (
@@ -482,7 +484,7 @@ export default function RulesPage() {
         <W95Window title="The 11 Rules" icon="&#128209;">
           {RULES.map(rule => {
             const rate = fireRates[rule.signal]
-            const rateStr = rate != null ? `${rate.toFixed(1)}%` : '...'
+            const rateStr = rate != null ? `${rate.toFixed(1)}%` : fireRatesError ? 'No data' : '...'
             return (
               <Expandable
                 key={rule.num}

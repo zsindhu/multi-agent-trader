@@ -117,7 +117,9 @@ function PositionAlertBanner({ alerts }) {
 
 function PositionsPanel({ positions, alerts }) {
   if (!positions) return <div className="w95-muted">Loading...</div>
-  const items = Array.isArray(positions) ? positions : []
+  const allItems = Array.isArray(positions) ? positions : []
+  // Filter to only truly open positions (exclude closed/expired/assigned)
+  const items = allItems.filter(p => !p.status || p.status === 'open' || p.quantity !== 0)
   if (items.length === 0) return <div className="w95-muted">No active positions</div>
 
   return (
@@ -294,7 +296,17 @@ export default function CommandCenterPage() {
 
   useEffect(() => {
     loadAll()
-    const interval = setInterval(loadAll, 60000)
+    const interval = setInterval(() => {
+      // Only auto-refresh during US market hours (9:30-16:00 ET, weekdays)
+      const now = new Date()
+      const utcH = now.getUTCHours()
+      const utcM = now.getUTCMinutes()
+      const etMinutes = ((utcH - 4) * 60 + utcM + 1440) % 1440  // ET = UTC-4 (EDT)
+      const day = now.getUTCDay()
+      const isWeekday = day >= 1 && day <= 5
+      const isMarketHours = etMinutes >= 570 && etMinutes <= 960  // 9:30=570, 16:00=960
+      if (isWeekday && isMarketHours) loadAll()
+    }, 60000)
     return () => clearInterval(interval)
   }, [loadAll])
 
