@@ -138,24 +138,26 @@ function TradesPanel({ trades }) {
   ]
 
   const filtered = items.filter(t => {
+    const dOutcome = t.display_outcome || ''
     if (statusFilter === 'open') {
-      if (!(t.status === 'filled' && !t.outcome)) return false
+      if (dOutcome !== 'Open') return false
     } else if (statusFilter === 'closed') {
-      if (!(['closed', 'expired', 'assigned'].includes(t.status) || t.outcome)) return false
+      if (!['Closed', 'Close', 'Expired', 'Assigned', 'Win', 'Loss', 'Breakeven'].includes(dOutcome)) return false
     } else if (statusFilter === 'won') {
-      if (t.outcome !== 'win') return false
+      if (dOutcome !== 'Win' && !(t.display_pnl > 0)) return false
     } else if (statusFilter === 'lost') {
-      if (t.outcome !== 'loss') return false
+      if (dOutcome !== 'Loss' && !(t.display_pnl < 0)) return false
     }
     if (symbolSearch && !t.symbol?.toLowerCase().includes(symbolSearch.toLowerCase())) return false
     if (funnelOnly && !t.funnel_driven) return false
     return true
   })
 
-  // Per-filter summary stats (computed from filtered set)
-  const filteredWins = filtered.filter(t => t.outcome === 'win').length
-  const filteredLosses = filtered.filter(t => t.outcome === 'loss').length
-  const filteredPnl = filtered.reduce((sum, t) => sum + (t.display_pnl ?? 0), 0)
+  // Per-filter summary stats (recomputed from the currently filtered set)
+  const filteredWithPnl = filtered.filter(t => t.display_pnl != null)
+  const filteredWins = filtered.filter(t => t.display_outcome === 'Win' || (t.display_pnl > 0 && t.display_outcome !== 'Close')).length
+  const filteredLosses = filtered.filter(t => t.display_outcome === 'Loss' || (t.display_pnl < 0 && t.display_outcome !== 'Close')).length
+  const filteredPnl = filteredWithPnl.reduce((sum, t) => sum + t.display_pnl, 0)
   const filteredWinRate = filteredWins + filteredLosses > 0
     ? Math.round(filteredWins / (filteredWins + filteredLosses) * 100)
     : null
@@ -222,7 +224,7 @@ function TradesPanel({ trades }) {
                     <td>{fmtDate(t.closed_at)}</td>
                     <td>{t.premium != null ? `$${Number(t.premium).toFixed(0)}` : '--'}</td>
                     <td className={pnlCls}>{pnl != null ? fmtDollar(pnl) : '--'}</td>
-                    <td className={pnlCls}>{t.outcome_pnl_pct != null ? `${(t.outcome_pnl_pct * 100).toFixed(1)}%` : '--'}</td>
+                    <td className={pnlCls}>{t.outcome_pnl_pct != null ? `${t.outcome_pnl_pct.toFixed(1)}%` : '--'}</td>
                     <td>{t.holding_days ?? '--'}</td>
                     <td className={outcomeCls}>{t.display_outcome}</td>
                     <td>{t.funnel_driven ? '\u2713' : ''}</td>
@@ -304,13 +306,13 @@ function PlaybookPanel({ entries, days }) {
   // Filter by lookback days
   const cutoff = days ? new Date(Date.now() - days * 86400000) : null
   const items = allItems.filter(e => {
-    if (catFilter !== 'all' && e.category !== catFilter) return false
+    if (catFilter !== 'all' && (e.category || 'uncategorized') !== catFilter) return false
     if (search && !e.content?.toLowerCase().includes(search.toLowerCase())) return false
     if (cutoff && e.created_at && new Date(e.created_at) < cutoff) return false
     return true
   })
 
-  const categories = [...new Set(allItems.map(e => e.category).filter(Boolean))]
+  const categories = [...new Set(allItems.map(e => e.category || 'uncategorized').filter(Boolean))]
   const catOpts = [{ value: 'all', label: 'All' }, ...categories.map(c => ({ value: c, label: c.replace(/_/g, ' ') }))]
 
   const catColors = {
@@ -447,7 +449,7 @@ export default function HistoryPage() {
     }).catch(() => { setTrades([]); setSummary(null) })
     fetchDashboardDailyStats(days).then(d => setDaily(d?.daily || [])).catch(() => setDaily([]))
     fetchDashboardPlaybook(100).then(d => setPlaybook(d?.entries || [])).catch(() => setPlaybook([]))
-    fetchDashboardCycles(30).then(d => setCycles(d?.cycles || [])).catch(() => setCycles([]))
+    fetchDashboardCycles(100, days).then(d => setCycles(d?.cycles || [])).catch(() => setCycles([]))
   }, [days])
 
   useEffect(() => { loadAll() }, [loadAll])
@@ -472,7 +474,6 @@ export default function HistoryPage() {
 
         {/* Trade Summary */}
         <W95Window title="Trade Summary" icon="&#128176;">
-          <TradeSummaryBar summary={summary} />
           <TradesPanel trades={trades} />
         </W95Window>
 

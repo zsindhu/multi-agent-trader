@@ -31,7 +31,8 @@ export const fetchDashboardPromotions = (date) =>
 export const fetchDashboardSignals = (days = 14) => request(`/dashboard/signals?days=${days}`);
 export const fetchDashboardReflection = () => request('/dashboard/reflection');
 export const fetchDashboardPlaybook = (limit = 30) => request(`/dashboard/playbook?limit=${limit}`);
-export const fetchDashboardCycles = (limit = 10) => request(`/dashboard/cycles?limit=${limit}`);
+export const fetchDashboardCycles = (limit = 10, days = null) =>
+  request(`/dashboard/cycles?limit=${limit}${days ? `&days=${days}` : ''}`);
 export const fetchDashboardDailyStats = (days = 30) => request(`/dashboard/daily-stats?days=${days}`);
 export const fetchDashboardTrades = (days = 30) => request(`/dashboard/trades?days=${days}`);
 export const fetchPositionAlerts = () => request('/dashboard/position-alerts');
