@@ -1,6 +1,6 @@
 # Premium Trader — Backlog
 
-Last updated: 2026-05-11
+Last updated: 2026-05-12
 
 ---
 
@@ -145,47 +145,51 @@ file, add it under PARKING LOT and keep working on the current phase.
 
 ## ROADMAP — Current priorities
 
-### Phase 0 — Critical Fixes `[~]`
+### Phase 0 — Critical Fixes `[x]` SHIPPED
 
 *Unblocking issues that cost money or degrade system quality.*
 
 - `[x]` **0.1** Remove `_periodic_scanner` from `api/main.py` — was blocking
   event loop and flooding Alpaca API. SHIPPED 2026-05-05.
-- `[ ]` **0.2** Smart playbook retrieval — `get_playbook()` returns all strategy
-  entries + latest 10 regime only. Currently a flat query returning 20 most
-  recent regardless of category (`lead_agent.py:790`). Drops per-cycle tokens
-  from 151K to ~28K, saves ~$0.35/cycle.
-- `[ ]` **0.3** Clean 21 ghost trades (March, pre-funnel, status=submitted, no
-  order_id) — mark as `cancelled`. No cancellation mechanism exists yet.
+- `[x]` **0.2** Smart playbook retrieval — `get_playbook()` returns all strategy
+  entries + last 7 days regime (time-based, not count-based). Drops per-cycle
+  tokens from 151K to ~28K. SHIPPED 2026-05-12.
+- `[x]` **0.3** Clean 21 ghost trades — `scripts/clean_ghost_trades.py` marks
+  pre-funnel submitted trades as `cancelled`. Dashboard `/trades/history`
+  excludes cancelled by default. SHIPPED 2026-05-12.
 - `[x]` **0.4** Playbook dedup — regime observations only written on material
   change. `_regime_materially_changed()` in `lead_agent.py:300-347`. SHIPPED 2026-05-04.
-- `[?]` **0.5** Fix prompt caching effectiveness — cache_control format is correct
-  (`llm_service.py:130`), hit/miss logging exists, but savings are $0.01-0.09
-  instead of expected $0.50+. Needs investigation.
+- `[x]` **0.5** Prompt caching — tools block now cached with `cache_control:
+  {"type": "ephemeral"}` on last tool. System prompt + tools (~4,100 tokens)
+  cached on turns 2-10 within each cycle. Estimated ~$32/month savings.
+  SHIPPED 2026-05-12.
 
-**Expected outcome:** Per-cycle cost drops from ~$1.30 to ~$0.80. Playbook reads are fast and focused.
-
-### Phase 1 — Tiered Memory & Context Retrieval `[ ]`
+### Phase 1 — Tiered Memory & Context Retrieval `[x]` SHIPPED
 
 *The Lead Agent reads smarter, not more. Build once, three agents consume.*
 
-- `[ ]` **1.9** Embed playbook entries on write (pgvector, OpenAI text-embedding-3-small).
-  Currently only CycleSnapshots get embedded (`lead_agent.py:1213-1221`).
-- `[ ]` **1.10** Embed trade outcomes on label.
-- `[ ]` **1.11** `services/context_retrieval.py` — shared retrieval layer for
-  semantic + SQL retrieval. Does not exist yet.
-- `[ ]` **1.12** Update `get_playbook()` to use semantic retrieval — top 10
-  relevant entries + pinned strategy content.
-- `[ ]` **1.13** Weekly summarizer — Sunday cron, reads week's reflections +
-  regime observations, writes weekly digest.
-- `[ ]` **1.14** Monthly summarizer — 1st of month cron, reads weekly digests,
-  writes monthly summary.
-- `[ ]` **1.15** Tiered playbook read — all strategy + 7d raw + 4 weekly + 12
-  monthly + annual summaries. Full historical context in ~28K tokens vs 151K.
-
-**Dependencies:** 1.9-1.10 are independent. 1.11 depends on 1.9-1.10. 1.12
-depends on 1.11. 1.13-1.15 are independent of 1.11 (LLM summarization, not
-embedding retrieval).
+- `[x]` **1.9** Embed playbook entries on write (pgvector, OpenAI
+  text-embedding-3-small). Embedded after creation in add_playbook_entry
+  handler. SHIPPED 2026-05-12.
+- `[x]` **1.10** Embed trade outcomes on label. Embedded after batch write
+  in outcome labeler. SHIPPED 2026-05-12.
+- `[x]` **1.11** `services/context_retrieval.py` — shared retrieval layer.
+  Methods: `search_playbook()`, `search_outcomes()`, `search_cycles()`,
+  `search_all()`, `get_context_for_symbol()`. Hydrates embedding hits with
+  full entity data. SHIPPED 2026-05-12.
+- `[x]` **1.12** `get_playbook(query="...")` — semantic search mode via
+  ContextRetrievalService. Falls back to default if embeddings disabled.
+  SHIPPED 2026-05-12.
+- `[x]` **1.13** Weekly summarizer — `agents/weekly_summarizer.py`. Sunday
+  6 PM ET. Reads reflections + regime + strategy rules + outcomes. Produces
+  actionable digest with signal contradiction analysis. Llama 3.3 via
+  Together AI. SHIPPED 2026-05-12.
+- `[x]` **1.14** Monthly summarizer — `agents/monthly_summarizer.py`. 1st of
+  month 6:30 PM ET. Reads weekly digests + trade aggregates + regime
+  trajectory. Llama 3.3. SHIPPED 2026-05-12.
+- `[x]` **1.15** Tiered playbook read — default `get_playbook()` now returns:
+  all strategy content + 7d regime + last 4 weekly digests + last 12 monthly
+  digests. Full temporal depth in ~28K tokens vs 151K. SHIPPED 2026-05-12.
 
 ### Phase 2 — RAG Chat Agent `[ ]`
 
@@ -202,8 +206,7 @@ DeepSeek V4-Flash on Together AI (~$0.50/month).*
 - `[ ]` **2.5** Claude Code prompt generation — chat agent generates prompts for
   code changes.
 
-**Dependencies:** Depends on Phase 1 context retrieval layer (1.11). Can start
-2.1-2.2 in parallel with 1.13-1.15.
+**Dependencies:** Phase 1 context retrieval layer (1.11) is shipped. Ready to build.
 
 ### Phase 3 — Research Analyst Upgrade `[ ]`
 
@@ -251,10 +254,10 @@ Estimated late June 2026.
 
 *Stay within budget as the system scales.*
 
-- `[?]` **6.1** Fix prompt caching (same as 0.5).
+- `[x]` **6.1** Tools block caching — ~$32/month savings (shipped as 0.5).
 - `[ ]` **6.2** Reduce sleeve count if Sector Rotation continues showing 0 candidates.
 - `[ ]` **6.3** Move Fundamentals + Research Analyst to DeepSeek V4-Flash.
-- `[ ]` **6.4** Tiered playbook read (same as 1.15).
+- `[x]` **6.4** Tiered playbook read — shipped as 1.15.
 - `[ ]` **6.5** Evaluate Llama 4 Scout or DeepSeek V4-Flash for Tier 2b.
 
 **Monthly cost targets:**
@@ -504,8 +507,8 @@ and logs. Ask questions in plain English instead of writing SQL or CLI commands.
 **Cost:** ~$0.50/month assuming ~20 queries/day, avg 2K tokens/query.
 
 **Dependencies:** PostgreSQL with pgvector (exists), Together AI client
-(exists), research dashboard (exists), agent_messages table (exists).
-Depends on context retrieval layer (Phase 1, item 1.11).
+(exists), research dashboard (exists), agent_messages table (exists),
+context retrieval layer (exists, shipped as 1.11). Ready to build.
 
 **Model choice rationale — three-model architecture:**
 - **Claude Sonnet 4.6** — Lead Agent trade decisions. Needs maximum reasoning
@@ -560,7 +563,7 @@ Win95 aesthetic dashboard with 3 screens:
 
 ---
 
-## Shipped (post-Apr-24 through May 11)
+## Shipped (post-Apr-24 through May 12)
 
 - Position sentinel — 5-min price checks, 3 alert levels, Discord notifications (2026-05-02)
 - Trade status filters in History page with toggle buttons + per-filter summary stats
@@ -571,6 +574,15 @@ Win95 aesthetic dashboard with 3 screens:
 - Outcome labeler round-trip fix — SQL JOIN for sell_to_open + buy_to_close matching (2026-05-04)
 - Playbook regime observation dedup — only writes on material change (2026-05-04)
 - Background scanner removed from API container (2026-05-05)
+- Smart playbook retrieval — all strategy + 7d regime (2026-05-12)
+- Ghost trade cleanup script + cancelled exclusion from dashboard (2026-05-12)
+- Tools block caching for ~$32/month savings (2026-05-12)
+- Playbook + trade outcome embeddings on write (2026-05-12)
+- Weekly summarizer — Sunday 6 PM ET, actionable digest with signal contradictions (2026-05-12)
+- Monthly summarizer — 1st of month 6:30 PM ET (2026-05-12)
+- Context retrieval service — semantic search across playbook, outcomes, cycles (2026-05-12)
+- Semantic playbook query + tiered read with weekly/monthly digests (2026-05-12)
+- Vector search parameter binding fix for asyncpg (2026-05-12)
 
 ### On hold for 6-month experiment
 
@@ -709,6 +721,23 @@ Win95 aesthetic dashboard with 3 screens:
 ---
 
 ## CHANGELOG
+
+### 2026-05-12 — Phase 0 complete + Phase 1 shipped
+
+**Phase 0 (all 5 items shipped):**
+- Smart playbook retrieval: all strategy + last 7 days regime (time-based)
+- Ghost trade cleanup: scripts/clean_ghost_trades.py + dashboard exclusion
+- Tools block caching: cache_control on last tool, ~$32/month savings
+
+**Phase 1 Tiered Memory (all 7 items shipped):**
+- Playbook entries + trade outcomes embedded on write (pgvector)
+- Weekly summarizer (Sunday 6 PM ET): actionable digest with strategy rule
+  evaluation, new patterns, signal contradictions, trade outcomes
+- Monthly summarizer (1st of month 6:30 PM ET): long-horizon summary
+- Context retrieval service: semantic search across playbook, outcomes, cycles
+- Semantic get_playbook(query="..."): embedding similarity search
+- Tiered playbook read: strategy + 7d regime + 4 weekly + 12 monthly digests
+- Vector search CAST() fix for asyncpg parameter binding
 
 ### 2026-05-11 — Roadmap reconciliation + backlog rewrite
 
