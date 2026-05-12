@@ -393,6 +393,7 @@ async def dashboard_trades(days: int = Query(30, ge=1, le=365)):
             select(Trade, TradeOutcome)
             .outerjoin(TradeOutcome, TradeOutcome.trade_id == Trade.id)
             .where(Trade.created_at >= cutoff_naive)
+            .where(Trade.trade_type != "buy_to_close")
             .order_by(Trade.created_at.desc())
             .limit(200)
         )
