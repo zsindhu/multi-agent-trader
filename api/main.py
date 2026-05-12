@@ -19,7 +19,7 @@ from loguru import logger
 
 from config.settings import settings as app_settings
 from api.state import AppState
-from api.routes import portfolio, trades, agents, scanner, backtest, settings, proposals, account, executions, intelligence, diagnostics, research, dashboard
+from api.routes import portfolio, trades, agents, scanner, backtest, settings, proposals, account, executions, intelligence, diagnostics, research, dashboard, chat
 
 
 # ── Lifespan ────────────────────────────────────────────────────────
@@ -88,6 +88,7 @@ app.include_router(intelligence.router, prefix="/api/intelligence", tags=["Intel
 app.include_router(diagnostics.router, prefix="/api/diagnostics", tags=["Diagnostics"])
 app.include_router(research.router, tags=["Research"])  # No /api prefix — serves HTML at /research
 app.include_router(dashboard.router, prefix="/api/dashboard", tags=["Dashboard"])
+app.include_router(chat.router, prefix="/api/chat", tags=["Chat"])
 
 
 # ── Health ──────────────────────────────────────────────────────────
