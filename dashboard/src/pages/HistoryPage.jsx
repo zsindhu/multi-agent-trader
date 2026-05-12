@@ -155,7 +155,7 @@ function TradesPanel({ trades }) {
   // Per-filter summary stats (computed from filtered set)
   const filteredWins = filtered.filter(t => t.outcome === 'win').length
   const filteredLosses = filtered.filter(t => t.outcome === 'loss').length
-  const filteredPnl = filtered.reduce((sum, t) => sum + (t.outcome_pnl ?? t.pnl ?? 0), 0)
+  const filteredPnl = filtered.reduce((sum, t) => sum + (t.display_pnl ?? 0), 0)
   const filteredWinRate = filteredWins + filteredLosses > 0
     ? Math.round(filteredWins / (filteredWins + filteredLosses) * 100)
     : null
@@ -209,10 +209,11 @@ function TradesPanel({ trades }) {
             </thead>
             <tbody>
               {filtered.map((t, i) => {
-                const pnl = t.outcome_pnl ?? t.pnl
-                const pnlPct = t.outcome_pnl_pct
-                const outcome = t.outcome || (pnl != null ? (pnl > 0 ? 'win' : pnl < 0 ? 'loss' : 'breakeven') : null)
-                const pnlCls = outcome === 'win' ? 'w95-profit' : outcome === 'loss' ? 'w95-loss' : ''
+                const pnl = t.display_pnl
+                const pnlCls = pnl != null ? (pnl > 0 ? 'w95-profit' : pnl < 0 ? 'w95-loss' : '') : ''
+                const outcomeCls = t.display_outcome === 'Win' ? 'w95-profit'
+                  : t.display_outcome === 'Loss' ? 'w95-loss'
+                  : t.display_outcome === 'Open' ? 'w95-muted' : ''
                 return (
                   <tr key={i}>
                     <td className="w95-bold">{t.symbol}</td>
@@ -221,9 +222,9 @@ function TradesPanel({ trades }) {
                     <td>{fmtDate(t.closed_at)}</td>
                     <td>{t.premium != null ? `$${Number(t.premium).toFixed(0)}` : '--'}</td>
                     <td className={pnlCls}>{pnl != null ? fmtDollar(pnl) : '--'}</td>
-                    <td className={pnlCls}>{pnlPct != null ? `${(pnlPct * 100).toFixed(1)}%` : '--'}</td>
+                    <td className={pnlCls}>{t.outcome_pnl_pct != null ? `${(t.outcome_pnl_pct * 100).toFixed(1)}%` : '--'}</td>
                     <td>{t.holding_days ?? '--'}</td>
-                    <td className={pnlCls}>{outcome || t.status}</td>
+                    <td className={outcomeCls}>{t.display_outcome}</td>
                     <td>{t.funnel_driven ? '\u2713' : ''}</td>
                   </tr>
                 )

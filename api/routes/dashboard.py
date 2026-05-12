@@ -393,14 +393,47 @@ async def dashboard_trades(days: int = Query(30, ge=1, le=365)):
             select(Trade, TradeOutcome)
             .outerjoin(TradeOutcome, TradeOutcome.trade_id == Trade.id)
             .where(Trade.created_at >= cutoff_naive)
-            .where(Trade.trade_type != "buy_to_close")
             .order_by(Trade.created_at.desc())
             .limit(200)
         )
         results = r.all()
 
+    # Build a lookup of buy_to_close trades by (symbol, strike, expiration)
+    # so we can check if a sell_to_open has a matching close
+    btc_by_key = {}
+    for trade, _ in results:
+        if trade.trade_type == "buy_to_close" and trade.status == "filled":
+            key = (trade.symbol, str(trade.strike), str(trade.expiration))
+            btc_by_key.setdefault(key, []).append(trade)
+
     trades = []
     for trade, outcome in results:
+        # Compute display_pnl: outcome_pnl → trade.pnl → None
+        display_pnl = None
+        if outcome and outcome.pnl_dollars is not None:
+            display_pnl = outcome.pnl_dollars
+        elif trade.pnl is not None:
+            display_pnl = float(trade.pnl)
+
+        # Compute display_outcome based on trade type and state
+        if trade.trade_type == "buy_to_close":
+            display_outcome = "Close"
+        elif outcome and outcome.outcome:
+            display_outcome = outcome.outcome.capitalize()  # Win, Loss, Breakeven
+        elif trade.status == "expired":
+            display_outcome = "Expired"
+        elif trade.trade_type == "sell_to_open":
+            # Check if there's a matching buy_to_close
+            key = (trade.symbol, str(trade.strike), str(trade.expiration))
+            has_close = any(
+                btc.created_at >= trade.created_at
+                for btc in btc_by_key.get(key, [])
+                if btc.created_at and trade.created_at
+            )
+            display_outcome = "Closed" if has_close else "Open"
+        else:
+            display_outcome = trade.status.capitalize() if trade.status else "--"
+
         trades.append({
             "id": trade.id,
             "symbol": trade.symbol,
@@ -414,6 +447,8 @@ async def dashboard_trades(days: int = Query(30, ge=1, le=365)):
             "expiration": trade.expiration,
             "status": trade.status,
             "pnl": trade.pnl,
+            "display_pnl": round(display_pnl, 2) if display_pnl is not None else None,
+            "display_outcome": display_outcome,
             "order_id": trade.order_id,
             "created_at": trade.created_at.isoformat() if trade.created_at else None,
             "closed_at": trade.closed_at.isoformat() if trade.closed_at else None,
@@ -426,7 +461,7 @@ async def dashboard_trades(days: int = Query(30, ge=1, le=365)):
             "estimated_edge": outcome.estimated_edge if outcome else None,
         })
 
-    # Summary stats
+    # Summary stats (only count trades with labeled outcomes)
     completed = [t for t in trades if t["outcome"] in ("win", "loss", "breakeven")]
     wins = sum(1 for t in completed if t["outcome"] == "win")
     losses = sum(1 for t in completed if t["outcome"] == "loss")
