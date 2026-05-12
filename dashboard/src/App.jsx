@@ -2,6 +2,7 @@ import { Routes, Route, NavLink } from 'react-router-dom'
 import CommandCenterPage from './pages/CommandCenterPage'
 import HistoryPage from './pages/HistoryPage'
 import RulesPage from './pages/RulesPage'
+import ChatPage from './pages/ChatPage'
 import ErrorBoundary from './components/ErrorBoundary'
 import './win95.css'
 
@@ -9,6 +10,7 @@ const navItems = [
   { to: '/', label: 'Command Center' },
   { to: '/history', label: 'History' },
   { to: '/rules', label: 'Rules & Logic' },
+  { to: '/chat', label: 'Chat' },
 ]
 
 export default function App() {
@@ -60,6 +62,7 @@ export default function App() {
           <Route path="/" element={<ErrorBoundary><CommandCenterPage /></ErrorBoundary>} />
           <Route path="/history" element={<ErrorBoundary><HistoryPage /></ErrorBoundary>} />
           <Route path="/rules" element={<ErrorBoundary><RulesPage /></ErrorBoundary>} />
+          <Route path="/chat" element={<ErrorBoundary><ChatPage /></ErrorBoundary>} />
         </Routes>
       </main>
     </div>
