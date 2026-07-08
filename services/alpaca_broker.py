@@ -11,6 +11,7 @@ from typing import Optional
 from alpaca.trading.client import TradingClient
 from alpaca.trading.requests import (
     GetOptionContractsRequest,
+    GetOrdersRequest,
     LimitOrderRequest,
     MarketOrderRequest,
 )
@@ -567,6 +568,46 @@ class AlpacaBroker(Broker):
         except Exception as e:
             logger.error(f"Failed to fetch orders: {e}")
             raise
+
+    async def get_all_orders(self) -> list[dict]:
+        """
+        Fetch the COMPLETE order history (all statuses), paginating past the
+        API's per-request cap. Used by the nightly broker reconciliation.
+        """
+        all_orders: list[dict] = []
+        after = None
+        while True:
+            await self._rate_limiter.acquire()
+            req = GetOrdersRequest(
+                status=QueryOrderStatus.ALL,
+                limit=500,
+                direction="asc",
+                after=after,
+            )
+            batch = self.trading.get_orders(filter=req)
+            if not batch:
+                break
+            def _enum_val(v):
+                return getattr(v, "value", str(v) if v is not None else "")
+
+            for o in batch:
+                all_orders.append({
+                    "order_id": str(o.id),
+                    "symbol": o.symbol,
+                    "side": _enum_val(o.side).lower(),
+                    "qty": float(o.qty) if o.qty else 0.0,
+                    "filled_qty": float(o.filled_qty) if o.filled_qty else 0.0,
+                    "status": _enum_val(o.status).lower(),
+                    "asset_class": _enum_val(getattr(o, "asset_class", None)).lower(),
+                    "limit_price": float(o.limit_price) if o.limit_price else None,
+                    "filled_avg_price": float(o.filled_avg_price) if o.filled_avg_price else None,
+                    "submitted_at": o.submitted_at,
+                    "filled_at": o.filled_at,
+                })
+            if len(batch) < 500:
+                break
+            after = batch[-1].submitted_at
+        return all_orders
 
     async def cancel_order(self, order_id: str) -> bool:
         """Cancel an open order by ID."""

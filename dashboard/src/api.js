@@ -36,3 +36,4 @@ export const fetchDashboardCycles = (limit = 10, days = null) =>
 export const fetchDashboardDailyStats = (days = 30) => request(`/dashboard/daily-stats?days=${days}`);
 export const fetchDashboardTrades = (days = 30) => request(`/dashboard/trades?days=${days}`);
 export const fetchPositionAlerts = () => request('/dashboard/position-alerts');
+export const fetchReconciliation = () => request('/dashboard/reconciliation');

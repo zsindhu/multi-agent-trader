@@ -382,18 +382,16 @@ You have access to two knowledge tools that persist across cycles:
 
 2. **Add to Playbook** (add_playbook_entry): When you discover something important — a pattern in the data, a lesson from a losing trade, an observation about a symbol or regime — WRITE IT DOWN. Be specific. Include numbers and trade references. Future cycles will read this.
 
-3. **Strategy Insights** (get_strategy_insights): Validated rules confirmed by trade data. These have higher authority than the playbook — if an insight says "max 2 positions per symbol" with 0.9 confidence, follow it.
+Your first two tool calls every cycle should be get_briefing(), then get_playbook(). The briefing contains the Research Analyst's reflection on yesterday's patterns. Learn from the past before acting on the present.
 
-Your first three tool calls every cycle should be get_briefing(), get_playbook(), then get_strategy_insights(). The briefing contains the Research Analyst's reflection on yesterday's patterns. Learn from the past before acting on the present.
-
-4. **Fundamentals Analysis** (get_fundamentals): When you're seriously considering a specific name for a trade, request its fundamentals summary. This gives you financial health, SEC filings context, and risk factors that signal scores alone don't capture.
+3. **Fundamentals Analysis** (get_fundamentals): When you're seriously considering a specific name for a trade, request its fundamentals summary. This gives you financial health, SEC filings context, and risk factors that signal scores alone don't capture.
 
 When you close a losing trade, ALWAYS add a playbook entry explaining what went wrong and what to do differently. When you discover a pattern (e.g., "ETF puts outperform single-stock puts by 15%"), add it with the supporting data.
 
 The playbook is how this system gets smarter over time. Every insight you write makes the next cycle's decisions better.
 
 ## Decision Framework
-1. First: Read the playbook and strategy insights (get_playbook + get_strategy_insights).
+1. First: Read the playbook (get_playbook).
 2. Second: Check the market regime. In risk-off or crisis, be very conservative or sit out entirely.
 3. Third: Review open positions. Manage what you have before opening anything new.
 4. Fourth: Check performance insights. Are we doing well? What's working? What isn't?
@@ -834,7 +832,9 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
                     entries = list(result.scalars().all())
                 else:
                     # Tiered retrieval: strategy + regime + digests
-                    # Part 1: ALL strategy content (always)
+                    # Part 1: strategy content, newest first, bounded so the
+                    # per-cycle prompt doesn't grow monotonically forever.
+                    # Older material is reachable via category= or query=.
                     strategy_cats = [
                         "strategy_rule", "lesson_learned", "parameter_adjustment",
                         "symbol_note", "market_insight",
@@ -844,10 +844,11 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
                         .where(PlaybookEntry.active == True)
                         .where(PlaybookEntry.category.in_(strategy_cats))
                         .order_by(PlaybookEntry.created_at.desc())
+                        .limit(40)
                     )
                     strategy_entries = list(strat_result.scalars().all())
 
-                    # Part 2: Last 7 days of regime observations
+                    # Part 2: Last 7 days of regime observations (bounded)
                     week_ago = datetime.utcnow() - timedelta(days=7)
                     regime_result = await session.execute(
                         sa_select(PlaybookEntry)
@@ -855,6 +856,7 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
                         .where(PlaybookEntry.category == "regime_observation")
                         .where(PlaybookEntry.created_at >= week_ago)
                         .order_by(PlaybookEntry.created_at.desc())
+                        .limit(20)
                     )
                     regime_entries = list(regime_result.scalars().all())
 
@@ -902,10 +904,11 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
 
             # Deduplicate regime_observation entries — only write on
             # material regime changes (regime shift, VIX threshold cross,
-            # SPY trend reversal)
+            # SPY trend reversal), and at most 2 per day regardless (the
+            # heuristic alone let 326 of 351 playbook entries be regime spam)
             if category == "regime_observation":
                 async with AsyncSessionLocal() as session:
-                    from sqlalchemy import select as sa_select
+                    from sqlalchemy import select as sa_select, func as sa_func
                     last_result = await session.execute(
                         sa_select(PlaybookEntry)
                         .where(PlaybookEntry.category == "regime_observation")
@@ -915,11 +918,52 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
                     )
                     last_entry = last_result.scalar_one_or_none()
 
+                    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+                    today_count = (
+                        await session.execute(
+                            sa_select(sa_func.count(PlaybookEntry.id))
+                            .where(PlaybookEntry.category == "regime_observation")
+                            .where(PlaybookEntry.created_at >= today_start)
+                        )
+                    ).scalar() or 0
+
+                if today_count >= 2:
+                    logger.info("[Lead] Regime observation daily cap (2) reached, skipping")
+                    return {"status": "skipped", "reason": "daily regime-entry cap reached"}
+
                 if last_entry and not self._regime_materially_changed(last_entry.content, content):
                     logger.info(
                         f"[Lead] Regime unchanged, skipping duplicate playbook entry"
                     )
                     return {"status": "skipped", "reason": "regime unchanged"}
+            else:
+                # Near-duplicate guard for all other categories: skip if a
+                # recent active entry in the same category is essentially the
+                # same text.
+                import difflib
+                two_weeks_ago = datetime.utcnow() - timedelta(days=14)
+                async with AsyncSessionLocal() as session:
+                    from sqlalchemy import select as sa_select
+                    recent_result = await session.execute(
+                        sa_select(PlaybookEntry.content)
+                        .where(PlaybookEntry.category == category)
+                        .where(PlaybookEntry.active == True)
+                        .where(PlaybookEntry.created_at >= two_weeks_ago)
+                        .order_by(PlaybookEntry.created_at.desc())
+                        .limit(25)
+                    )
+                    recent_contents = [r[0] for r in recent_result.all()]
+
+                for existing in recent_contents:
+                    similarity = difflib.SequenceMatcher(
+                        None, content.lower(), (existing or "").lower()
+                    ).ratio()
+                    if similarity >= 0.85:
+                        logger.info(
+                            f"[Lead] Near-duplicate playbook entry skipped "
+                            f"({similarity:.0%} similar, category={category})"
+                        )
+                        return {"status": "skipped", "reason": "near-duplicate of recent entry"}
 
             async with AsyncSessionLocal() as session:
                 entry = PlaybookEntry(

@@ -99,13 +99,17 @@ class OrderReconciler:
 
                 elif status in ("rejected", "cancelled", "canceled", "expired"):
                     reject_reason = order.get("reject_reason") or status
+                    # An ORDER that expired unfilled is not an OPTION that
+                    # expired worthless. Store it as a distinct status so the
+                    # outcome labeler never counts unfilled orders as wins.
+                    db_status = "order_expired" if status == "expired" else status
                     async with AsyncSessionLocal() as session:
                         stmt = (
                             update(Trade)
                             .where(Trade.id == trade.id)
                             .values(
-                                status=status,
-                                notes=(trade.notes or "") + f" | {status.upper()}: {reject_reason}",
+                                status=db_status,
+                                notes=(trade.notes or "") + f" | ORDER {status.upper()}: {reject_reason}",
                             )
                         )
                         await session.execute(stmt)
