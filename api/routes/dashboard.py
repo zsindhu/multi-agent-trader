@@ -91,11 +91,25 @@ async def dashboard_status():
         )
         error_count = r.scalar() or 0
 
+        # Learning progress: funnel-driven labeled win/loss outcomes count
+        # toward the signal learner's 50-sample threshold
+        r = await session.execute(
+            select(sa_func.count(TradeOutcome.id)).where(
+                TradeOutcome.funnel_driven == True,  # noqa: E712
+                TradeOutcome.outcome.in_(["win", "loss"]),
+            )
+        )
+        learning_samples = r.scalar() or 0
+
     return {
         "funnel": {
             "tier1_universe": t1_total,
             "tier2_promoted": t2_pass,
             "tier2_rejected": t2_reject,
+        },
+        "learning_progress": {
+            "samples": learning_samples,
+            "threshold": 50,
         },
         "last_tier1_sweep": last_t1.isoformat() if last_t1 else None,
         "last_tier2_sweep": last_t2.isoformat() if last_t2 else None,
@@ -410,14 +424,18 @@ async def dashboard_trades(days: int = Query(30, ge=1, le=365)):
 
     trades = []
     for trade, outcome in results:
-        # Compute display_pnl priority: outcome_pnl → trade.pnl → None
+        # Compute display_pnl priority: outcome_pnl → trade.pnl → None.
+        # buy_to_close legs never get a display_pnl — the round trip's PnL is
+        # shown on the entry row, and counting both legs doubled every close.
         display_pnl = None
-        if outcome and outcome.pnl_dollars is not None:
+        if trade.trade_type == "buy_to_close":
+            display_pnl = None
+        elif outcome and outcome.pnl_dollars is not None:
             display_pnl = outcome.pnl_dollars
-        elif trade.pnl is not None:
+        elif trade.pnl is not None and trade.status == "filled":
             display_pnl = float(trade.pnl)
-        elif trade.trade_type == "sell_to_open":
-            # Check if matching buy_to_close has PnL
+        elif trade.trade_type == "sell_to_open" and trade.status == "filled":
+            # Not yet labeled — borrow the matching close leg's estimate
             key = (trade.symbol, str(trade.strike), str(trade.expiration))
             for btc in btc_by_key.get(key, []):
                 if btc.created_at and trade.created_at and btc.created_at >= trade.created_at and btc.pnl is not None:
@@ -429,11 +447,14 @@ async def dashboard_trades(days: int = Query(30, ge=1, le=365)):
             display_outcome = "Close"
         elif outcome and outcome.outcome:
             display_outcome = outcome.outcome.capitalize()  # Win, Loss, Breakeven
-        elif trade.status in ("expired", "assigned"):
-            display_outcome = trade.status.capitalize()
+        elif trade.status in ("order_expired", "expired"):
+            # Order expired unfilled — never a position, never an outcome
+            display_outcome = "Unfilled"
+        elif trade.status == "assigned":
+            display_outcome = "Assigned"
         elif trade.status == "closed":
             display_outcome = "Closed"
-        elif trade.trade_type == "sell_to_open":
+        elif trade.trade_type == "sell_to_open" and trade.status == "filled":
             # Check if there's a matching buy_to_close or broker-side close
             key = (trade.symbol, str(trade.strike), str(trade.expiration))
             has_close = any(
@@ -496,6 +517,23 @@ async def dashboard_trades(days: int = Query(30, ge=1, le=365)):
             "avg_hold_days": round(avg_hold, 1),
         },
     }
+
+
+@router.get("/reconciliation")
+async def dashboard_reconciliation():
+    """Latest nightly broker-reconciliation report (DB vs Alpaca)."""
+    async with AsyncSessionLocal() as session:
+        r = await session.execute(
+            select(AgentMessage)
+            .where(AgentMessage.message_type == "reconciliation_report")
+            .order_by(desc(AgentMessage.timestamp))
+            .limit(1)
+        )
+        msg = r.scalar_one_or_none()
+
+    if msg is None:
+        return {"report": None}
+    return {"report": msg.payload, "subject": msg.subject}
 
 
 @router.get("/position-alerts")

@@ -699,9 +699,12 @@ class WheelWorker(BaseAgent):
     # ── Public close/roll (called by Lead Agent in LLM mode) ──────
 
     async def close_position(self, option_symbol: str, reason: str = ""):
-        """Public: close a specific position by option symbol."""
+        """Public: close a specific SHORT position by option symbol."""
         pos = next(
-            (p for p in self.portfolio.options if p.option_symbol == option_symbol),
+            (
+                p for p in self.portfolio.options
+                if p.option_symbol == option_symbol and p.is_short
+            ),
             None,
         )
         if pos is None:
@@ -714,7 +717,53 @@ class WheelWorker(BaseAgent):
 
     async def _close_position(self, pos, reason: str, note: str = "") -> dict:
         """Buy to close a wheel option position."""
+        # A buy-to-close is only valid against a SHORT position. Closing a
+        # long position with a buy grows it (see runaway XLV incident).
+        if not pos.is_short:
+            logger.error(
+                f"[{self.name}] REFUSING to buy-to-close {pos.option_symbol}: "
+                f"position is LONG {pos.quantity} — a buy would increase it. "
+                f"Manual intervention required."
+            )
+            return {
+                "action": "close_rejected",
+                "reason": "position_not_short",
+                "option_symbol": pos.option_symbol,
+                "quantity": pos.quantity,
+            }
+
         try:
+            # Never stack close orders: if a buy order for this contract is
+            # already open at the broker, placing another can over-close the
+            # position once both fill.
+            try:
+                open_orders = await self.broker.get_orders(status="open")
+                dup = [
+                    o for o in open_orders
+                    if o.get("symbol") == pos.option_symbol
+                    and "buy" in str(o.get("side", "")).lower()
+                ]
+                if dup:
+                    logger.info(
+                        f"[{self.name}] Skipping close for {pos.option_symbol}: "
+                        f"{len(dup)} open buy order(s) already working."
+                    )
+                    return {
+                        "action": "close_skipped",
+                        "reason": "open_close_order_exists",
+                        "option_symbol": pos.option_symbol,
+                    }
+            except Exception as e:
+                logger.warning(
+                    f"[{self.name}] Open-order check failed for {pos.option_symbol}: {e} "
+                    f"— refusing to close blind."
+                )
+                return {
+                    "action": "close_skipped",
+                    "reason": "open_order_check_failed",
+                    "option_symbol": pos.option_symbol,
+                }
+
             buy_price = pos.current_price if pos.current_price > 0 else 0.05
 
             order = await self.broker.submit_option_order(

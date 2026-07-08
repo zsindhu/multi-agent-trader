@@ -37,10 +37,13 @@ class ContextRetrievalService:
         if not self.is_enabled:
             return []
 
+        # Overfetch: deactivated entries keep their embeddings and are only
+        # filtered after the vector query, which would silently shrink the
+        # result set below `limit`.
         hits = await self._embeddings.search(
             query_text=query,
             source_table="playbook_entries",
-            limit=limit,
+            limit=limit * 3,
         )
 
         if not hits:
@@ -74,7 +77,7 @@ class ContextRetrievalService:
                 ],
                 key=lambda x: x["similarity"],
                 reverse=True,
-            )
+            )[:limit]
         except Exception as e:
             logger.debug(f"[Retrieval] Playbook hydration failed: {e}")
             return []

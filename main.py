@@ -282,6 +282,51 @@ async def main(mode: str = "paper"):
         id="outcome_labeler",
     )
 
+    # Signal learner: nightly at 5:15 PM ET, right after the outcome labeler.
+    # No-ops with "insufficient_samples" until 50 funnel-driven win/loss
+    # outcomes exist, then fits signal weights and proposes updates.
+    async def _run_signal_learner():
+        try:
+            from services.signal_learner import SignalLearner
+            logger.info("[Main] -- Signal learner starting --")
+            result = await SignalLearner().run()
+            logger.info(f"[Main] -- Signal learner done -- {result}")
+        except Exception as e:
+            logger.error(f"[Main] Signal learner failed: {e}")
+
+    scheduler.add_job(
+        _run_signal_learner,
+        "cron",
+        hour="17",
+        minute="15",
+        timezone="US/Eastern",
+        id="signal_learner",
+    )
+
+    # Broker reconciliation: nightly at 5:45 PM ET. Cross-checks DB trades,
+    # outcomes, and positions against Alpaca's order history so data drift
+    # is caught within a day instead of at the next manual audit.
+    async def _run_broker_reconciliation():
+        try:
+            from services.broker_reconciliation import BrokerReconciliation
+            logger.info("[Main] -- Broker reconciliation starting --")
+            result = await BrokerReconciliation(svc.broker).run()
+            logger.info(
+                f"[Main] -- Broker reconciliation done -- "
+                f"{result.get('discrepancy_count', '?')} discrepancies --"
+            )
+        except Exception as e:
+            logger.error(f"[Main] Broker reconciliation failed: {e}")
+
+    scheduler.add_job(
+        _run_broker_reconciliation,
+        "cron",
+        hour="17",
+        minute="45",
+        timezone="US/Eastern",
+        id="broker_reconciliation",
+    )
+
     # Research Analyst reflection: runs at 5:30 PM ET (after outcome labeler)
     async def _run_research_reflection():
         try:

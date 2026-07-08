@@ -8,6 +8,7 @@ import {
   fetchDashboardReflection,
   fetchOptions,
   fetchPositionAlerts,
+  fetchReconciliation,
 } from '../api'
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -42,10 +43,10 @@ function dteFromExp(exp) {
 
 // ── System Status Panel ──────────────────────────────────────
 
-function SystemStatusPanel({ status }) {
+function SystemStatusPanel({ status, reconciliation }) {
   if (!status) return <div className="w95-muted">Loading...</div>
 
-  const { funnel, last_tier1_sweep, last_tier2_sweep, last_cycle, today_llm_cost, today_errors } = status
+  const { funnel, learning_progress, last_tier1_sweep, last_tier2_sweep, last_cycle, today_llm_cost, today_errors } = status
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11 }}>
@@ -81,6 +82,23 @@ function SystemStatusPanel({ status }) {
           Universe {funnel.tier1_universe} {'\u2192'} T2 {funnel.tier2_promoted}
           <span className="w95-muted"> ({funnel.tier2_rejected} rej)</span>
         </div>
+        {learning_progress && (
+          <div className="w95-mono" style={{ fontSize: 11, marginTop: 2 }} title="Funnel-driven labeled win/loss trades. Statistical signal-weight learning starts at the threshold.">
+            Learning: {learning_progress.samples}/{learning_progress.threshold} labeled trades
+          </div>
+        )}
+        {reconciliation && (
+          <div
+            className="w95-mono"
+            style={{ fontSize: 11, marginTop: 2 }}
+            title={`Nightly DB vs Alpaca cross-check. Broker realized $${reconciliation.broker_realized_pnl} vs labeled $${reconciliation.labeled_outcome_pnl}.`}
+          >
+            Reconciliation:{' '}
+            {reconciliation.ok
+              ? <span className="w95-win">OK</span>
+              : <span className="w95-loss">{reconciliation.discrepancy_count} issues, drift ${reconciliation.pnl_drift}</span>}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -284,9 +302,11 @@ export default function CommandCenterPage() {
   const [reflection, setReflection] = useState(null)
   const [positions, setPositions] = useState(null)
   const [positionAlerts, setPositionAlerts] = useState([])
+  const [reconciliation, setReconciliation] = useState(null)
 
   const loadAll = useCallback(() => {
     fetchDashboardStatus().then(setStatus).catch(() => {})
+    fetchReconciliation().then(d => setReconciliation(d?.report || null)).catch(() => {})
     fetchDashboardPromotions().then(d => setPromotions(d?.promotions || [])).catch(() => setPromotions([]))
     fetchDashboardSignals().then(d => setSignals(d?.signals || [])).catch(() => setSignals([]))
     fetchDashboardReflection().then(setReflection).catch(() => {})
@@ -316,7 +336,7 @@ export default function CommandCenterPage() {
         {/* Row 1: Status + Positions */}
         <div className="w95-grid w95-grid-sidebar">
           <W95Window title="System Status" icon="&#128187;">
-            <SystemStatusPanel status={status} />
+            <SystemStatusPanel status={status} reconciliation={reconciliation} />
           </W95Window>
 
           <W95Window title="Active Positions" icon="&#128200;">

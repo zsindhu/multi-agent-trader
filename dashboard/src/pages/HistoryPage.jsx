@@ -142,21 +142,24 @@ function TradesPanel({ trades }) {
     if (statusFilter === 'open') {
       if (dOutcome !== 'Open') return false
     } else if (statusFilter === 'closed') {
-      if (!['Closed', 'Close', 'Expired', 'Assigned', 'Win', 'Loss', 'Breakeven'].includes(dOutcome)) return false
+      if (!['Closed', 'Close', 'Assigned', 'Win', 'Loss', 'Breakeven'].includes(dOutcome)) return false
     } else if (statusFilter === 'won') {
-      if (dOutcome !== 'Win' && !(t.display_pnl > 0)) return false
+      if (dOutcome !== 'Win') return false
     } else if (statusFilter === 'lost') {
-      if (dOutcome !== 'Loss' && !(t.display_pnl < 0)) return false
+      if (dOutcome !== 'Loss') return false
     }
     if (symbolSearch && !t.symbol?.toLowerCase().includes(symbolSearch.toLowerCase())) return false
     if (funnelOnly && !t.funnel_driven) return false
     return true
   })
 
-  // Per-filter summary stats (recomputed from the currently filtered set)
-  const filteredWithPnl = filtered.filter(t => t.display_pnl != null)
-  const filteredWins = filtered.filter(t => t.display_outcome === 'Win' || (t.display_pnl > 0 && t.display_outcome !== 'Close')).length
-  const filteredLosses = filtered.filter(t => t.display_outcome === 'Loss' || (t.display_pnl < 0 && t.display_outcome !== 'Close')).length
+  // Per-filter summary stats (recomputed from the currently filtered set).
+  // Only labeled outcomes count as wins/losses, and only entry rows carry
+  // display_pnl — 'Close' legs are excluded server-side so round trips are
+  // never double-counted.
+  const filteredWithPnl = filtered.filter(t => t.display_pnl != null && t.display_outcome !== 'Close')
+  const filteredWins = filtered.filter(t => t.display_outcome === 'Win').length
+  const filteredLosses = filtered.filter(t => t.display_outcome === 'Loss').length
   const filteredPnl = filteredWithPnl.reduce((sum, t) => sum + t.display_pnl, 0)
   const filteredWinRate = filteredWins + filteredLosses > 0
     ? Math.round(filteredWins / (filteredWins + filteredLosses) * 100)

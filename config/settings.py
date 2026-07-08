@@ -20,7 +20,10 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     openai_api_key: str = ""
     together_api_key: str = ""
-    llm_model: str = "claude-sonnet-4-6"
+    # Lead Agent LLM — any OpenAI-compatible endpoint. Auth uses
+    # together_api_key. Migrated from Anthropic claude-sonnet-4-6 (July 2026).
+    llm_model: str = "zai-org/GLM-5.2"
+    llm_base_url: str = "https://api.together.xyz/v1"
     llm_max_tokens: int = 4096
 
     model_config = {"env_file": ".env"}

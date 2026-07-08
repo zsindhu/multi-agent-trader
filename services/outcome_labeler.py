@@ -27,8 +27,16 @@ from models.historical_bar import HistoricalBar
 # Funnel cutover date — trades after this date may have matching observations
 FUNNEL_CUTOVER = date(2026, 4, 20)
 
-# Completed trade statuses to process
-COMPLETED_STATUSES = {"expired", "closed", "assigned"}
+# Completed trade statuses to process. NOTE: "expired" is deliberately absent —
+# the reconciler stamps unfilled orders "order_expired", and legacy "expired"
+# rows were order expiries too. An option that genuinely expired worthless is
+# detected below as a FILLED sell_to_open whose expiration date has passed.
+COMPLETED_STATUSES = {"closed", "assigned"}
+
+# Only entry decisions get outcomes. buy_to_close rows are exit legs of a
+# round trip — labeling them double-counts every close (and once labeled 49
+# unfilled close orders as $3.5k of wins).
+ENTRY_TRADE_TYPES = {"sell_to_open", "buy_to_open"}
 
 
 class OutcomeLabeler:
@@ -50,10 +58,12 @@ class OutcomeLabeler:
                 )
                 labeled_ids = {r[0] for r in labeled_result.all()}
 
-                # Get trades with completed statuses (existing logic)
+                # Get trades with completed statuses (closed/assigned only —
+                # these statuses imply the entry actually filled)
                 result = await session.execute(
                     select(Trade)
                     .where(Trade.status.in_(COMPLETED_STATUSES))
+                    .where(Trade.trade_type.in_(ENTRY_TRADE_TYPES))
                     .order_by(Trade.created_at)
                 )
                 status_trades = list(result.scalars().all())
@@ -63,10 +73,14 @@ class OutcomeLabeler:
                 # positions closed before expiration.
                 round_trip_trades = await self._find_round_trip_trades(session)
 
+                # Get FILLED entries whose option expiration has passed with no
+                # closing fill — those genuinely expired worthless.
+                expired_worthless = await self._find_expired_worthless_trades(session)
+
                 # Merge, dedup by trade id
                 seen_ids = {t.id for t in status_trades}
                 all_trades = list(status_trades)
-                for t in round_trip_trades:
+                for t in round_trip_trades + expired_worthless:
                     if t.id not in seen_ids:
                         all_trades.append(t)
                         seen_ids.add(t.id)
@@ -189,6 +203,43 @@ class OutcomeLabeler:
         logger.info(f"[Labeler] Found {len(sto_trades)} round-trip trades (sell_to_open + buy_to_close)")
         return sto_trades
 
+    async def _find_expired_worthless_trades(self, session) -> list:
+        """
+        Find FILLED entry trades whose option expiration has passed and that
+        have no filled buy_to_close — the option genuinely expired worthless.
+
+        Only fills count: a submitted/cancelled/order_expired entry never
+        opened a position, so its "expiration" is meaningless.
+        """
+        BTC = aliased(Trade)
+
+        today_iso = datetime.utcnow().date().isoformat()
+        result = await session.execute(
+            select(Trade)
+            .outerjoin(
+                BTC,
+                and_(
+                    Trade.symbol == BTC.symbol,
+                    Trade.strike == BTC.strike,
+                    Trade.expiration == BTC.expiration,
+                    BTC.trade_type == "buy_to_close",
+                    BTC.status == "filled",
+                ),
+            )
+            .outerjoin(TradeOutcome, Trade.id == TradeOutcome.trade_id)
+            .where(Trade.trade_type.in_(ENTRY_TRADE_TYPES))
+            .where(Trade.status == "filled")
+            .where(Trade.expiration.isnot(None))
+            .where(Trade.expiration < today_iso)
+            .where(BTC.id.is_(None))
+            .where(TradeOutcome.id.is_(None))
+            .order_by(Trade.created_at)
+        )
+        trades = list(result.scalars().unique().all())
+        self._expired_worthless_ids = {t.id for t in trades}
+        logger.info(f"[Labeler] Found {len(trades)} filled trades expired worthless")
+        return trades
+
     async def _label_trade(self, trade: Trade) -> Optional[TradeOutcome]:
         """Compute outcome for a single trade."""
 
@@ -240,32 +291,43 @@ class OutcomeLabeler:
         )
 
     def _compute_pnl(self, trade: Trade, btc_trade: Optional[Trade] = None) -> Optional[float]:
-        """Compute PnL for a completed trade."""
-        # Round-trip trade: PnL from the buy_to_close record
+        """
+        Compute PnL for a completed trade.
+
+        `trade.price` holds the actual fill price once the reconciler has run
+        (it starts as the limit price and is overwritten on fill), while
+        `trade.premium` is frozen at the submission limit — so fill-based
+        `price` is always preferred.
+        """
+        # Round-trip trade: sold premium - bought premium, from fill prices.
         if btc_trade is not None:
-            # If the BTC record has an explicit PnL, use it
+            sell_fill = float(trade.price or trade.premium or 0)
+            buy_fill = float(btc_trade.price or btc_trade.premium or 0)
+            # Cap at the smaller leg: an oversized close leg must not multiply
+            # the entry's PnL.
+            qty = min(abs(trade.quantity or 1), abs(btc_trade.quantity or 1))
+            if sell_fill > 0 and buy_fill > 0:
+                return (sell_fill - buy_fill) * qty * 100
+            # Fall back to the close leg's recorded estimate only if fills
+            # are unavailable.
             if btc_trade.pnl is not None:
                 return float(btc_trade.pnl)
-            # Otherwise compute: sold premium - bought premium (per contract * 100)
-            sell_premium = float(trade.premium or trade.price or 0)
-            buy_premium = float(btc_trade.premium or btc_trade.price or 0)
-            qty = abs(trade.quantity or 1)
-            return (sell_premium - buy_premium) * qty * 100
+            return None
 
-        # Use existing PnL if populated
-        if trade.pnl is not None:
-            return float(trade.pnl)
-
-        premium = float(trade.premium or trade.price or 0)
+        premium = float(trade.price or trade.premium or 0)
         qty = abs(trade.quantity or 1)
 
-        if trade.status == "expired":
+        # Filled entry whose option expired with no closing fill.
+        if trade.id in getattr(self, "_expired_worthless_ids", set()):
             if trade.trade_type == "sell_to_open" or trade.side == "sell":
                 # Sold option expired worthless — full premium capture
                 return premium * qty * 100
-            elif trade.trade_type == "buy_to_open" or trade.side == "buy":
-                # Bought option expired worthless — total loss of premium paid
-                return -(premium * qty * 100)
+            # Bought option expired worthless — total loss of premium paid
+            return -(premium * qty * 100)
+
+        # Use existing PnL if populated (manual closes, legacy rows)
+        if trade.pnl is not None:
+            return float(trade.pnl)
 
         if trade.status == "assigned":
             # CSP assigned — loss depends on strike vs current price
@@ -277,7 +339,7 @@ class OutcomeLabeler:
 
     def _compute_premium_at_risk(self, trade: Trade) -> Optional[float]:
         """Compute the premium/collateral at risk for percentage calculation."""
-        premium = float(trade.premium or trade.price or 0)
+        premium = float(trade.price or trade.premium or 0)
         qty = abs(trade.quantity or 1)
         strike = float(trade.strike or 0)
 
