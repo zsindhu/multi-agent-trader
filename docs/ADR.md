@@ -519,3 +519,37 @@ Safe mode **never opens new positions**. It logs its reasoning to `execution_log
 Both entrypoints (`main.py` and `api/state.py`) construct `VIXService(broker=broker)` immediately after the broker and pass it into both `StrategyManager(vix_service=...)` and `MarketRegimeService(vix_service=...)`. Both now delegate to the service; their own proxy loops were removed. `_estimate_vix_from_spy()` and the legacy `_get_vix_direction()` fallbacks are retained as last resorts.
 
 **Consequences:** VIX readings are now accurate. Regime classification (HIGH_VOL / NORMAL / LOW_VOL) and the MarketRegimeService confidence signal both reflect real market conditions. The CRISIS override the LLM was seeing at VIX≈55 should no longer appear unless spot VIX actually approaches that level (GFC/COVID territory). Single code path means future VIX source changes require editing one file.
+
+---
+
+## ADR-025: Lead Agent Migration to GLM-5.2 via OpenAI-Compatible Endpoint
+
+**Status:** Accepted
+**Date:** 2026-07 (retroactive record — deployed 2026-07-08 in commit 4a92b26; flagged as missing by RECON_PRE_REMEDIATION_VERIFICATION.md Q4a)
+
+**Context:** ADR-017 established Claude (claude-sonnet-4-6) as the Lead Agent's reasoning engine via the Anthropic SDK. By mid-2026, open-weight models reached parity on agentic tool-use benchmarks at a fraction of the cost, and every other agent in the fleet (Tier 2b, Research Analyst, Fundamentals, Summarizers, Chat) already spoke the OpenAI protocol on Together AI. The Anthropic dependency was isolated to `services/llm_service.py`.
+
+**Decision:** Rewrite `llm_service.py` on `openai.AsyncOpenAI` against Together AI, defaulting to `zai-org/GLM-5.2` ($1.40/$4.40 per M tokens vs Sonnet's $3/$15). Tool definitions stay in Anthropic format in `lead_agent.py` and are translated in the service, keeping the migration surface to one file. The rewrite also made the client async (the sync Anthropic client was blocking the event loop) and made the $15/day cost cap durable across restarts (reloaded from `llm_usage_log`).
+
+**Provider swap is config-only:** `LLM_MODEL` / `LLM_BASE_URL` env vars point at any OpenAI-compatible endpoint (Together, Z.ai, or Anthropic's compatibility layer) — rollback requires no code change.
+
+**Consequences:** ~⅓ LLM cost at equivalent tool-calling quality (verified by smoke test before cutover). The switch happened mid-experiment and in the same deploy as the outcome-data repair, so model-era performance comparisons are confounded with label quality — recorded as amendment A2 in EXPERIMENT_CHARTER.md; `cycle_snapshots.llm_model` attributes every decision to its model.
+
+---
+
+## ADR-026: Outcome Integrity — Freeze-at-Decision, Append-Only Sweeps, Status Taxonomy
+
+**Status:** Accepted
+**Date:** 2026-07
+
+**Context:** The July 2026 audits found the research substrate was quietly corrupting itself: (1) the reconciler stamped unfilled expired ORDERS as `expired`, which the labeler read as options expiring worthless — fabricating 91% of reported PnL; (2) a close loop bought 1,297 contracts of a put the system sold 1 of, because buy-to-close never checked position direction; (3) tier2a sweeps DELETE+reinserted the day's observations 3×/day, destroying the signal snapshots trades were decided on — 6 of the first 10 funnel training labels carried provably wrong-sweep features; (4) the labeler's observation join had no lower time bound.
+
+**Decision (shipped across PRs #1 and #2):**
+1. **Status taxonomy:** unfilled expired orders become `order_expired`, distinct from option expiry. Labeler only labels filled entry trades, from fill prices.
+2. **Safety guards:** workers refuse buy-to-close on non-short positions and skip when an open close order exists at the broker.
+3. **Freeze-at-decision:** `log_trade` copies the tier-2 observation (id + analysis) and sleeve onto every entry trade at write time; the labeler prefers this snapshot, and its fallback join is bounded to [decision−1d, decision] with unknown (NULL) — never silently-false — funnel attribution.
+4. **Append-only sweeps:** `name_observations.sweep_id` (sortable; latest = MAX) replaces delete-rewrite; unique index (sweep_id, symbol, tier) gives idempotent re-runs; all readers use latest-sweep or one-sweep-per-day semantics via `services/sweep_utils.py`. Tier2b reasoning moved to write-once dedicated columns.
+5. **Continuous verification:** nightly broker reconciliation cross-checks DB against Alpaca and publishes drift; conflict-resolution verdicts persist to `agent_actions`; structured judgment envelopes ride beside prose on every LLM decision.
+6. **Honest learner:** one sample per decision (not per contract), 6 contaminated outcome ids excluded, 50-clean-sample gate before any weight proposal.
+
+**Consequences:** Training labels reflect what decisions actually saw; history can no longer be silently destroyed or laundered; integrity drift surfaces within a day. The clean-label era starts 2026-07-12 with effective n=4 — the honest baseline the experiment evaluates from (charter amendments A1–A3).
