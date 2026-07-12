@@ -78,16 +78,40 @@ class OrderReconciler:
                         except (ValueError, AttributeError):
                             pass
 
-                    async with AsyncSessionLocal() as session:
-                        stmt = (
-                            update(Trade)
-                            .where(Trade.id == trade.id)
-                            .values(
-                                status="filled",
-                                price=fill_price or trade.price,
-                                notes=(trade.notes or "") + f" | Filled @ ${fill_price} at {filled_at_str}",
+                    # A falsy fill price must not silently masquerade the
+                    # submission limit as a fill.
+                    price_note = ""
+                    if fill_price is None:
+                        price_note = " (NO FILL PRICE FROM BROKER — price is limit)"
+
+                    values = {
+                        "status": "filled",
+                        "price": fill_price if fill_price is not None else trade.price,
+                        "fill_price": fill_price,
+                        "filled_at": filled_at,
+                        "notes": (trade.notes or "")
+                        + f" | Filled @ ${fill_price} at {filled_at_str}{price_note}",
+                    }
+                    # Close legs carry a quote-time PnL estimate from the
+                    # worker; true it up from the actual fill.
+                    if (
+                        trade.trade_type == "buy_to_close"
+                        and fill_price is not None
+                        and trade.premium is not None
+                    ):
+                        # premium on a BTC row is the entry price captured at
+                        # close-submit time (pos.entry_price is not stored);
+                        # workers set pnl=(entry-est_buy)*qty*100 — recompute
+                        # with the same entry basis and the REAL buy price.
+                        est_buy = float(trade.price or 0)
+                        if trade.pnl is not None and est_buy > 0:
+                            entry_basis = float(trade.pnl) / (abs(trade.quantity or 1) * 100) + est_buy
+                            values["pnl"] = round(
+                                (entry_basis - float(fill_price)) * abs(trade.quantity or 1) * 100, 2
                             )
-                        )
+
+                    async with AsyncSessionLocal() as session:
+                        stmt = update(Trade).where(Trade.id == trade.id).values(**values)
                         await session.execute(stmt)
                         await session.commit()
 
@@ -99,6 +123,37 @@ class OrderReconciler:
 
                 elif status in ("rejected", "cancelled", "canceled", "expired"):
                     reject_reason = order.get("reject_reason") or status
+                    filled_qty = int(order.get("filled_qty") or 0)
+
+                    if filled_qty > 0:
+                        # Terminal order with a partial fill: record the fill,
+                        # don't erase it. Paper-mode partials are unobserved
+                        # to date (see RECON_PRE_REMEDIATION_VERIFICATION 5b)
+                        # so mark as estimated.
+                        fill_price = order.get("filled_avg_price")
+                        async with AsyncSessionLocal() as session:
+                            stmt = (
+                                update(Trade)
+                                .where(Trade.id == trade.id)
+                                .values(
+                                    status="partially_filled",
+                                    quantity=filled_qty,
+                                    fill_price=fill_price,
+                                    price=fill_price if fill_price is not None else trade.price,
+                                    notes=(trade.notes or "")
+                                    + f" | PARTIAL FILL {filled_qty}/{trade.quantity} @ ${fill_price} "
+                                    f"then order {status} (estimated — paper mode)",
+                                )
+                            )
+                            await session.execute(stmt)
+                            await session.commit()
+                        summary["filled"] += 1
+                        logger.warning(
+                            f"[Reconciler] Partial fill on {status} order: "
+                            f"{trade.option_symbol} {filled_qty}/{trade.quantity} @ ${fill_price}"
+                        )
+                        continue
+
                     # An ORDER that expired unfilled is not an OPTION that
                     # expired worthless. Store it as a distinct status so the
                     # outcome labeler never counts unfilled orders as wins.

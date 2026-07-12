@@ -14,7 +14,7 @@ The JSONB 'analysis' column stores free-form diagnostic data, signal
 breakdowns, and tier-specific analysis that doesn't benefit from
 column-level queries.
 """
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text
 from sqlalchemy import JSON
 from sqlalchemy.sql import func
 
@@ -31,6 +31,9 @@ class NameObservation(Base):
     symbol = Column(String(16), index=True, nullable=False)
     sleeve_id = Column(String(32), index=True, nullable=True)
     tier = Column(Integer, nullable=False, index=True)
+    # Append-only sweeps: sortable id ("YYYYMMDDTHHMMSS-t<tier>-<suffix>");
+    # "latest sweep" = MAX(sweep_id). NULL on legacy (pre-migration) rows.
+    sweep_id = Column(String(48), index=True, nullable=True)
 
     # ── Basic snapshot metrics ─────────────────────────────────
     price = Column(Float)
@@ -56,4 +59,10 @@ class NameObservation(Base):
     rejection_reason = Column(String(256))
 
     # ── Full per-name analysis (free-form JSONB) ───────────────
+    # Written once by tier2a and never mutated. Tier2b reasoning lives in its
+    # own columns below (legacy rows may still carry analysis["tier2b_reasoning"]).
     analysis = Column(JSON)
+
+    # ── Tier 2b LLM reasoning (write-once) ─────────────────────
+    tier2b_reasoning = Column(Text, nullable=True)
+    tier2b_reasoned_at = Column(DateTime(timezone=True), nullable=True)

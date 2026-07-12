@@ -15,6 +15,9 @@ class BaseAgent(ABC):
         self.is_active = True
         self.last_run = None
         self.assigned_securities = []
+        # Set by LeadAgent._execute_action for the duration of a targeted
+        # open action so entry trades carry sleeve attribution.
+        self.current_sleeve_id = None
 
     @abstractmethod
     async def scan(self) -> list[dict]:

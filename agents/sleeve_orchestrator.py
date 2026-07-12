@@ -221,7 +221,8 @@ class SleeveOrchestrator:
     # ── Tier 2 loading + filtering ───────────────────────────────
 
     async def _load_all_promotions(self) -> list[dict]:
-        """Load all today's Tier 2 promoted observations."""
+        """Load the latest Tier 2 sweep's promoted observations."""
+        from services.sweep_utils import latest_sweep_subq
         today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         try:
             async with AsyncSessionLocal() as session:
@@ -230,6 +231,7 @@ class SleeveOrchestrator:
                     .where(NameObservation.tier == 2)
                     .where(NameObservation.was_considered == True)
                     .where(NameObservation.timestamp >= today_start)
+                    .where(NameObservation.sweep_id == latest_sweep_subq(2, today_start))
                     .order_by(NameObservation.composite_score.desc())
                 )
                 rows = list(result.scalars().all())
@@ -249,7 +251,7 @@ class SleeveOrchestrator:
                     "signals_fired": analysis.get("signals_fired", 0),
                     "firing_rules": firing,
                     "amplification_applied": analysis.get("amplification_applied", 1.0),
-                    "analyst_reasoning": analysis.get("tier2b_reasoning"),
+                    "analyst_reasoning": obs.tier2b_reasoning or analysis.get("tier2b_reasoning"),
                     "_analysis": analysis,  # Full analysis for conflict resolution
                 })
             return promotions
@@ -395,19 +397,29 @@ class SleeveOrchestrator:
 ## Output
 For each candidate, decide: open a new position, or pass. Include an estimated_edge (0.50-0.95) for each trade you propose — your confidence that this trade will be profitable. This estimate is captured for calibration but does NOT affect sizing.
 
-End with a JSON action block:
+End with a single JSON block containing your actions AND a structured judgment envelope:
 ```json
-[
-  {{"action": "open_csp", "symbol": "AAPL", "delta": {config.delta_target}, "dte_target": {(dte_min + dte_max) // 2}, "contracts": 1, "estimated_edge": 0.72, "reason": "..."}},
-  {{"action": "no_action", "reason": "No compelling setups for this sleeve today"}}
-]
+{{
+  "actions": [
+    {{"action": "open_csp", "symbol": "AAPL", "delta": {config.delta_target}, "dte_target": {(dte_min + dte_max) // 2}, "contracts": 1, "estimated_edge": 0.72, "reason": "..."}},
+    {{"action": "no_action", "reason": "No compelling setups for this sleeve today"}}
+  ],
+  "envelope": {{
+    "verdict": "one_entry",
+    "one_liner": "One high-IV setup fits this sleeve's thesis; passing on the rest.",
+    "factors": [{{"signal": "iv_rank_delta", "direction": "bullish", "weight": 0.5}}],
+    "confidence": 0.65
+  }}
+}}
 ```
 
 Valid actions: "close", "hold", "roll", "open_csp", "open_cc", "open_wheel", "no_action"
 
+The envelope is your machine-readable judgment for this sleeve: verdict is a short snake_case stance label, one_liner the dashboard summary, factors the driving signals with direction/weight, confidence 0-1.
+
 Be specific. Explain your reasoning before the JSON block."""
 
-    async def _resolve_conflict_via_llm(self, symbol: str, claims: list[dict], all_signals: dict) -> str:
+    async def _resolve_conflict_via_llm(self, symbol: str, claims: list[dict], all_signals: dict) -> dict:
         """
         LLM-judged conflict resolution for contested names.
 
@@ -415,9 +427,15 @@ Be specific. Explain your reasoning before the JSON block."""
         reasoning — the experiment needs this resolved by thesis-fit analysis,
         not a priority table that pre-assumes which sleeve should handle which
         setup type.
+
+        Returns a verdict dict {winner, verdict_text, model, latency_ms} —
+        winner is None when the LLM was unavailable, unmatched, or errored.
+        The full dict is returned (not just the winner) so failures are
+        persisted too; they are the most audit-relevant verdicts.
         """
+        verdict = {"winner": None, "verdict_text": None, "model": None, "latency_ms": None}
         if not self.lead.llm_service or not self.lead.llm_service.is_enabled:
-            return None  # Caller falls back to load-balance
+            return verdict  # Caller falls back to load-balance
 
         signals = all_signals.get(symbol, {})
         sleeve_descriptions = []
@@ -440,23 +458,29 @@ Signal profile for {symbol}:
 Which sleeve's thesis better explains why this specific setup is an opportunity right now? Respond with ONLY the sleeve name, nothing else. Choose based on which edge source is the primary driver for this particular setup."""
 
         try:
+            from datetime import datetime as _dt
             from openai import AsyncOpenAI
             from config.settings import settings as app_settings
             together_key = app_settings.together_api_key
             if not together_key:
                 logger.warning("[Orchestrator] TOGETHER_API_KEY not set — skipping LLM conflict resolution")
-                return None
+                return verdict
             client = AsyncOpenAI(
                 api_key=together_key,
                 base_url="https://api.together.xyz/v1",
             )
+            model = "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+            started = _dt.utcnow()
             response = await client.chat.completions.create(
-                model="meta-llama/Llama-3.3-70B-Instruct-Turbo",
+                model=model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=50,
                 temperature=0.1,
             )
             answer = response.choices[0].message.content.strip().lower()
+            verdict["verdict_text"] = answer
+            verdict["model"] = model
+            verdict["latency_ms"] = int((_dt.utcnow() - started).total_seconds() * 1000)
 
             # Match the answer to a sleeve_id
             for c in claims:
@@ -464,14 +488,16 @@ Which sleeve's thesis better explains why this specific setup is an opportunity 
                 cfg = self.sleeve_configs.get(sid)
                 if sid in answer or (cfg and cfg.name.lower() in answer):
                     logger.info(f"[Orchestrator] LLM conflict resolution on {symbol}: {sid}")
-                    return sid
+                    verdict["winner"] = sid
+                    return verdict
 
             logger.warning(f"[Orchestrator] LLM conflict response didn't match sleeves: '{answer}'")
-            return None
+            return verdict
 
         except Exception as e:
             logger.warning(f"[Orchestrator] LLM conflict resolution failed for {symbol}: {e}")
-            return None
+            verdict["verdict_text"] = f"error: {e}"
+            return verdict
 
     # ── Consolidation ────────────────────────────────────────────
 
@@ -518,23 +544,65 @@ Which sleeve's thesis better explains why this specific setup is an opportunity 
 
                 # Try deterministic resolution first (ETF-only)
                 winner = _resolve_conflict_deterministic(symbol, sleeve_infos, all_signals)
+                resolution_mode = "deterministic_etf" if winner else None
+                llm_verdict = None
 
                 if winner is None:
                     # Contested — use LLM consolidation for research integrity
-                    winner = await self._resolve_conflict_via_llm(symbol, claims, all_signals)
+                    llm_verdict = await self._resolve_conflict_via_llm(symbol, claims, all_signals)
+                    winner = llm_verdict.get("winner")
+                    if winner:
+                        resolution_mode = "llm_judged"
 
                 if winner is None:
                     # LLM failed or unavailable — load-balance tiebreaker
                     min_pos = min(sleeve_infos, key=lambda s: s.get("position_count", 0))
                     winner = min_pos["sleeve_id"]
+                    resolution_mode = "fallback_load_balance"
                     logger.info(f"[Orchestrator] Conflict on {symbol}: load-balance → {winner}")
 
+                losers = [s["sleeve_id"] for s in sleeve_infos if s["sleeve_id"] != winner]
                 for c in claims:
                     if c["sleeve_id"] == winner:
                         resolved.append(c)
-                        losers = [s["sleeve_id"] for s in sleeve_infos if s["sleeve_id"] != winner]
                         logger.info(f"[Orchestrator] Conflict on {symbol}: {winner} wins over {losers}")
                         break
+
+                # Persist the verdict — the resolver exists for auditability,
+                # and a verdict that lives only in container logs defeats it.
+                signals = all_signals.get(symbol, {})
+                await self._log_action(
+                    "conflict_resolved",
+                    outcome=winner,
+                    reason=f"{resolution_mode} on {symbol}",
+                    payload={
+                        "symbol": symbol,
+                        "contested_symbol": symbol,
+                        "resolution_mode": resolution_mode,
+                        "competitors": [
+                            {
+                                "sleeve_id": c["sleeve_id"],
+                                "one_liner": c["action"].get("reason"),
+                                "estimated_edge": c["action"].get("estimated_edge"),
+                                "position_count": next(
+                                    (s["position_count"] for s in sleeve_infos
+                                     if s["sleeve_id"] == c["sleeve_id"]), None),
+                            }
+                            for c in claims
+                        ],
+                        "winner": winner,
+                        "losers": losers,
+                        "signals_fired": [
+                            n for n, s in signals.items()
+                            if isinstance(s, dict) and s.get("fired") and not n.startswith("_")
+                        ],
+                        "asset_type": signals.get("_asset_type"),
+                        "verdict_text": llm_verdict.get("verdict_text") if llm_verdict else None,
+                        "model": llm_verdict.get("model") if llm_verdict else None,
+                        "latency_ms": llm_verdict.get("latency_ms") if llm_verdict else None,
+                        "schema_version": 1,
+                    },
+                )
 
         # Include close/roll/hold actions (they don't conflict)
         for entry in all_proposed:
@@ -616,6 +684,13 @@ Which sleeve's thesis better explains why this specific setup is an opportunity 
                     "actions": all_actions_list,
                     "risk_rejected": rejected,
                     "elapsed_seconds": elapsed,
+                    # Per-sleeve structured judgments — replaces digging
+                    # verdicts out of the "=== sid ===" reasoning blob
+                    "sleeve_envelopes": {
+                        sid: d.get("envelope")
+                        for sid, d in sleeve_decisions.items()
+                        if d.get("envelope")
+                    },
                 },
             )
             logger.info(f"[Orchestrator] CycleSnapshot written ({total_tokens_in} in / {total_tokens_out} out)")

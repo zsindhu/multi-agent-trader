@@ -317,6 +317,7 @@ class CoveredCallWorker(BaseAgent):
                               f"ann_ret={trade['annualized_return']:.1f}%, "
                               f"downside_prot={trade['downside_protection']:.1f}%",
                         order_id=trade.get("order_id"),
+                        sleeve_id=self.current_sleeve_id,
                     )
 
                 # Gather additional entry context

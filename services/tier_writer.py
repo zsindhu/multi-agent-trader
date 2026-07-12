@@ -11,10 +11,10 @@ logic lives in the loader/scanner that produces the data.
 from datetime import datetime, timezone
 from typing import Optional
 from loguru import logger
-from sqlalchemy import delete
 
 from core.database import AsyncSessionLocal
 from models.name_observation import NameObservation
+from services.sweep_utils import new_sweep_id
 
 
 async def write_tier1_observations(
@@ -25,36 +25,25 @@ async def write_tier1_observations(
     """
     Write a complete Tier 1 universe sweep to name_observations.
 
-    First clears any existing tier=1 rows from today's date (so a re-run
-    of the universe loader replaces the previous sweep instead of
-    accumulating duplicates), then inserts new rows for both passed and
-    rejected names.
+    Append-only: every run is stamped with a fresh sweep_id; prior rows are
+    preserved and readers select the latest sweep (services/sweep_utils).
 
     Returns:
         {"passed_written": int, "rejected_written": int, "errors": int}
     """
     summary = {"passed_written": 0, "rejected_written": 0, "errors": 0}
+    sweep_id = new_sweep_id(tier=1)
 
     try:
         async with AsyncSessionLocal() as session:
-            # Step 1: Clear today's existing tier 1 rows so re-runs replace
-            today_start = datetime.now(timezone.utc).replace(
-                hour=0, minute=0, second=0, microsecond=0
-            )
-            await session.execute(
-                delete(NameObservation).where(
-                    NameObservation.tier == 1,
-                    NameObservation.timestamp >= today_start,
-                )
-            )
-
-            # Step 2: Insert passed names (was_considered=True)
+            # Insert passed names (was_considered=True)
             for name_data in passed:
                 try:
                     obs = NameObservation(
                         cycle_snapshot_id=cycle_snapshot_id,
                         symbol=name_data["symbol"],
                         tier=1,
+                        sweep_id=sweep_id,
                         price=name_data.get("price"),
                         daily_volume=name_data.get("avg_volume_20d"),
                         market_cap=name_data.get("market_cap"),
@@ -81,13 +70,14 @@ async def write_tier1_observations(
                     logger.error(f"[TierWriter] Failed to write passed name {name_data.get('symbol')}: {e}")
                     summary["errors"] += 1
 
-            # Step 3: Insert rejected names (was_considered=False, with reason)
+            # Insert rejected names (was_considered=False, with reason)
             for name_data in rejected:
                 try:
                     obs = NameObservation(
                         cycle_snapshot_id=cycle_snapshot_id,
                         symbol=name_data["symbol"],
                         tier=1,
+                        sweep_id=sweep_id,
                         price=name_data.get("price"),
                         daily_volume=name_data.get("avg_volume_20d"),
                         market_cap=name_data.get("market_cap"),

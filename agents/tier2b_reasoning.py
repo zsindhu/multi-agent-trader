@@ -18,7 +18,6 @@ import json
 import math
 import re
 from datetime import datetime, timezone
-from sqlalchemy.orm.attributes import flag_modified
 from typing import Optional
 
 import yaml
@@ -108,7 +107,9 @@ class Tier2bReasoning(BaseAgent):
         await self._log_action("tier2b_sweep_started", "in_progress", None, {"dry_run": dry_run})
         logger.info(f"[Tier2b] Sweep starting (dry_run={dry_run})")
 
-        # Step 1: Get current Tier 2a promoted names
+        # Step 1: Get the latest Tier 2a sweep's promoted names (sweeps are
+        # append-only — earlier sweeps' rows survive and must not be re-reasoned)
+        from services.sweep_utils import latest_sweep_subq
         try:
             async with AsyncSessionLocal() as session:
                 result = await session.execute(
@@ -116,6 +117,7 @@ class Tier2bReasoning(BaseAgent):
                     .where(NameObservation.tier == 2)
                     .where(NameObservation.was_considered == True)
                     .where(NameObservation.timestamp >= cycle_start)
+                    .where(NameObservation.sweep_id == latest_sweep_subq(2, cycle_start))
                     .order_by(NameObservation.composite_score.desc())
                 )
                 promotions = list(result.scalars().all())
@@ -316,11 +318,18 @@ class Tier2bReasoning(BaseAgent):
 
     async def _update_observations(self, reasoning_map: dict[str, str], cycle_start: datetime) -> int:
         """
-        Update analysis JSON for Tier 2a observations to add tier2b_reasoning.
-        Only touches rows from the current cycle (belt-and-suspenders).
+        Write tier2b reasoning to its dedicated columns on the current
+        sweep's rows.
+
+        Write-once: rows that already carry reasoning are skipped, so a
+        failed re-run can never replace good reasoning with a failure
+        marker. The tier2a `analysis` JSONB is never mutated — it is the
+        frozen mechanical snapshot the outcome labeler depends on.
         """
         if not reasoning_map:
             return 0
+
+        from services.sweep_utils import latest_sweep_subq
 
         written = 0
         try:
@@ -332,14 +341,19 @@ class Tier2bReasoning(BaseAgent):
                         .where(NameObservation.was_considered == True)
                         .where(NameObservation.symbol == symbol)
                         .where(NameObservation.timestamp >= cycle_start)
+                        .where(NameObservation.sweep_id == latest_sweep_subq(2, cycle_start))
+                        .order_by(NameObservation.timestamp.desc())
                         .limit(1)
                     )
                     row = result.scalar_one_or_none()
                     if row:
-                        existing = row.analysis or {}
-                        existing["tier2b_reasoning"] = reasoning
-                        row.analysis = existing
-                        flag_modified(row, "analysis")
+                        if row.tier2b_reasoning is not None:
+                            logger.debug(
+                                f"[Tier2b] {symbol} already has reasoning — not overwriting"
+                            )
+                            continue
+                        row.tier2b_reasoning = reasoning
+                        row.tier2b_reasoned_at = datetime.now(timezone.utc)
                         written += 1
 
                 await session.commit()

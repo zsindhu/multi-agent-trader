@@ -280,6 +280,49 @@ validated edge.
 
 ---
 
+## PROPOSED — Integrity Sentinel (data-integrity compliance agent)
+
+*Added 2026-07-11 after the phantom-outcome audit and the structured-data
+remediation. Operator-proposed; scoped here for a future build slot.*
+
+**Thesis:** every data-integrity failure this project has hit (phantom
+expired-order wins, runaway buy-to-close, tier2a sweeps destroying traded-on
+snapshots, wrong-sweep labels, dead `strategy_insights` table, unfilled
+experiment charter) was **invariant-checkable at write time or within one
+day** — but each was found by a manual audit months later. The Integrity
+Sentinel makes the audits continuous.
+
+**Design principles:**
+1. **Mechanical checks first, LLM second.** The nightly broker reconciliation
+   job (shipped 2026-07-08) is the template: deterministic invariant checks
+   with persisted reports. The LLM's role is triage and narrative ("these 3
+   new discrepancies share a root cause"), never detection.
+2. **Invariants as code, versioned with the schema.** Each check is a small
+   function with an ID, severity, and ADR/recon reference.
+3. **Reports are append-only** (`agent_messages` payload or its own table)
+   and surfaced on the dashboard next to the reconciliation panel.
+
+**Starter invariant set** (each one would have caught a real past incident):
+- Broker↔DB: every filled order has a trade row with matching fill price/qty;
+  no unintended long option positions (runaway-close class)
+- Label provenance: every funnel_driven outcome's `name_observation_id`
+  resolves and its timestamp ≤ trade decision time (wrong-sweep class)
+- Append-only compliance: row counts in research tables never decrease
+  day-over-day except via whitelisted revision paths (repair-script class)
+- Referential liveness: every table the lead agent's prompt claims to read
+  has a writer that has written within N days (dead-strategy_insights class)
+- Snapshot completeness: % of entry trades carrying signal_snapshot +
+  sleeve_id (freeze-at-decision regression watch)
+- Schema-doc drift: chat agent SCHEMA_CONTEXT column list vs information_schema
+- Envelope adoption: % of cycle_snapshots with non-degraded envelopes
+- Charter compliance: experiment amendments recorded within 7 days of
+  config/model changes (uncontrolled-variable class)
+
+**Effort estimate:** ~2 days for the harness + first 6 invariants (most reuse
+`broker_reconciliation.py` patterns); LLM triage layer ~1 day, optional.
+
+---
+
 ## Cost projections (updated 2026-05-11)
 
 With cron scheduling (3 cycles/day x 4 sleeves):
