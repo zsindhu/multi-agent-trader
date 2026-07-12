@@ -267,21 +267,34 @@ class OutcomeLabeler:
         # Underlying return during holding period
         underlying_return = await self._compute_underlying_return(trade, btc_trade=btc_trade)
 
-        # Join to name_observations (funnel-driven trades only)
+        # Signal provenance. Preferred source: the snapshot frozen onto the
+        # trade at decision time (log_trade). Fallback: a bounded join for
+        # legacy trades or snapshot misses. funnel_driven semantics:
+        #   True  = post-cutover with observation evidence
+        #   False = pre-cutover (evidence of non-funnel origin)
+        #   None  = post-cutover but no surviving evidence — unknown, NOT False
         obs_id = None
         signal_profile = None
         trade_date = trade.created_at.date() if trade.created_at else None
-        funnel_driven = trade_date is not None and trade_date >= FUNNEL_CUTOVER
+        post_cutover = trade_date is not None and trade_date >= FUNNEL_CUTOVER
 
-        if funnel_driven and trade_date:
-            obs_id, signal_profile = await self._find_observation(trade.symbol, trade_date)
-            if obs_id is None:
-                funnel_driven = False  # No matching observation found
+        if not post_cutover:
+            funnel_driven = False
+        elif getattr(trade, "name_observation_id", None) is not None:
+            obs_id = trade.name_observation_id
+            signal_profile = trade.signal_snapshot
+            funnel_driven = True
+        else:
+            obs_id, signal_profile = await self._find_observation(
+                trade.symbol, trade.created_at
+            )
+            funnel_driven = True if obs_id is not None else None
 
         return TradeOutcome(
             trade_id=trade.id,
             name_observation_id=obs_id,
             funnel_driven=funnel_driven,
+            sleeve_id=getattr(trade, "sleeve_id", None),
             outcome=outcome,
             pnl_dollars=round(pnl_dollars, 2) if pnl_dollars is not None else None,
             pnl_percent=round(pnl_percent, 2) if pnl_percent is not None else None,
@@ -301,8 +314,8 @@ class OutcomeLabeler:
         """
         # Round-trip trade: sold premium - bought premium, from fill prices.
         if btc_trade is not None:
-            sell_fill = float(trade.price or trade.premium or 0)
-            buy_fill = float(btc_trade.price or btc_trade.premium or 0)
+            sell_fill = float(trade.fill_price or trade.price or trade.premium or 0)
+            buy_fill = float(btc_trade.fill_price or btc_trade.price or btc_trade.premium or 0)
             # Cap at the smaller leg: an oversized close leg must not multiply
             # the entry's PnL.
             qty = min(abs(trade.quantity or 1), abs(btc_trade.quantity or 1))
@@ -314,7 +327,7 @@ class OutcomeLabeler:
                 return float(btc_trade.pnl)
             return None
 
-        premium = float(trade.price or trade.premium or 0)
+        premium = float(trade.fill_price or trade.price or trade.premium or 0)
         qty = abs(trade.quantity or 1)
 
         # Filled entry whose option expired with no closing fill.
@@ -339,7 +352,7 @@ class OutcomeLabeler:
 
     def _compute_premium_at_risk(self, trade: Trade) -> Optional[float]:
         """Compute the premium/collateral at risk for percentage calculation."""
-        premium = float(trade.price or trade.premium or 0)
+        premium = float(trade.fill_price or trade.price or trade.premium or 0)
         qty = abs(trade.quantity or 1)
         strike = float(trade.strike or 0)
 
@@ -428,17 +441,29 @@ class OutcomeLabeler:
 
         return None
 
-    async def _find_observation(self, symbol: str, trade_date: date) -> tuple:
-        """Find the Tier 2 observation that led to this trade."""
+    async def _find_observation(self, symbol: str, decided_at: Optional[datetime]) -> tuple:
+        """
+        Fallback lookup for trades without a frozen decision snapshot.
+
+        Bounded to [decision - 1 day, decision]: the old unbounded join
+        matched observations from sweeps HOURS AFTER the decision (6 of the
+        first 10 funnel labels were provably wrong-sweep) or from arbitrary
+        prior days. An empty window returns (None, None) — the caller labels
+        funnel_driven as unknown, never silently False.
+        """
+        if decided_at is None:
+            return None, None
         try:
-            trade_datetime = datetime.combine(trade_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+            decided_utc = decided_at.replace(tzinfo=timezone.utc) if decided_at.tzinfo is None else decided_at
+            window_start = decided_utc - timedelta(days=1)
             async with AsyncSessionLocal() as session:
                 result = await session.execute(
                     select(NameObservation)
                     .where(NameObservation.symbol == symbol)
                     .where(NameObservation.tier == 2)
                     .where(NameObservation.was_considered == True)
-                    .where(NameObservation.timestamp <= trade_datetime + timedelta(days=1))
+                    .where(NameObservation.timestamp >= window_start)
+                    .where(NameObservation.timestamp <= decided_utc)
                     .order_by(NameObservation.timestamp.desc())
                     .limit(1)
                 )

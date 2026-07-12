@@ -28,7 +28,7 @@ from typing import Optional
 
 import yaml
 from loguru import logger
-from sqlalchemy import select, delete, func as sa_func
+from sqlalchemy import select, func as sa_func
 
 from agents.base_agent import BaseAgent
 from core.database import AsyncSessionLocal
@@ -103,7 +103,10 @@ class Tier2aPrefilter(BaseAgent):
         await self._log_action("tier2a_sweep_started", "in_progress", None, {"dry_run": dry_run})
         logger.info(f"[Tier2a] Sweep starting (dry_run={dry_run})")
 
-        # Step 1: Get today's Tier 1 passes (include daily_dollar_volume for liquidity floor)
+        # Step 1: Get the latest Tier 1 sweep's passes (include
+        # daily_dollar_volume for liquidity floor). Sweeps are append-only —
+        # filter to the newest sweep_id, not all of today's rows.
+        from services.sweep_utils import latest_sweep_subq
         today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         try:
             async with AsyncSessionLocal() as session:
@@ -115,6 +118,7 @@ class Tier2aPrefilter(BaseAgent):
                     .where(NameObservation.tier == 1)
                     .where(NameObservation.was_considered == True)
                     .where(NameObservation.timestamp >= today_start)
+                    .where(NameObservation.sweep_id == latest_sweep_subq(1, today_start))
                 )
                 tier1_rows = result.all()
         except Exception as e:
@@ -327,20 +331,14 @@ class Tier2aPrefilter(BaseAgent):
             f"{len(near_misses)} near-misses, {errors} errors"
         )
 
-        # Step 9: Write to name_observations
+        # Step 9: Write to name_observations. Append-only: each sweep gets a
+        # sweep_id and prior sweeps' rows are preserved (they used to be
+        # deleted here, which destroyed traded-on snapshots 3x/day — see
+        # RECON_PRE_REMEDIATION_VERIFICATION.md Q1). Readers select the
+        # latest sweep via services/sweep_utils.
         if not dry_run:
-            try:
-                async with AsyncSessionLocal() as session:
-                    await session.execute(
-                        delete(NameObservation).where(
-                            NameObservation.tier == 2,
-                            NameObservation.timestamp >= today_start,
-                        )
-                    )
-                    await session.commit()
-            except Exception as e:
-                logger.error(f"[Tier2a] Failed to clear old tier 2 rows: {e}")
-
+            from services.sweep_utils import new_sweep_id
+            self._current_sweep_id = new_sweep_id(tier=2)
             await self._write_observations(passed, "tier2a_pass", near_misses, all_rejected)
         else:
             total_obs = len(passed) + len(all_rejected) + len(near_misses)
@@ -803,6 +801,7 @@ class Tier2aPrefilter(BaseAgent):
         return NameObservation(
             symbol=scored["symbol"],
             tier=2,
+            sweep_id=getattr(self, "_current_sweep_id", None),
             price=scored.get("price"),
             daily_dollar_volume=scored.get("daily_dollar_volume"),
             composite_score=scored.get("total_score"),

@@ -142,14 +142,19 @@ class ResearchAnalyst:
         except Exception:
             pass
 
-        # Top 20 Tier 2 promoted names
+        # Top 20 Tier 2 promoted names (latest sweep only — append-only sweeps)
         try:
+            from services.sweep_utils import latest_sweep_subq
             async with AsyncSessionLocal() as session:
                 result = await session.execute(
-                    select(NameObservation.symbol, NameObservation.composite_score, NameObservation.analysis)
+                    select(
+                        NameObservation.symbol, NameObservation.composite_score,
+                        NameObservation.analysis, NameObservation.tier2b_reasoning,
+                    )
                     .where(NameObservation.tier == 2)
                     .where(NameObservation.was_considered == True)
                     .where(NameObservation.timestamp >= today_start)
+                    .where(NameObservation.sweep_id == latest_sweep_subq(2, today_start))
                     .order_by(NameObservation.composite_score.desc())
                     .limit(20)
                 )
@@ -160,7 +165,7 @@ class ResearchAnalyst:
                         analysis = p[2] or {}
                         signals = analysis.get("signals", {})
                         firing = [n for n, s in signals.items() if s.get("fired")]
-                        reasoning = analysis.get("tier2b_reasoning", "")[:80]
+                        reasoning = (p[3] or analysis.get("tier2b_reasoning") or "")[:80]
                         parts.append(f"  {p[0]} score={p[1]:.3f} signals={','.join(firing)} — {reasoning}")
         except Exception:
             pass

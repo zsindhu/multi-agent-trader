@@ -29,7 +29,11 @@ async def dashboard_status():
     today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
     async with AsyncSessionLocal() as session:
-        # Tier 1 / Tier 2 counts today
+        # Tier 1 / Tier 2 counts from each tier's LATEST sweep. Sweeps are
+        # append-only; counting all of today's rows would multiply by the
+        # number of sweeps run so far.
+        from sqlalchemy import or_, and_
+        from services.sweep_utils import latest_sweep_subq
         r = await session.execute(
             select(
                 NameObservation.tier,
@@ -37,6 +41,12 @@ async def dashboard_status():
                 sa_func.count(NameObservation.id),
             )
             .where(NameObservation.timestamp >= today_start)
+            .where(or_(
+                and_(NameObservation.tier == 1,
+                     NameObservation.sweep_id == latest_sweep_subq(1, today_start)),
+                and_(NameObservation.tier == 2,
+                     NameObservation.sweep_id == latest_sweep_subq(2, today_start)),
+            ))
             .group_by(NameObservation.tier, NameObservation.was_considered)
         )
         tier_counts = r.all()
@@ -137,6 +147,9 @@ async def dashboard_promotions(date_str: Optional[str] = Query(None, alias="date
     day_end = day_start + timedelta(days=1)
 
     async with AsyncSessionLocal() as session:
+        # Latest sweep of the requested day (legacy days have one sweep,
+        # dedup filter keeps them via the NULL branch)
+        from services.sweep_utils import sweep_dedup_filter
         r = await session.execute(
             select(NameObservation)
             .where(
@@ -145,6 +158,7 @@ async def dashboard_promotions(date_str: Optional[str] = Query(None, alias="date
                 NameObservation.timestamp >= day_start,
                 NameObservation.timestamp < day_end,
             )
+            .where(sweep_dedup_filter(2, day_start))
             .order_by(NameObservation.composite_score.desc())
             .limit(50)
         )
@@ -173,7 +187,7 @@ async def dashboard_promotions(date_str: Optional[str] = Query(None, alias="date
             "signals_fired": len(firing),
             "firing_rules": firing,
             "amplification": analysis.get("amplification_applied", 1.0),
-            "reasoning": analysis.get("tier2b_reasoning"),
+            "reasoning": obs.tier2b_reasoning or analysis.get("tier2b_reasoning"),
             "signals": signal_details,
             "sleeve_id": obs.sleeve_id,
             "timestamp": obs.timestamp.isoformat() if obs.timestamp else None,
@@ -188,6 +202,9 @@ async def dashboard_signals(days: int = Query(14, ge=1, le=90)):
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
     async with AsyncSessionLocal() as session:
+        # One sweep per day (latest) so firing rates aren't skewed toward
+        # days with more sweeps
+        from services.sweep_utils import sweep_dedup_filter
         r = await session.execute(
             select(NameObservation.analysis)
             .where(
@@ -195,6 +212,7 @@ async def dashboard_signals(days: int = Query(14, ge=1, le=90)):
                 NameObservation.was_considered == True,
                 NameObservation.timestamp >= cutoff,
             )
+            .where(sweep_dedup_filter(2, cutoff))
         )
         analyses = [row[0] for row in r.all() if row[0]]
 
@@ -324,7 +342,9 @@ async def dashboard_daily_stats(days: int = Query(30, ge=1, le=365)):
     cutoff_naive = datetime.utcnow() - timedelta(days=days)
 
     async with AsyncSessionLocal() as session:
-        # Daily promotion counts (NameObservation.timestamp is tz-aware)
+        # Daily promotion counts, deduped to each day's latest sweep
+        # (NameObservation.timestamp is tz-aware)
+        from services.sweep_utils import sweep_dedup_filter
         r = await session.execute(
             select(
                 cast(NameObservation.timestamp, Date).label("day"),
@@ -335,6 +355,7 @@ async def dashboard_daily_stats(days: int = Query(30, ge=1, le=365)):
                 NameObservation.was_considered == True,
                 NameObservation.timestamp >= cutoff_tz,
             )
+            .where(sweep_dedup_filter(2, cutoff_tz))
             .group_by("day")
             .order_by("day")
         )

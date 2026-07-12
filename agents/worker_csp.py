@@ -316,6 +316,7 @@ class CashSecuredPutWorker(BaseAgent):
                         notes=f"CSP: delta={trade['delta']:.2f}, DTE={trade['dte']}, "
                               f"ann_ret={trade['annualized_return']:.1f}%",
                         order_id=trade.get("order_id"),
+                        sleeve_id=self.current_sleeve_id,
                     )
 
                 # Gather additional entry context

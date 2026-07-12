@@ -33,8 +33,9 @@ Columns: id, agent_name, symbol, option_symbol, trade_type (sell_to_open/buy_to_
 ### trade_outcomes (ground truth — one row per completed trade)
 Columns: id, trade_id (FK→trades), name_observation_id (FK→name_observations), funnel_driven (bool), sleeve_id, outcome (win/loss/breakeven/pending), pnl_dollars, pnl_percent, holding_days, underlying_return, signal_profile (JSONB: {signals: {signal_name: {fired, raw, z_score}}}), estimated_edge, labeled_at
 
-### name_observations (Tier 1-2 scanning funnel)
-Columns: id, timestamp, cycle_snapshot_id, symbol, sleeve_id, tier (1=universe/2=promoted), price, daily_volume, market_cap, iv_rank, composite_score, avg_volume_20d, avg_volume_60d, asset_type, selection_reason, was_considered (bool), was_traded (bool), rejection_reason, analysis (JSONB: {signals: {...}, tier2b_reasoning: "...", amplification_applied: float})
+### name_observations (Tier 1-2 scanning funnel — APPEND-ONLY, multiple sweeps/day)
+Columns: id, timestamp, cycle_snapshot_id, symbol, sleeve_id, tier (1=universe/2=promoted), sweep_id (sortable "YYYYMMDDTHHMMSS-t<tier>-<hex>"; NULL on legacy rows), price, daily_volume, market_cap, iv_rank, composite_score, avg_volume_20d, avg_volume_60d, asset_type, selection_reason, was_considered (bool), was_traded (bool), rejection_reason, analysis (JSONB: {signals: {...}, amplification_applied: float}), tier2b_reasoning (text), tier2b_reasoned_at
+IMPORTANT: sweeps run up to 3x/day and rows are never deleted. Counting rows per day multiplies by sweep count — for "today's universe/promotions" filter to the LATEST sweep: sweep_id = (SELECT MAX(sweep_id) FROM name_observations WHERE tier = <tier> AND timestamp >= <day start>). For multi-day rates, take one sweep per day (MAX(sweep_id) grouped by date) and include legacy sweep_id IS NULL rows.
 
 ### cycle_snapshots (Lead Agent execution state per cycle)
 Columns: id, timestamp, regime, regime_confidence, vix_level, vix_direction, breadth_pct, spy_trend, credit_stress, equity, cash, buying_power, open_positions_count, unrealized_pnl, actions_decided, actions_executed, summary, reasoning, llm_tokens_in, llm_tokens_out, llm_cost_usd, llm_model, full_context (JSONB: {tool_calls, actions})

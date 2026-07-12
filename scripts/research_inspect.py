@@ -64,12 +64,14 @@ async def cmd_promotions(args):
     day_end = day_start + timedelta(days=1)
 
     async with AsyncSessionLocal() as session:
+        from services.sweep_utils import sweep_dedup_filter
         result = await session.execute(
             select(NameObservation)
             .where(NameObservation.tier == 2)
             .where(NameObservation.was_considered == True)
             .where(NameObservation.timestamp >= day_start)
             .where(NameObservation.timestamp < day_end)
+            .where(sweep_dedup_filter(2, day_start))
             .order_by(NameObservation.composite_score.desc())
             .limit(args.limit)
         )
@@ -82,7 +84,7 @@ async def cmd_promotions(args):
         analysis = obs.analysis or {}
         signals = analysis.get("signals", {})
         firing = [n for n, s in signals.items() if s.get("fired")]
-        reasoning = (analysis.get("tier2b_reasoning") or "")[:60]
+        reasoning = (obs.tier2b_reasoning or analysis.get("tier2b_reasoning") or "")[:60]
         amp = analysis.get("amplification_applied", 1.0)
 
         table_rows.append([
@@ -263,6 +265,8 @@ async def cmd_health(args):
 
         # Today's observation counts
         today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        from sqlalchemy import or_, and_
+        from services.sweep_utils import latest_sweep_subq
         r = await session.execute(
             select(
                 NameObservation.tier,
@@ -270,6 +274,12 @@ async def cmd_health(args):
                 sa_func.count(NameObservation.id),
             )
             .where(NameObservation.timestamp >= today_start)
+            .where(or_(
+                and_(NameObservation.tier == 1,
+                     NameObservation.sweep_id == latest_sweep_subq(1, today_start)),
+                and_(NameObservation.tier == 2,
+                     NameObservation.sweep_id == latest_sweep_subq(2, today_start)),
+            ))
             .group_by(NameObservation.tier, NameObservation.was_considered)
         )
         counts = r.all()

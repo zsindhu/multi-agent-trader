@@ -407,18 +407,30 @@ The playbook is how this system gets smarter over time. Every insight you write 
 CRITICAL: Do NOT wrap your entire response in a code fence (triple backticks). The JSON action block at the end should be in its own ```json fence, but the surrounding analysis text must be plain markdown.
 
 ## Output Format
-End your response with a JSON action block containing your specific instructions:
+End your response with a single JSON block containing your actions AND a structured judgment envelope:
 
 ```json
-[
-  {{"action": "close", "symbol": "AMD", "option_symbol": "AMD240425P00140000", "reason": "Earnings in 4 days, position underwater"}},
-  {{"action": "hold", "symbol": "SPY", "option_symbol": "SPY240418P00560000", "reason": "18 DTE, only 8% underwater, no catalysts"}},
-  {{"action": "open_csp", "symbol": "IWM", "delta": -0.20, "dte_target": 30, "contracts": 1, "reason": "Top Scanner pick, ETF, no earnings risk, risk-on regime"}},
-  {{"action": "no_action", "reason": "Risk-off regime, preserving capital until breadth recovers above 50%"}}
-]
+{{
+  "actions": [
+    {{"action": "close", "symbol": "AMD", "option_symbol": "AMD240425P00140000", "reason": "Earnings in 4 days, position underwater"}},
+    {{"action": "open_csp", "symbol": "IWM", "delta": -0.20, "dte_target": 30, "contracts": 1, "reason": "Top Scanner pick, ETF, no earnings risk, risk-on regime"}},
+    {{"action": "no_action", "reason": "Risk-off regime, preserving capital until breadth recovers above 50%"}}
+  ],
+  "envelope": {{
+    "verdict": "selective_entries",
+    "one_liner": "Risk-on regime with strong breadth; opening one ETF put, closing AMD ahead of earnings.",
+    "factors": [
+      {{"signal": "regime", "direction": "bullish", "weight": 0.4}},
+      {{"signal": "earnings_proximity_AMD", "direction": "bearish", "weight": 0.3}}
+    ],
+    "confidence": 0.7
+  }}
+}}
 ```
 
 Valid actions: "close", "hold", "roll", "open_csp", "open_cc", "open_wheel", "no_action", "pause_worker", "resume_worker"
+
+The envelope is your machine-readable judgment: verdict is a short snake_case label for the cycle's stance, one_liner is the dashboard summary sentence, factors are the signals that drove the decision with direction and rough weight, confidence is 0-1.
 
 Always explain your reasoning before the JSON block. The human operator reads your reasoning on the dashboard.
 
@@ -1055,12 +1067,14 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
         today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
 
         try:
+            from services.sweep_utils import latest_sweep_subq
             async with AsyncSessionLocal() as session:
                 result = await session.execute(
                     sa_select(NameObservation)
                     .where(NameObservation.tier == 2)
                     .where(NameObservation.was_considered == True)
                     .where(NameObservation.timestamp >= today_start)
+                    .where(NameObservation.sweep_id == latest_sweep_subq(2, today_start))
                     .order_by(NameObservation.composite_score.desc())
                     .limit(n)
                 )
@@ -1102,7 +1116,7 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
                     opp["earnings_days"] = ep["raw"]
 
                 # Include Tier 2b reasoning if available
-                reasoning = analysis.get("tier2b_reasoning")
+                reasoning = obs.tier2b_reasoning or analysis.get("tier2b_reasoning")
                 if reasoning:
                     opp["analyst_reasoning"] = reasoning
 
@@ -1167,12 +1181,17 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
                 # (avoids re-running manage_positions for all existing positions)
                 prev_assigned = worker.assigned_securities
                 worker.assigned_securities = [symbol]
+                # Sleeve attribution rides the same pattern: only the action
+                # dict knows the sleeve (orchestrator sets it; legacy actions
+                # don't), and the worker passes it through to the trade row.
+                worker.current_sleeve_id = action.get("sleeve_id")
                 try:
                     opportunities = await worker.scan()
                     trades = await worker.evaluate(opportunities)
                     await worker.execute(trades)
                 finally:
                     worker.assigned_securities = prev_assigned
+                    worker.current_sleeve_id = None
             return
 
         if action_type == "pause_worker":
@@ -1346,6 +1365,7 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
                 full_context={
                     "tool_calls": decision.get("tool_calls", []),
                     "actions": decision.get("actions", []),
+                    "envelope": decision.get("envelope"),
                 },
             )
 

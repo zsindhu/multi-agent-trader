@@ -63,10 +63,18 @@ async def research_dashboard():
     parts = []
 
     async with AsyncSessionLocal() as session:
-        # Tier counts today
+        # Tier counts from each tier's latest sweep (append-only sweeps)
+        from sqlalchemy import or_, and_
+        from services.sweep_utils import latest_sweep_subq
         r = await session.execute(
             select(NameObservation.tier, NameObservation.was_considered, sa_func.count(NameObservation.id))
             .where(NameObservation.timestamp >= today_start)
+            .where(or_(
+                and_(NameObservation.tier == 1,
+                     NameObservation.sweep_id == latest_sweep_subq(1, today_start)),
+                and_(NameObservation.tier == 2,
+                     NameObservation.sweep_id == latest_sweep_subq(2, today_start)),
+            ))
             .group_by(NameObservation.tier, NameObservation.was_considered)
         )
         tier_counts = r.all()
@@ -101,9 +109,11 @@ async def research_dashboard():
     parts.append("<h2>Top 15 Promotions Today</h2>")
 
     async with AsyncSessionLocal() as session:
+        from services.sweep_utils import latest_sweep_subq
         r = await session.execute(
             select(NameObservation)
             .where(NameObservation.tier == 2, NameObservation.was_considered == True, NameObservation.timestamp >= today_start)
+            .where(NameObservation.sweep_id == latest_sweep_subq(2, today_start))
             .order_by(NameObservation.composite_score.desc()).limit(15)
         )
         promos = list(r.scalars().all())
@@ -114,7 +124,7 @@ async def research_dashboard():
             analysis = p.analysis or {}
             signals = analysis.get("signals", {})
             firing = [n for n, s in signals.items() if s.get("fired")]
-            reasoning = (analysis.get("tier2b_reasoning") or "—")[:100]
+            reasoning = (p.tier2b_reasoning or analysis.get("tier2b_reasoning") or "—")[:100]
             parts.append(f"<tr><td>{p.symbol}</td><td>{p.composite_score or 0:.4f}</td><td>{', '.join(firing[:3])}</td><td>{reasoning}</td></tr>")
         parts.append("</table>")
     else:
@@ -143,9 +153,11 @@ async def research_promotions(days: int = Query(1, ge=1, le=30)):
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
     async with AsyncSessionLocal() as session:
+        from services.sweep_utils import sweep_dedup_filter
         r = await session.execute(
             select(NameObservation)
             .where(NameObservation.tier == 2, NameObservation.was_considered == True, NameObservation.timestamp >= cutoff)
+            .where(sweep_dedup_filter(2, cutoff))
             .order_by(NameObservation.composite_score.desc()).limit(200)
         )
         promos = list(r.scalars().all())
@@ -156,7 +168,7 @@ async def research_promotions(days: int = Query(1, ge=1, le=30)):
         signals = analysis.get("signals", {})
         firing = [n for n, s in signals.items() if s.get("fired")]
         amp = analysis.get("amplification_applied", 1.0)
-        reasoning = (analysis.get("tier2b_reasoning") or "")[:80]
+        reasoning = (p.tier2b_reasoning or analysis.get("tier2b_reasoning") or "")[:80]
         ts = p.timestamp.strftime("%m-%d %H:%M") if p.timestamp else ""
 
         rows.append(f"<tr><td>{p.symbol}</td><td>{p.composite_score or 0:.4f}</td>"
@@ -212,9 +224,11 @@ async def research_signals():
     cutoff = datetime.now(timezone.utc) - timedelta(days=14)
 
     async with AsyncSessionLocal() as session:
+        from services.sweep_utils import sweep_dedup_filter
         r = await session.execute(
             select(NameObservation.analysis)
             .where(NameObservation.tier == 2, NameObservation.was_considered == True, NameObservation.timestamp >= cutoff)
+            .where(sweep_dedup_filter(2, cutoff))
         )
         analyses = [row[0] for row in r.all() if row[0]]
 

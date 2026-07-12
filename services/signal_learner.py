@@ -154,6 +154,13 @@ class SignalLearner:
 
         return output
 
+    # Outcomes whose signal_profile is provably from the wrong sweep — the
+    # pre-July-2026 labeler joined observations written HOURS AFTER the trade
+    # decision (tier2a sweeps used to delete+rewrite intraday). Verified
+    # against broker/DB forensics in RECON_PRE_REMEDIATION_VERIFICATION.md Q1.
+    # Their features describe a market state the decision never saw.
+    CONTAMINATED_OUTCOME_IDS = {96, 97, 98, 99, 103, 104}
+
     async def _load_data(self) -> tuple:
         """Load signal scores and outcomes from trade_outcomes."""
         async with AsyncSessionLocal() as session:
@@ -164,13 +171,24 @@ class SignalLearner:
             )
             outcomes = list(result.scalars().all())
 
+        outcomes = [o for o in outcomes if o.id not in self.CONTAMINATED_OUTCOME_IDS]
+
         if not outcomes:
             return np.array([]), np.array([]), 0
 
+        # One sample per DECISION, not per contract: multi-contract entries
+        # share a name_observation and would otherwise be counted as
+        # independent samples (10 early labels came from only 7 decisions).
+        seen_decisions = set()
         X_rows = []
         y_rows = []
 
         for o in outcomes:
+            decision_key = o.name_observation_id or f"outcome:{o.id}"
+            if decision_key in seen_decisions:
+                continue
+            seen_decisions.add(decision_key)
+
             profile = o.signal_profile or {}
             signals = profile.get("signals", {})
 
@@ -179,7 +197,7 @@ class SignalLearner:
             X_rows.append(row)
             y_rows.append(1.0 if o.outcome == "win" else 0.0)
 
-        return np.array(X_rows), np.array(y_rows), len(outcomes)
+        return np.array(X_rows), np.array(y_rows), len(X_rows)
 
     def _fit_logistic(self, X: np.ndarray, y: np.ndarray) -> tuple:
         """

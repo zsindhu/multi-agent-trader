@@ -14,7 +14,7 @@ from typing import Optional
 
 import yaml
 from loguru import logger
-from sqlalchemy import select, func as sa_func, delete
+from sqlalchemy import select, func as sa_func
 
 from agents.base_agent import BaseAgent
 from core.database import AsyncSessionLocal
@@ -324,22 +324,13 @@ class BreadthAnalyst(BaseAgent):
                 obs["rejection_reason"] = f"outside_top_{max_universe}_by_dollar_volume"
                 obs["selection_reason"] = None
 
-        # Step 6: Write to name_observations
+        # Step 6: Write to name_observations. Append-only: sweeps are
+        # stamped with a sweep_id instead of deleting the day's prior rows;
+        # readers select the latest sweep (services/sweep_utils). Idempotency
+        # comes from the unique constraint (sweep_id, symbol, tier).
         if not dry_run:
-            # Clear today's tier 1 rows first (idempotent re-runs)
-            today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-            try:
-                async with AsyncSessionLocal() as session:
-                    await session.execute(
-                        delete(NameObservation).where(
-                            NameObservation.tier == 1,
-                            NameObservation.timestamp >= today_start,
-                        )
-                    )
-                    await session.commit()
-            except Exception as e:
-                logger.error(f"[Breadth] Failed to clear old tier 1 rows: {e}")
-
+            from services.sweep_utils import new_sweep_id
+            self._current_sweep_id = new_sweep_id(tier=1)
             all_obs = passed + rejected + near_misses + displaced
             await self._write_observations_batch(all_obs)
         else:
@@ -545,6 +536,7 @@ class BreadthAnalyst(BaseAgent):
                         session.add(NameObservation(
                             symbol=obs["symbol"],
                             tier=obs["tier"],
+                            sweep_id=getattr(self, "_current_sweep_id", None),
                             price=obs.get("price"),
                             daily_volume=obs.get("daily_volume"),
                             avg_volume_20d=obs.get("avg_volume_20d"),

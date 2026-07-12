@@ -85,10 +85,12 @@ async def run_backtest(current_path: str, candidate_path: str, days: int, save: 
     # Load historical tier=2 observations
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     async with AsyncSessionLocal() as session:
+        from services.sweep_utils import sweep_dedup_filter
         result = await session.execute(
             select(NameObservation)
             .where(NameObservation.tier == 2)
             .where(NameObservation.timestamp >= cutoff)
+            .where(sweep_dedup_filter(2, cutoff))
         )
         observations = list(result.scalars().all())
 

@@ -39,9 +39,20 @@ class PerformanceLogger:
         pnl: Optional[float] = None,
         notes: Optional[str] = None,
         order_id: Optional[str] = None,
+        sleeve_id: Optional[str] = None,
     ) -> Trade:
         """Record a trade execution to the database."""
         closing_types = {"buy_to_close", "assignment", "expired", "wheel_cycle_complete"}
+        entry_types = {"sell_to_open", "buy_to_open"}
+
+        # Freeze-at-decision: for entry trades, snapshot the tier-2
+        # observation NOW. The sweep that produced it rewrites within hours,
+        # and the nightly labeler must see what the decision actually saw.
+        obs_id = None
+        signal_snapshot = None
+        if trade_type in entry_types:
+            obs_id, signal_snapshot = await self._snapshot_observation(symbol)
+
         async with AsyncSessionLocal() as session:
             trade = Trade(
                 agent_name=agent_name,
@@ -58,14 +69,43 @@ class PerformanceLogger:
                 pnl=pnl,
                 notes=notes,
                 order_id=order_id,
+                sleeve_id=sleeve_id,
+                name_observation_id=obs_id,
+                signal_snapshot=signal_snapshot,
                 closed_at=datetime.utcnow() if trade_type in closing_types else None,
             )
             session.add(trade)
             await session.commit()
             await session.refresh(trade)
-            
+
             logger.info(f"[Logger] Trade logged: {agent_name} {side} {quantity}x {symbol} @ ${price:.2f}")
             return trade
+
+    async def _snapshot_observation(self, symbol: str) -> tuple:
+        """
+        Fetch today's latest tier-2 observation for a symbol so its id and
+        signal analysis can be frozen onto the trade row. Best-effort: a miss
+        returns (None, None) and the labeler's bounded fallback applies.
+        """
+        try:
+            from models.name_observation import NameObservation
+            today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+            async with AsyncSessionLocal() as session:
+                result = await session.execute(
+                    select(NameObservation)
+                    .where(NameObservation.symbol == symbol)
+                    .where(NameObservation.tier == 2)
+                    .where(NameObservation.was_considered == True)  # noqa: E712
+                    .where(NameObservation.timestamp >= today_start)
+                    .order_by(NameObservation.timestamp.desc())
+                    .limit(1)
+                )
+                obs = result.scalar_one_or_none()
+            if obs:
+                return obs.id, obs.analysis
+        except Exception as e:
+            logger.warning(f"[Logger] Observation snapshot failed for {symbol}: {e}")
+        return None, None
     
     async def log_position_update(
         self,

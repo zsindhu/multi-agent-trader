@@ -22,6 +22,7 @@ from datetime import datetime, date, timezone, timedelta
 from typing import Optional
 
 from loguru import logger
+from pydantic import BaseModel, Field, ValidationError
 
 from config.settings import settings
 
@@ -29,6 +30,68 @@ from config.settings import settings
 PRICE_INPUT = 1.40
 PRICE_OUTPUT = 4.40
 PRICE_CACHED_INPUT = 0.26
+
+
+# ── Structured judgment envelope ─────────────────────────────────────
+#
+# Every LLM judgment should be queryable, not just a wall of prose. The
+# envelope rides in the same fenced ```json block agents already emit for
+# actions, and is stored alongside (never instead of) the full text. Parse
+# failures degrade gracefully: full_text is always preserved and `degraded`
+# marks the envelope as prose-only.
+
+class JudgmentFactor(BaseModel):
+    signal: str
+    direction: str = "neutral"  # e.g. bullish / bearish / for / against
+    weight: Optional[float] = None
+
+
+class JudgmentEnvelope(BaseModel):
+    verdict: Optional[str] = None
+    one_liner: Optional[str] = None
+    factors: list[JudgmentFactor] = Field(default_factory=list)
+    confidence: Optional[float] = None
+    full_text: str = ""
+    schema_version: int = 1
+    degraded: bool = False
+
+
+def parse_envelope(text: str, envelope_obj: Optional[dict] = None) -> dict:
+    """
+    Build a JudgmentEnvelope dict from an LLM response.
+
+    `envelope_obj` short-circuits parsing when the caller already extracted
+    the envelope JSON (e.g. from the shared actions block). Otherwise the
+    LAST fenced ```json block containing an object with an "envelope" key or
+    envelope-shaped fields (verdict/one_liner) is used. On any failure the
+    envelope degrades to full_text-only — data is never lost to a bad parse.
+
+    Module-level so agents with their own LLM clients (tier2b, research
+    analyst, summarizers) can adopt it without instantiating LLMService.
+    """
+    candidate = envelope_obj
+    if candidate is None:
+        for block in reversed(re.findall(r"```json\s*(.*?)\s*```", text or "", re.DOTALL)):
+            try:
+                parsed = json.loads(block)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                if isinstance(parsed.get("envelope"), dict):
+                    candidate = parsed["envelope"]
+                    break
+                if "verdict" in parsed or "one_liner" in parsed:
+                    candidate = parsed
+                    break
+
+    if candidate is not None:
+        try:
+            env = JudgmentEnvelope(**{**candidate, "full_text": text or ""})
+            return env.model_dump()
+        except (ValidationError, TypeError) as e:
+            logger.debug(f"[LLM] Envelope validation failed, degrading: {e}")
+
+    return JudgmentEnvelope(full_text=text or "", degraded=True).model_dump()
 
 
 class LLMService:
@@ -355,10 +418,12 @@ class LLMService:
         """
         Parse the model's final response into a structured decision.
 
-        Looks for a ```json block containing a list of action dicts.
-        Falls back to empty actions if no valid JSON block is found.
+        Looks for a ```json block containing a list of action dicts or an
+        object with "actions" (and optionally "envelope"). Falls back to
+        empty actions if no valid JSON block is found.
         """
         actions = []
+        envelope_obj = None
 
         json_blocks = re.findall(r"```json\s*(.*?)\s*```", text, re.DOTALL)
         for block in json_blocks:
@@ -369,17 +434,26 @@ class LLMService:
                     break
                 if isinstance(parsed, dict) and "actions" in parsed:
                     actions = parsed["actions"]
+                    if isinstance(parsed.get("envelope"), dict):
+                        envelope_obj = parsed["envelope"]
                     break
             except json.JSONDecodeError:
                 pass
 
-        lines = [ln.strip() for ln in text.strip().split("\n") if ln.strip()]
-        summary = lines[-1] if lines else "No summary"
+        envelope = parse_envelope(text, envelope_obj=envelope_obj)
+
+        # Summary priority: structured one_liner, else last non-empty line
+        # (the legacy heuristic — weakest field in the old system)
+        summary = envelope.get("one_liner")
+        if not summary:
+            lines = [ln.strip() for ln in text.strip().split("\n") if ln.strip()]
+            summary = lines[-1] if lines else "No summary"
 
         return {
             "reasoning": text,
             "actions": actions,
             "summary": summary[:200],
+            "envelope": envelope,
         }
 
     @staticmethod

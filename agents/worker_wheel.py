@@ -486,6 +486,7 @@ class WheelWorker(BaseAgent):
                         notes=f"Wheel [{trade['wheel_state']}]: "
                               f"delta={trade['delta']:.2f}, DTE={trade['dte']}",
                         order_id=trade.get("order_id"),
+                        sleeve_id=self.current_sleeve_id,
                     )
 
                 # Gather additional entry context
