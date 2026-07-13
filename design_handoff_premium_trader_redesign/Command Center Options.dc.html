@@ -1,0 +1,1509 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<meta name="design_doc_mode" content="canvas">
+<style>
+body{margin:0;background:#008080;font-family:Tahoma,"MS Sans Serif",sans-serif}
+a{color:#000080}a:hover{color:#0000b0}
+.dv-turn{padding:40px 44px 32px;border-bottom:1px solid rgba(0,0,0,.2);scroll-margin-top:16px}
+.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 20px}
+.dv-tid{font:600 10px "Cascadia Mono",Menlo,monospace;padding:3px 7px;background:#000080;color:#fff;text-decoration:none}
+.dv-tname{font:600 13px/1.2 Tahoma,sans-serif;color:#fff}
+.dv-opts{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}
+.dv-opt{flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px}
+.dv-oid{font:600 10.5px "Cascadia Mono",Menlo,monospace;padding:3px 7px;background:#c0c0c0;color:#000;text-decoration:none;border:1px solid #000}
+.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11px/1.3 Tahoma,sans-serif;color:#e0e0e0}
+.dv-card{max-width:100%;background:#c0c0c0;border:2px outset #dfdfdf;overflow:hidden}
+.dv-opt:target .dv-oid{background:#000080;color:#fff}
+.dv-next{margin:22px 0 0;font:12px/1.5 Tahoma,sans-serif;color:#d0d0d0}
+</style>
+</helmet>
+
+<section class="dv-turn" id="t5">
+<div class="dv-thd"><a class="dv-tid" href="#t5">5</a><span class="dv-tname">Command Center — final fold: <a class="dv-oid" href="#2a">2a</a> + 3-state learning (<a class="dv-oid" href="#4b">4b</a>) + Integrity window (<a class="dv-oid" href="#4c">4c</a>)</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="5a">
+<div class="dv-olabel"><a class="dv-oid" href="#5a">5a</a>System Status consolidated into Integrity · regime moved to top strip · funnel stamped with sweep time</div>
+<div class="dv-card" style="width:1280px">
+<div style="display:flex;flex-direction:column;height:960px;background:#c0c0c0">
+  <!-- top tab nav -->
+  <div style="background:#000080;display:flex;align-items:center;padding:2px 4px;gap:4px;border-bottom:2px outset #dfdfdf">
+    <span style="color:#fff;font-weight:bold;font-size:12px;padding:2px 8px 2px 4px">PREMIUM TRADER</span>
+    <span style="border:2px outset #dfdfdf;background:#c0c0c0;padding:2px 12px;font-size:11px;font-weight:bold">Command Center</span>
+    <span style="padding:2px 12px;font-size:11px;color:#c0c0ff">Pipeline</span>
+    <span style="padding:2px 12px;font-size:11px;color:#c0c0ff">Trades &amp; Learning</span>
+    <span style="padding:2px 12px;font-size:11px;color:#c0c0ff">Chat</span>
+    <span style="padding:2px 12px;font-size:11px;color:#6060a0;white-space:nowrap">Agents &#128274;</span>
+    <span style="flex:1"></span>
+    <span style="font-family:'Cascadia Mono',monospace;font-size:10px;color:#a0a0ff">SAT JUL 12 · 10:15 ET · MARKET CLOSED</span>
+  </div>
+  <!-- pipeline spine + regime + LLM spend -->
+  <div style="background:#d4d0c8;border-bottom:2px outset #dfdfdf;padding:6px 8px">
+    <div style="display:flex;align-items:stretch;gap:0">
+      <sc-for list="{{ funnel }}" as="f" hint-placeholder-count="6">
+        <div style="display:flex;align-items:center">
+          <div style="border:2px outset #dfdfdf;background:{{ f.bg }};padding:4px 10px;min-width:96px">
+            <div style="font-size:9px;font-family:Tahoma;color:{{ f.labelColor }};text-transform:uppercase;letter-spacing:0.5px">{{ f.label }}</div>
+            <div style="font-family:'Cascadia Mono',monospace;font-size:16px;font-weight:bold;color:{{ f.countColor }}">{{ f.count }}</div>
+            <div style="font-size:9px;font-family:Tahoma;color:{{ f.labelColor }}">{{ f.sub }}</div>
+          </div>
+          <sc-if value="{{ f.arrow }}" hint-placeholder-val="{{ true }}"><span style="font-family:'Cascadia Mono',monospace;font-size:14px;color:#808080;padding:0 4px">&#9654;</span></sc-if>
+        </div>
+      </sc-for>
+      <span style="font-family:Tahoma;font-size:9px;color:#606060;align-self:flex-end;padding:0 6px 2px;white-space:nowrap">as of 15:15 sweep</span>
+      <div style="flex:1"></div>
+      <div style="border:2px inset #dfdfdf;background:#fff;padding:4px 10px;display:flex;flex-direction:column;justify-content:center;margin-right:4px">
+        <div style="font-size:9px;font-family:Tahoma;color:#808080;text-transform:uppercase">Regime</div>
+        <div style="font-family:'Cascadia Mono',monospace;font-size:16px;font-weight:bold;color:#808000">NEUTRAL</div>
+      </div>
+      <div style="border:2px inset #dfdfdf;background:#000;padding:4px 10px;display:flex;flex-direction:column;justify-content:center">
+        <div style="font-size:9px;font-family:Tahoma;color:#00c000;text-transform:uppercase">LLM spend today</div>
+        <div style="font-family:'Cascadia Mono',monospace;font-size:16px;font-weight:bold;color:#00ff00">$0.62</div>
+      </div>
+    </div>
+  </div>
+  <!-- body -->
+  <div style="flex:1;display:grid;grid-template-columns:1fr 300px;gap:4px;padding:4px;min-height:0">
+    <!-- left column -->
+    <div style="display:flex;flex-direction:column;gap:4px;min-height:0">
+      <div style="display:grid;grid-template-columns:1fr 300px;gap:4px">
+        <div style="border:2px outset #dfdfdf;background:#c0c0c0">
+          <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Equity — $512,847 <span style="color:#80ff80">+2.6%</span> · today <span style="color:#80ff80">+$438</span></div>
+          <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:4px;height:150px;position:relative">
+            <div style="position:absolute;inset:4px">{{ equityCurve5a }}</div>
+          </div>
+        </div>
+        <div style="border:2px outset #dfdfdf;background:#c0c0c0">
+          <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Sleeves — P&amp;L</div>
+          <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:4px 6px;font-family:'Cascadia Mono',monospace;font-size:11px">
+            <sc-for list="{{ sleeves }}" as="sl" hint-placeholder-count="4">
+              <div style="display:flex;align-items:center;gap:6px;padding:2px 0">
+                <span style="width:86px;font-family:Tahoma;font-size:10px;white-space:nowrap;overflow:hidden">{{ sl.name }}</span>
+                <div style="flex:1;height:10px;border:1px inset #dfdfdf;background:#d4d0c8;position:relative">
+                  <div style="position:absolute;left:0;top:0;bottom:0;background:{{ sl.barColor }};width:{{ sl.pnlBarPct }}"></div>
+                </div>
+                <span style="width:56px;text-align:right;font-weight:bold;color:{{ sl.pnlColor }}">{{ sl.pnl }}</span>
+              </div>
+            </sc-for>
+            <div style="border-top:1px solid #808080;margin-top:4px;padding-top:3px;display:flex;justify-content:space-between"><span style="font-family:Tahoma;font-size:10px;color:#808080">Total premium MTD</span><span style="font-weight:bold">$3,210</span></div>
+          </div>
+        </div>
+      </div>
+      <!-- sleeve cards -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:4px">
+        <sc-for list="{{ sleeves }}" as="sl" hint-placeholder-count="4">
+          <div style="border:2px outset #dfdfdf;background:#c0c0c0">
+            <div style="background:#000080;color:#fff;font-size:11px;font-weight:bold;padding:2px 4px;display:flex;justify-content:space-between"><span>{{ sl.name }}</span><span style="font-family:'Cascadia Mono',monospace;font-weight:normal;font-size:9px;color:#a0a0ff">{{ sl.tag }}</span></div>
+            <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:4px 6px;font-family:'Cascadia Mono',monospace;font-size:11px">
+              <div style="display:flex;justify-content:space-between"><span style="color:#808080;font-family:Tahoma;font-size:10px">P&amp;L</span><span style="font-weight:bold;color:{{ sl.pnlColor }}">{{ sl.pnl }}</span></div>
+              <div style="display:flex;justify-content:space-between"><span style="color:#808080;font-family:Tahoma;font-size:10px">Positions</span><span>{{ sl.positions }}</span></div>
+              <div style="display:flex;justify-content:space-between"><span style="color:#808080;font-family:Tahoma;font-size:10px">Capital used</span><span>{{ sl.capital }}</span></div>
+              <div style="height:8px;border:1px inset #dfdfdf;background:#d4d0c8;margin-top:3px;position:relative"><div style="position:absolute;left:0;top:0;bottom:0;background:#000080;width:{{ sl.capitalPct }}"></div></div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+      <!-- positions -->
+      <div style="border:2px outset #dfdfdf;background:#c0c0c0;display:flex;flex-direction:column;flex:1;min-height:0">
+        <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px;display:flex"><span style="flex:1">Active Positions (8) — vs Alpaca: 8/8 matched</span><span style="font-weight:normal;font-size:10px;color:#80ff80">SYNCED 13:41</span></div>
+        <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;overflow:auto;flex:1">
+          <table style="width:100%;border-collapse:collapse;font-size:11px;font-family:'Cascadia Mono',monospace">
+            <thead><tr>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:left;border:1px solid #808080">SYMBOL</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:left;border:1px solid #808080">SLEEVE</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:left;border:1px solid #808080">TYPE</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:right;border:1px solid #808080">STRIKE</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:right;border:1px solid #808080">EXP</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:right;border:1px solid #808080">DTE</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:right;border:1px solid #808080">ENTRY</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:right;border:1px solid #808080">P&amp;L</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:left;border:1px solid #808080">ALPACA</th>
+            </tr></thead>
+            <tbody>
+              <sc-for list="{{ positions }}" as="p" hint-placeholder-count="8">
+                <tr style="background:{{ p.rowBg }}">
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0;font-weight:bold">{{ p.symbol }}</td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0"><span style="font-family:Tahoma;font-size:9px;padding:0 4px;border:1px solid #808080;background:{{ p.sleeveBg }};text-transform:uppercase">{{ p.sleeve }}</span></td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0">{{ p.type }}</td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0;text-align:right">{{ p.strike }}</td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0;text-align:right">{{ p.exp }}</td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0;text-align:right">{{ p.dte }}</td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0;text-align:right">{{ p.entry }}</td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0;text-align:right;font-weight:bold;color:{{ p.pnlColor }}">{{ p.pnl }}</td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0;color:{{ p.reconColor }}">{{ p.recon }}</td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <!-- right rail: feed + learning(3-state) + integrity -->
+    <div style="display:flex;flex-direction:column;gap:4px;min-height:0">
+      <div style="border:2px outset #dfdfdf;background:#c0c0c0;display:flex;flex-direction:column;flex:1;min-height:0">
+        <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Agent Activity — Live</div>
+        <div style="border:2px inset #dfdfdf;margin:2px;background:#000;overflow:auto;flex:1;padding:4px;font-family:'Cascadia Mono',monospace;font-size:10px;line-height:1.6">
+          <sc-for list="{{ feed }}" as="ev" hint-placeholder-count="14">
+            <div style="color:{{ ev.color }};margin-bottom:2px"><span style="color:#606060">{{ ev.time }}</span> <span style="color:#00c0c0">[{{ ev.agent }}]</span> {{ ev.msg }}</div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="border:2px outset #dfdfdf;background:#c0c0c0;flex-shrink:0">
+        <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Learning Progress</div>
+        <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:6px;font-family:'Cascadia Mono',monospace;font-size:11px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-family:Tahoma;color:#808080;font-size:10px">Clean decisions</span><span style="font-weight:bold">4 / 50</span></div>
+          <div style="height:14px;border:2px inset #dfdfdf;background:#d4d0c8;display:flex;gap:1px;padding:1px">{{ learningBlocks3 }}</div>
+          <div style="display:flex;gap:8px;margin-top:4px;font-family:Tahoma;font-size:9px">
+            <span style="display:flex;align-items:center;gap:3px"><span style="width:8px;height:8px;background:#000080;display:inline-block"></span>clean (4)</span>
+            <span style="display:flex;align-items:center;gap:3px"><span style="width:8px;height:8px;background:#c0c000;display:inline-block"></span>unknown (3)</span>
+          </div>
+          <div style="font-family:Tahoma;font-size:10px;color:#808080;margin-top:4px">Jul 12 relabel: decisions, not contracts. Activates at 50 clean.</div>
+        </div>
+      </div>
+      <div style="border:2px outset #dfdfdf;background:#c0c0c0;flex-shrink:0">
+        <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px;display:flex"><span style="flex:1">Integrity</span><span style="font-weight:normal;font-size:10px;color:#80ff80">ALL CHECKS PASS</span></div>
+        <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:4px 6px;font-family:'Cascadia Mono',monospace;font-size:11px">
+          <div style="display:flex;justify-content:space-between;padding:1px 0"><span style="font-family:Tahoma;font-size:10px;color:#808080">Broker recon</span><span style="color:#008000;font-weight:bold">8/8 · drift $65&#8595;</span></div>
+          <div style="display:flex;justify-content:space-between;padding:1px 0"><span style="font-family:Tahoma;font-size:10px;color:#808080">Entry fill rate 30d</span><span style="color:#808000;font-weight:bold">45% (18/40)</span></div>
+          <div style="display:flex;justify-content:space-between;padding:1px 0"><span style="font-family:Tahoma;font-size:10px;color:#808080">Avg slippage</span><span>-$0.03/ct</span></div>
+          <div style="display:flex;justify-content:space-between;padding:1px 0"><span style="font-family:Tahoma;font-size:10px;color:#808080">Conflicts 7d</span><span>2 resolved</span></div>
+          <div style="display:flex;justify-content:space-between;padding:1px 0"><span style="font-family:Tahoma;font-size:10px;color:#808080">Errors today</span><span>0</span></div>
+          <div style="display:flex;justify-content:space-between;padding:1px 0"><span style="font-family:Tahoma;font-size:10px;color:#808080">Last cycle</span><span>15:31 ($0.0790)</span></div>
+          <div style="font-family:Tahoma;font-size:10px;color:#000080;margin-top:3px;border-top:1px solid #d0d0d0;padding-top:3px">&#9654; Full audit on Agents screen</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Try next: "apply the envelope card to Pipeline + Trades screens" · "assemble all final screens into one clickable prototype" · "mobile layout for <a class="dv-oid" href="#5a">5a</a>"</p>
+</section>
+
+<section class="dv-turn" id="t4">
+<div class="dv-thd"><a class="dv-tid" href="#t4">4</a><span class="dv-tname">Recon alignment: judgment envelopes · 3-state learning · consolidated Integrity window · digestible reflection</span></div>
+<div class="dv-opts">
+
+<!-- ═══════════ 4A — JUDGMENT ENVELOPE CARD ═══════════ -->
+<div class="dv-opt" id="4a">
+<div class="dv-olabel"><a class="dv-oid" href="#4a">4a</a>Judgment envelope card — one pattern, three states (single, per-sleeve grid, degraded)</div>
+<div class="dv-card" style="width:620px">
+<div style="background:#c0c0c0;padding:6px;display:flex;flex-direction:column;gap:8px">
+
+  <!-- state 1: single envelope -->
+  <div style="border:2px outset #dfdfdf;background:#c0c0c0">
+    <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px;display:flex"><span style="flex:1">Cycle 13:31 — Vol Reversion</span><span style="font-weight:normal;font-size:10px;color:#a0a0ff">$0.0812 · 3 tools</span></div>
+    <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:6px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-family:Tahoma;font-size:10px;font-weight:bold;padding:1px 8px;background:#008000;color:#fff;border:1px solid #004000">OPEN</span>
+        <span style="font-size:11px;font-family:Tahoma;flex:1">Sell MARA $18 CSP Jul17 ×2 — premium rich vs realized vol, strike below support.</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:6px;margin-top:5px">
+        <span style="font-family:Tahoma;font-size:9px;color:#808080;width:64px;text-align:right">CONFIDENCE</span>
+        <div style="flex:1;height:10px;border:1px inset #dfdfdf;background:#d4d0c8;position:relative"><div style="position:absolute;left:0;top:0;bottom:0;width:72%;background:#008000"></div></div>
+        <span style="font-family:'Cascadia Mono',monospace;font-size:10px;font-weight:bold">0.72</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:3px;margin-top:5px">
+        <span style="font-family:'Cascadia Mono',monospace;font-size:10px;padding:1px 6px;border:1px solid #008000;background:#e8ffe8">iv_rank &#9650; 0.34</span>
+        <span style="font-family:'Cascadia Mono',monospace;font-size:10px;padding:1px 6px;border:1px solid #008000;background:#e8ffe8">vol_spike &#9650; 0.28</span>
+        <span style="font-family:'Cascadia Mono',monospace;font-size:10px;padding:1px 6px;border:1px solid #80b080;background:#f0fff0;color:#406040">support_dist &#9650; 0.19</span>
+        <span style="font-family:'Cascadia Mono',monospace;font-size:10px;padding:1px 6px;border:1px solid #b08080;background:#fff0f0;color:#604040">earnings_prox &#9660; 0.12</span>
+      </div>
+      <div style="margin-top:6px;border-top:1px solid #d0d0d0;padding-top:4px;font-family:Tahoma;font-size:10px;color:#000080">&#9654; Show full reasoning (612 words)</div>
+    </div>
+  </div>
+
+  <!-- state 2: per-sleeve grid -->
+  <div style="border:2px outset #dfdfdf;background:#c0c0c0">
+    <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Cycle 13:31 — Orchestrator · 4 sleeve envelopes</div>
+    <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:4px;display:grid;grid-template-columns:1fr 1fr;gap:4px">
+      <sc-for list="{{ sleeveEnvelopes }}" as="se" hint-placeholder-count="4">
+        <div style="border:1px solid #c0c0c0;padding:4px 6px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-family:Tahoma;font-size:9px;font-weight:bold;padding:0 6px;background:{{ se.verdictBg }};color:#fff">{{ se.verdict }}</span>
+            <span style="font-family:Tahoma;font-size:10px;font-weight:bold;flex:1">{{ se.name }}</span>
+            <span style="font-family:'Cascadia Mono',monospace;font-size:9px;color:#808080">{{ se.conf }}</span>
+          </div>
+          <div style="font-family:Tahoma;font-size:10px;margin-top:3px;line-height:1.4">{{ se.oneLiner }}</div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <!-- state 3: degraded -->
+  <div style="border:2px outset #dfdfdf;background:#c0c0c0">
+    <div style="background:#808080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px;display:flex"><span style="flex:1">Cycle 09:31 — Event-Driven</span><span style="font-weight:normal;font-size:10px;color:#e0e0e0">ENVELOPE DEGRADED</span></div>
+    <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:6px">
+      <div style="font-family:Tahoma;font-size:10px;color:#808080;margin-bottom:4px">&#9888; Structured envelope failed validation — showing raw reasoning.</div>
+      <div style="font-family:'Cascadia Mono',monospace;font-size:10px;line-height:1.5;color:#404040;max-height:56px;overflow:hidden">Reviewed 3 candidates in the event-driven sleeve. NVDA premium remains rich but theta capture is thin at 19 days to earnings; holding. AMD position within plan. SMCI flagged by sentinel...</div>
+      <div style="margin-top:4px;font-family:Tahoma;font-size:10px;color:#000080">&#9654; Expand</div>
+    </div>
+  </div>
+
+</div>
+</div>
+</div>
+
+<!-- ═══════════ 4B — LEARNING PROGRESS, 3-STATE ═══════════ -->
+<div class="dv-opt" id="4b">
+<div class="dv-olabel"><a class="dv-oid" href="#4b">4b</a>Learning progress after the relabel — 4/50 clean decisions, framed as integrity not regression</div>
+<div class="dv-card" style="width:420px">
+<div style="background:#c0c0c0;padding:6px">
+  <div style="border:2px outset #dfdfdf;background:#c0c0c0">
+    <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Learning Progress</div>
+    <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:6px;font-family:'Cascadia Mono',monospace;font-size:11px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-family:Tahoma;color:#808080;font-size:10px">Clean decisions</span><span style="font-weight:bold">4 / 50</span></div>
+      <div style="height:14px;border:2px inset #dfdfdf;background:#d4d0c8;display:flex;gap:1px;padding:1px">{{ learningBlocks3 }}</div>
+      <div style="display:flex;gap:10px;margin-top:5px;font-family:Tahoma;font-size:9px">
+        <span style="display:flex;align-items:center;gap:3px"><span style="width:8px;height:8px;background:#000080;display:inline-block"></span>clean (4)</span>
+        <span style="display:flex;align-items:center;gap:3px"><span style="width:8px;height:8px;background:#c0c000;display:inline-block"></span>unknown evidence (3)</span>
+        <span style="display:flex;align-items:center;gap:3px"><span style="width:8px;height:8px;background:#d4d0c8;border:1px solid #a0a0a0;display:inline-block"></span>remaining</span>
+      </div>
+      <div style="font-family:Tahoma;font-size:10px;color:#404040;margin-top:5px;border-top:1px solid #d0d0d0;padding-top:4px;line-height:1.5"><b>Jul 12 relabel:</b> 6 pre-cutover labels excluded (decisions, not contracts; contaminated evidence removed). The learner trains only on clean decisions — this is the count that matters.</div>
+      <div style="font-family:Tahoma;font-size:10px;color:#808080;margin-top:3px">Signal-weight learning activates at 50. 46 to go.</div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+
+<!-- ═══════════ 4C — INTEGRITY WINDOW ═══════════ -->
+<div class="dv-opt" id="4c">
+<div class="dv-olabel"><a class="dv-oid" href="#4c">4c</a>Integrity window — consolidates reconciliation + fill quality + conflicts into one Command Center panel</div>
+<div class="dv-card" style="width:420px">
+<div style="background:#c0c0c0;padding:6px">
+  <div style="border:2px outset #dfdfdf;background:#c0c0c0">
+    <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px;display:flex"><span style="flex:1">Integrity</span><span style="font-weight:normal;font-size:10px;color:#80ff80">ALL CHECKS PASS</span></div>
+    <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:4px 6px;font-family:'Cascadia Mono',monospace;font-size:11px">
+      <div style="font-family:Tahoma;font-size:9px;color:#808080;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:2px">Broker reconciliation</div>
+      <div style="display:flex;justify-content:space-between;padding:1px 0"><span style="font-family:Tahoma;font-size:10px;color:#808080">Positions</span><span style="color:#008000;font-weight:bold">8/8 matched · 13:41</span></div>
+      <div style="display:flex;justify-content:space-between;padding:1px 0"><span style="font-family:Tahoma;font-size:10px;color:#808080">P&amp;L drift</span><span style="color:#808000;font-weight:bold">$65 · 1 auto-patching</span></div>
+      <div style="font-family:Tahoma;font-size:9px;color:#808080;text-transform:uppercase;letter-spacing:0.5px;margin:6px 0 2px;border-top:1px solid #d0d0d0;padding-top:4px">Fill quality (30d)</div>
+      <div style="display:flex;justify-content:space-between;padding:1px 0"><span style="font-family:Tahoma;font-size:10px;color:#808080">Entry fill rate</span><span style="color:#808000;font-weight:bold">45% (18/40)</span></div>
+      <div style="display:flex;justify-content:space-between;padding:1px 0"><span style="font-family:Tahoma;font-size:10px;color:#808080">Avg slippage</span><span>-$0.03 / contract</span></div>
+      <div style="font-family:Tahoma;font-size:9px;color:#606060;padding:1px 0">&#9888; 55% of entries never fill — biggest drag on the n=50 timeline</div>
+      <div style="font-family:Tahoma;font-size:9px;color:#808080;text-transform:uppercase;letter-spacing:0.5px;margin:6px 0 2px;border-top:1px solid #d0d0d0;padding-top:4px">Sleeve conflicts (7d)</div>
+      <div style="padding:1px 0;font-size:10px"><span style="font-weight:bold">XLV</span> — event-driven beat vol-reversion <span style="font-family:Tahoma;font-size:9px;padding:0 4px;border:1px solid #808080;background:#e8e8ff">LLM_JUDGED</span></div>
+      <div style="padding:1px 0;font-size:10px"><span style="font-weight:bold">COIN</span> — vol-reversion won on edge 0.71 vs 0.58 <span style="font-family:Tahoma;font-size:9px;padding:0 4px;border:1px solid #808080;background:#f0f0f0">DETERMINISTIC</span></div>
+      <div style="font-family:Tahoma;font-size:10px;color:#000080;margin-top:5px;border-top:1px solid #d0d0d0;padding-top:4px">&#9654; Full audit on Agents screen</div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+
+<!-- ═══════════ 4D — DIGESTIBLE REFLECTION ═══════════ -->
+<div class="dv-opt" id="4d">
+<div class="dv-olabel"><a class="dv-oid" href="#4d">4d</a>Daily reflection — before (prose wall) vs after (structured, prose one click away)</div>
+<div class="dv-card" style="width:760px">
+<div style="background:#c0c0c0;padding:6px;display:flex;gap:8px;align-items:flex-start">
+  <!-- before -->
+  <div style="flex:1;border:2px outset #dfdfdf;background:#c0c0c0">
+    <div style="background:#808080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Reflection — today (before)</div>
+    <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:6px;font-family:'Cascadia Mono',monospace;font-size:9px;line-height:1.5;color:#404040;height:290px;overflow:hidden">Today's session showed mixed results across the portfolio with the vol reversion sleeve continuing to outperform expectations while sector rotation lagged. The MARA position was opened at 13:31 following a strong signal confluence including elevated IV rank and volume expansion, and the premium collected represents good value relative to the realized volatility profile of the underlying. Looking at the broader picture, the regime remains neutral with the VIX at 14.2 and breadth indicators showing mixed signals across sectors. The XLE position remains under pressure following the OPEC supply headline from July 8 and the lead agent has elected to hold rather than roll given the unattractive roll credit currently available in the market. On the learning front, two additional outcomes were labeled today bringing the total toward the activation threshold, though the recent relabeling exercise has reset expectations around timeline. Fill quality continues to be a concern with several entry orders expiring unfilled, which extends the expected timeline to reach the fifty trade threshold for signal weight learning activation. The yield farming sleeve continues its steady accumulation of premium with both covered call positions behaving as expected. Tomorrow's focus should include monitoring the MARA position given proximity to strike, evaluating the SMCI setup which continues to score highly in the pipeline, and watching for regime confirmation signals that might...</div>
+  </div>
+  <!-- after -->
+  <div style="flex:1;border:2px outset #dfdfdf;background:#c0c0c0">
+    <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Reflection — Jul 12 (after)</div>
+    <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:6px">
+      <div style="font-family:Tahoma;font-size:9px;color:#808080;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px">Three takeaways</div>
+      <div style="display:flex;gap:5px;padding:2px 0;font-family:Tahoma;font-size:10px;line-height:1.4"><span style="font-family:'Cascadia Mono',monospace;font-weight:bold;color:#008000">1</span><span><b>Vol reversion is carrying the book</b> — +$3,905, 75% win rate; MARA entry follows the same iv_rank+vol_spike pattern as the last 3 wins.</span></div>
+      <div style="display:flex;gap:5px;padding:2px 0;font-family:Tahoma;font-size:10px;line-height:1.4"><span style="font-family:'Cascadia Mono',monospace;font-weight:bold;color:#808000">2</span><span><b>Fill rate is the real bottleneck</b> — 45% entry fills extends the n=50 timeline more than any signal choice.</span></div>
+      <div style="display:flex;gap:5px;padding:2px 0;font-family:Tahoma;font-size:10px;line-height:1.4"><span style="font-family:'Cascadia Mono',monospace;font-weight:bold;color:#ff0000">3</span><span><b>XLE is macro, not process</b> — one OPEC headline against one position; hold decision has explicit exit criteria.</span></div>
+      <div style="font-family:Tahoma;font-size:9px;color:#808080;text-transform:uppercase;letter-spacing:0.5px;margin:6px 0 3px;border-top:1px solid #d0d0d0;padding-top:4px">Changed since yesterday</div>
+      <div style="font-family:'Cascadia Mono',monospace;font-size:10px;line-height:1.6">
+        <div>+ MARA CSP opened (vol sleeve, conf 0.72)</div>
+        <div>~ Learning count 10 &#8594; 4 (Jul 12 relabel)</div>
+        <div>~ Regime conf 0.68 &#8594; 0.72, still NEUTRAL</div>
+      </div>
+      <div style="font-family:Tahoma;font-size:9px;color:#808080;text-transform:uppercase;letter-spacing:0.5px;margin:6px 0 3px;border-top:1px solid #d0d0d0;padding-top:4px">Watching tomorrow</div>
+      <div style="font-family:Tahoma;font-size:10px;line-height:1.5">MARA strike proximity · SMCI setup (still #1 in pipeline) · regime confirmation</div>
+      <div style="margin-top:5px;border-top:1px solid #d0d0d0;padding-top:4px;font-family:Tahoma;font-size:10px;color:#000080">&#9654; Full reflection (438 words)</div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Try next: "fold 4b + 4c into the <a class="dv-oid" href="#2a">2a</a> Command Center" · "apply the envelope card (<a class="dv-oid" href="#4a">4a</a>) to the Pipeline and Trades screens" · "add the 3-state funnel column to <a class="dv-oid" href="#3b">3b</a>"</p>
+</section>
+
+<section class="dv-turn" id="t3">
+<div class="dv-thd"><a class="dv-tid" href="#t3">3</a><span class="dv-tname">Remaining screens in the <a class="dv-oid" href="#2a">2a</a> language: Pipeline · Trades &amp; Learning · Agents (admin) · Chat</span></div>
+<div class="dv-opts">
+
+<!-- ═══════════ 3A — PIPELINE ═══════════ -->
+<div class="dv-opt" id="3a">
+<div class="dv-olabel"><a class="dv-oid" href="#3a">3a</a>Pipeline — funnel detail, promotions with expandable signal reasoning, fire rates</div>
+<div class="dv-card" style="width:1280px">
+<div style="display:flex;flex-direction:column;height:880px;background:#c0c0c0">
+  <div style="background:#000080;display:flex;align-items:center;padding:2px 4px;gap:4px;border-bottom:2px outset #dfdfdf">
+    <span style="color:#fff;font-weight:bold;font-size:12px;padding:2px 8px 2px 4px">PREMIUM TRADER</span>
+    <span style="padding:2px 12px;font-size:11px;color:#c0c0ff">Command Center</span>
+    <span style="border:2px outset #dfdfdf;background:#c0c0c0;padding:2px 12px;font-size:11px;font-weight:bold">Pipeline</span>
+    <span style="padding:2px 12px;font-size:11px;color:#c0c0ff">Trades &amp; Learning</span>
+    <span style="padding:2px 12px;font-size:11px;color:#c0c0ff">Chat</span>
+    <span style="padding:2px 12px;font-size:11px;color:#6060a0;white-space:nowrap">Agents &#128274;</span>
+    <span style="flex:1"></span>
+    <span style="font-family:'Cascadia Mono',monospace;font-size:10px;color:#a0a0ff">FRI JUL 11 · 13:42 ET · MARKET OPEN</span>
+  </div>
+  <!-- big funnel spine with timing -->
+  <div style="background:#d4d0c8;border-bottom:2px outset #dfdfdf;padding:8px">
+    <div style="display:flex;align-items:stretch">
+      <sc-for list="{{ funnelBig }}" as="f" hint-placeholder-count="6">
+        <div style="display:flex;align-items:center;flex:1">
+          <div style="border:2px outset #dfdfdf;background:{{ f.bg }};padding:5px 10px;flex:1">
+            <div style="font-size:9px;font-family:Tahoma;color:{{ f.labelColor }};text-transform:uppercase;letter-spacing:0.5px">{{ f.label }}</div>
+            <div style="font-family:'Cascadia Mono',monospace;font-size:18px;font-weight:bold;color:{{ f.countColor }}">{{ f.count }}</div>
+            <div style="font-size:9px;font-family:Tahoma;color:{{ f.labelColor }}">{{ f.sub }}</div>
+            <div style="font-size:9px;font-family:'Cascadia Mono',monospace;color:{{ f.labelColor }};margin-top:2px;border-top:1px solid rgba(128,128,128,.4);padding-top:2px">{{ f.when }}</div>
+          </div>
+          <sc-if value="{{ f.arrow }}" hint-placeholder-val="{{ true }}"><span style="font-family:'Cascadia Mono',monospace;font-size:14px;color:#808080;padding:0 5px">&#9654;</span></sc-if>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+  <div style="flex:1;display:grid;grid-template-columns:1fr 330px;gap:4px;padding:4px;min-height:0">
+    <!-- promotions -->
+    <div style="border:2px outset #dfdfdf;background:#c0c0c0;display:flex;flex-direction:column;min-height:0">
+      <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px;display:flex"><span style="flex:1">Today's Promotions (87) — top 20 by composite score</span><span style="font-weight:normal;font-size:10px;color:#a0a0ff">CLICK ROW TO EXPAND</span></div>
+      <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;overflow:auto;flex:1">
+        <table style="width:100%;border-collapse:collapse;font-size:11px;font-family:'Cascadia Mono',monospace">
+          <thead><tr>
+            <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:left;border:1px solid #808080">#</th>
+            <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:left;border:1px solid #808080">SYMBOL</th>
+            <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:right;border:1px solid #808080">SCORE</th>
+            <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:right;border:1px solid #808080">FIRED</th>
+            <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:left;border:1px solid #808080">TOP SIGNALS</th>
+            <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:left;border:1px solid #808080">SLEEVE ROUTE</th>
+            <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:right;border:1px solid #808080">AMP</th>
+          </tr></thead>
+          <tbody>
+            <sc-for list="{{ promotions }}" as="pr" hint-placeholder-count="10">
+              <tr style="background:{{ pr.rowBg }}">
+                <td style="padding:2px 6px;border:1px solid #c0c0c0">{{ pr.rank }}</td>
+                <td style="padding:2px 6px;border:1px solid #c0c0c0;font-weight:bold">{{ pr.symbol }}</td>
+                <td style="padding:2px 6px;border:1px solid #c0c0c0;text-align:right">{{ pr.score }}</td>
+                <td style="padding:2px 6px;border:1px solid #c0c0c0;text-align:right">{{ pr.fired }}</td>
+                <td style="padding:2px 6px;border:1px solid #c0c0c0;font-size:10px">{{ pr.signals }}</td>
+                <td style="padding:2px 6px;border:1px solid #c0c0c0"><span style="font-family:Tahoma;font-size:9px;padding:0 4px;border:1px solid #808080;background:{{ pr.sleeveBg }};text-transform:uppercase">{{ pr.sleeve }}</span></td>
+                <td style="padding:2px 6px;border:1px solid #c0c0c0;text-align:right">{{ pr.amp }}</td>
+              </tr>
+            </sc-for>
+            <!-- expanded row (SMCI) -->
+            <tr style="background:#e8e8ff"><td colspan="7" style="padding:6px 8px;border:1px solid #c0c0c0;border-top:1px solid #000080">
+              <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:2px;margin-bottom:6px">
+                <sc-for list="{{ smciSignals }}" as="sg" hint-placeholder-count="8">
+                  <div style="font-family:'Cascadia Mono',monospace;font-size:10px;padding:1px 4px;border:1px solid {{ sg.border }};background:{{ sg.bg }}"><span style="font-weight:bold">{{ sg.name }}</span>: {{ sg.raw }} <span style="color:#808080">z={{ sg.z }}</span> <span style="color:#008000;font-weight:bold">{{ sg.fired }}</span></div>
+                </sc-for>
+              </div>
+              <div style="font-family:'Cascadia Mono',monospace;font-size:11px;line-height:1.5;white-space:normal"><span style="font-weight:bold">Tier 2b reasoning (Llama 3.3):</span> Volume 3.1x its 20d median with IV rank jumping to 87th percentile ahead of Jul 22 earnings. Gap-and-hold pattern plus elevated social velocity suggests positioning, not noise. Premium on the $42 weekly puts is rich relative to realized vol. Route: event-driven sleeve.</div>
+            </td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <!-- right rail -->
+    <div style="display:flex;flex-direction:column;gap:4px;min-height:0">
+      <div style="border:2px outset #dfdfdf;background:#c0c0c0">
+        <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Signal Fire Rates (14d)</div>
+        <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:4px 6px">
+          <sc-for list="{{ fireRates }}" as="fr" hint-placeholder-count="8">
+            <div style="display:flex;align-items:center;gap:6px;padding:1px 0;font-size:11px;font-family:'Cascadia Mono',monospace">
+              <span style="width:100px;text-align:right;font-family:Tahoma;font-size:10px;white-space:nowrap;overflow:hidden;flex-shrink:0">{{ fr.name }}</span>
+              <div style="flex:1;height:12px;border:1px inset #dfdfdf;background:#d4d0c8;position:relative"><div style="position:absolute;left:0;top:0;bottom:0;background:#000080;width:{{ fr.pct }}"></div></div>
+              <span style="width:36px;text-align:right;flex-shrink:0">{{ fr.rate }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="border:2px outset #dfdfdf;background:#c0c0c0">
+        <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Scan Schedule</div>
+        <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:4px 6px;font-family:'Cascadia Mono',monospace;font-size:11px">
+          <div style="display:flex;justify-content:space-between;padding:1px 0"><span>06:30 Tier 1 sweep</span><span style="color:#008000;font-weight:bold">DONE</span></div>
+          <div style="display:flex;justify-content:space-between;padding:1px 0"><span>09:45 Tier 2a+2b</span><span style="color:#008000;font-weight:bold">DONE</span></div>
+          <div style="display:flex;justify-content:space-between;padding:1px 0"><span>13:00 Tier 2a+2b</span><span style="color:#008000;font-weight:bold">DONE</span></div>
+          <div style="display:flex;justify-content:space-between;padding:1px 0"><span>15:15 Tier 2a+2b</span><span style="color:#808080">13:33</span></div>
+          <div style="display:flex;justify-content:space-between;padding:1px 0;border-top:1px solid #808080;margin-top:2px;padding-top:3px"><span>Lead cycles today</span><span style="font-weight:bold">4 of 6</span></div>
+        </div>
+      </div>
+      <div style="border:2px outset #dfdfdf;background:#c0c0c0;display:flex;flex-direction:column;flex:1;min-height:0">
+        <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Near Misses — 2a rejects worth watching</div>
+        <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;overflow:auto;flex:1;padding:4px 6px;font-family:'Cascadia Mono',monospace;font-size:10px;line-height:1.6">
+          <sc-for list="{{ nearMisses }}" as="nm" hint-placeholder-count="6">
+            <div style="padding:1px 0;border-bottom:1px solid #e0e0e0"><span style="font-weight:bold">{{ nm.symbol }}</span> — {{ nm.why }}</div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+
+<!-- ═══════════ 3B — TRADES & LEARNING ═══════════ -->
+<div class="dv-opt" id="3b">
+<div class="dv-olabel"><a class="dv-oid" href="#3b">3b</a>Trades &amp; Learning — labeled history, per-sleeve scorecard, Alpaca reconciliation detail</div>
+<div class="dv-card" style="width:1280px">
+<div style="display:flex;flex-direction:column;height:880px;background:#c0c0c0">
+  <div style="background:#000080;display:flex;align-items:center;padding:2px 4px;gap:4px;border-bottom:2px outset #dfdfdf">
+    <span style="color:#fff;font-weight:bold;font-size:12px;padding:2px 8px 2px 4px">PREMIUM TRADER</span>
+    <span style="padding:2px 12px;font-size:11px;color:#c0c0ff">Command Center</span>
+    <span style="padding:2px 12px;font-size:11px;color:#c0c0ff">Pipeline</span>
+    <span style="border:2px outset #dfdfdf;background:#c0c0c0;padding:2px 12px;font-size:11px;font-weight:bold">Trades &amp; Learning</span>
+    <span style="padding:2px 12px;font-size:11px;color:#c0c0ff">Chat</span>
+    <span style="padding:2px 12px;font-size:11px;color:#6060a0;white-space:nowrap">Agents &#128274;</span>
+    <span style="flex:1"></span>
+    <span style="font-family:'Cascadia Mono',monospace;font-size:10px;color:#a0a0ff">FRI JUL 11 · 13:42 ET · MARKET OPEN</span>
+  </div>
+  <!-- learning banner -->
+  <div style="background:#d4d0c8;border-bottom:2px outset #dfdfdf;padding:6px 8px;display:flex;gap:8px;align-items:center">
+    <div style="border:2px outset #dfdfdf;background:#c0c0c0;padding:4px 10px;flex:1">
+      <div style="display:flex;justify-content:space-between;font-size:10px;font-family:Tahoma;margin-bottom:3px"><span style="text-transform:uppercase;letter-spacing:0.5px;color:#404040">Learning progress — labeled outcomes</span><span style="font-family:'Cascadia Mono',monospace;font-weight:bold;font-size:12px">31 / 50</span></div>
+      <div style="height:16px;border:2px inset #dfdfdf;background:#d4d0c8;display:flex;gap:1px;padding:1px">{{ learningBlocks }}</div>
+      <div style="font-size:9px;font-family:Tahoma;color:#606060;margin-top:2px">22 wins · 9 losses · signal-weight learner activates at 50 labeled trades</div>
+    </div>
+    <div style="border:2px inset #dfdfdf;background:#fff;padding:4px 12px;font-family:'Cascadia Mono',monospace"><div style="font-size:9px;font-family:Tahoma;color:#808080;text-transform:uppercase">Win rate</div><div style="font-size:18px;font-weight:bold;color:#008000">71%</div></div>
+    <div style="border:2px inset #dfdfdf;background:#fff;padding:4px 12px;font-family:'Cascadia Mono',monospace"><div style="font-size:9px;font-family:Tahoma;color:#808080;text-transform:uppercase">Realized P&amp;L</div><div style="font-size:18px;font-weight:bold;color:#008000">+$8,412</div></div>
+    <div style="border:2px inset #dfdfdf;background:#fff;padding:4px 12px;font-family:'Cascadia Mono',monospace"><div style="font-size:9px;font-family:Tahoma;color:#808080;text-transform:uppercase">Avg win / loss</div><div style="font-size:18px;font-weight:bold">$486 / $312</div></div>
+  </div>
+  <div style="flex:1;display:grid;grid-template-columns:1fr 330px;gap:4px;padding:4px;min-height:0">
+    <!-- trade history -->
+    <div style="border:2px outset #dfdfdf;background:#c0c0c0;display:flex;flex-direction:column;min-height:0">
+      <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Trade History — 43 closed, 8 open</div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:3px 4px;background:#d4d0c8;border-bottom:1px solid #808080;font-size:10px;font-family:Tahoma">
+        <span>Sleeve: <span style="border:2px inset #dfdfdf;background:#fff;padding:1px 4px;font-family:'Cascadia Mono',monospace;font-size:11px">All &#9662;</span></span>
+        <span>Outcome: <span style="border:2px inset #dfdfdf;background:#fff;padding:1px 4px;font-family:'Cascadia Mono',monospace;font-size:11px">All &#9662;</span></span>
+        <span>Symbol: <span style="border:2px inset #dfdfdf;background:#fff;padding:1px 4px;font-family:'Cascadia Mono',monospace;font-size:11px;color:#808080">filter...</span></span>
+        <span style="border:2px outset #dfdfdf;background:#c0c0c0;padding:1px 8px;font-size:10px">Clear</span>
+      </div>
+      <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;overflow:auto;flex:1">
+        <table style="width:100%;border-collapse:collapse;font-size:11px;font-family:'Cascadia Mono',monospace">
+          <thead><tr>
+            <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:left;border:1px solid #808080">CLOSED</th>
+            <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:left;border:1px solid #808080">SYMBOL</th>
+            <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:left;border:1px solid #808080">SLEEVE</th>
+            <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:left;border:1px solid #808080">TYPE</th>
+            <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:right;border:1px solid #808080">STRIKE</th>
+            <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:right;border:1px solid #808080">P&amp;L</th>
+            <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:left;border:1px solid #808080">LABEL</th>
+            <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:left;border:1px solid #808080">EXIT REASON</th>
+          </tr></thead>
+          <tbody>
+            <sc-for list="{{ trades }}" as="t" hint-placeholder-count="12">
+              <tr style="background:{{ t.rowBg }}">
+                <td style="padding:2px 6px;border:1px solid #c0c0c0">{{ t.closed }}</td>
+                <td style="padding:2px 6px;border:1px solid #c0c0c0;font-weight:bold">{{ t.symbol }}</td>
+                <td style="padding:2px 6px;border:1px solid #c0c0c0"><span style="font-family:Tahoma;font-size:9px;padding:0 4px;border:1px solid #808080;background:{{ t.sleeveBg }};text-transform:uppercase">{{ t.sleeve }}</span></td>
+                <td style="padding:2px 6px;border:1px solid #c0c0c0">{{ t.type }}</td>
+                <td style="padding:2px 6px;border:1px solid #c0c0c0;text-align:right">{{ t.strike }}</td>
+                <td style="padding:2px 6px;border:1px solid #c0c0c0;text-align:right;font-weight:bold;color:{{ t.pnlColor }}">{{ t.pnl }}</td>
+                <td style="padding:2px 6px;border:1px solid #c0c0c0;font-weight:bold;color:{{ t.labelColor }}">{{ t.label }}</td>
+                <td style="padding:2px 6px;border:1px solid #c0c0c0;font-size:10px;color:#404040">{{ t.exit }}</td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <!-- right rail -->
+    <div style="display:flex;flex-direction:column;gap:4px;min-height:0">
+      <div style="border:2px outset #dfdfdf;background:#c0c0c0">
+        <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Sleeve Scorecard</div>
+        <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:2px">
+          <table style="width:100%;border-collapse:collapse;font-size:10px;font-family:'Cascadia Mono',monospace">
+            <thead><tr>
+              <th style="background:#d4d0c8;color:#000;font-family:Tahoma;font-size:9px;padding:1px 4px;text-align:left;border:1px solid #c0c0c0">SLEEVE</th>
+              <th style="background:#d4d0c8;color:#000;font-family:Tahoma;font-size:9px;padding:1px 4px;text-align:right;border:1px solid #c0c0c0">TRADES</th>
+              <th style="background:#d4d0c8;color:#000;font-family:Tahoma;font-size:9px;padding:1px 4px;text-align:right;border:1px solid #c0c0c0">WIN%</th>
+              <th style="background:#d4d0c8;color:#000;font-family:Tahoma;font-size:9px;padding:1px 4px;text-align:right;border:1px solid #c0c0c0">P&amp;L</th>
+            </tr></thead>
+            <tbody>
+              <sc-for list="{{ scorecard }}" as="sc" hint-placeholder-count="4">
+                <tr>
+                  <td style="padding:1px 4px;border:1px solid #e0e0e0;font-family:Tahoma;font-size:10px">{{ sc.name }}</td>
+                  <td style="padding:1px 4px;border:1px solid #e0e0e0;text-align:right">{{ sc.trades }}</td>
+                  <td style="padding:1px 4px;border:1px solid #e0e0e0;text-align:right">{{ sc.win }}</td>
+                  <td style="padding:1px 4px;border:1px solid #e0e0e0;text-align:right;font-weight:bold;color:{{ sc.pnlColor }}">{{ sc.pnl }}</td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div style="border:2px outset #dfdfdf;background:#c0c0c0;display:flex;flex-direction:column;flex:1;min-height:0">
+        <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px;display:flex"><span style="flex:1">Alpaca Reconciliation</span><span style="font-weight:normal;font-size:10px;color:#ffff80">1 ISSUE</span></div>
+        <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:4px 6px;font-family:'Cascadia Mono',monospace;font-size:11px;overflow:auto;flex:1">
+          <div style="display:flex;justify-content:space-between;padding:1px 0"><span style="font-family:Tahoma;color:#808080;font-size:10px">Last sync</span><span>13:41:07</span></div>
+          <div style="display:flex;justify-content:space-between;padding:1px 0"><span style="font-family:Tahoma;color:#808080;font-size:10px">Positions matched</span><span style="color:#008000;font-weight:bold">8 / 8</span></div>
+          <div style="display:flex;justify-content:space-between;padding:1px 0"><span style="font-family:Tahoma;color:#808080;font-size:10px">Broker realized P&amp;L</span><span>$8,412</span></div>
+          <div style="display:flex;justify-content:space-between;padding:1px 0"><span style="font-family:Tahoma;color:#808080;font-size:10px">DB labeled P&amp;L</span><span>$8,347</span></div>
+          <div style="display:flex;justify-content:space-between;padding:1px 0"><span style="font-family:Tahoma;color:#808080;font-size:10px">Drift</span><span style="color:#808000;font-weight:bold">$65</span></div>
+          <div style="border:1px solid #808000;background:#fffff0;padding:4px 6px;margin-top:4px;font-size:10px;line-height:1.5">
+            <div style="font-weight:bold;color:#808000">&#9888; DISCREPANCY — COIN CSP $240</div>
+            <div style="font-family:Tahoma">Alpaca fill 13:28:44 @ $4.85 · DB recorded $4.80. Fill event arrived after cycle snapshot; order_reconciler will patch at next sync.</div>
+            <div style="margin-top:3px"><span style="border:2px outset #dfdfdf;background:#c0c0c0;padding:1px 8px;font-family:Tahoma;font-size:10px">Force re-sync</span></div>
+          </div>
+          <div style="border-top:1px solid #808080;margin-top:6px;padding-top:4px;font-family:Tahoma;font-size:10px;color:#808080">Sync history (7d): 96.4% clean · 3 auto-patched · 0 manual</div>
+        </div>
+      </div>
+      <div style="border:2px outset #dfdfdf;background:#c0c0c0">
+        <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Daily P&amp;L (30d)</div>
+        <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:4px;height:80px;display:flex;align-items:flex-end;gap:1px">{{ dailyBars }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+
+<!-- ═══════════ 3C — AGENTS (ADMIN) ═══════════ -->
+<div class="dv-opt" id="3c">
+<div class="dv-olabel"><a class="dv-oid" href="#3c">3c</a>Agents (admin-only) — DB write audit, overwrite detection, per-agent cost, message bus</div>
+<div class="dv-card" style="width:1280px">
+<div style="display:flex;flex-direction:column;height:880px;background:#c0c0c0">
+  <div style="background:#400000;display:flex;align-items:center;padding:2px 4px;gap:4px;border-bottom:2px outset #dfdfdf">
+    <span style="color:#fff;font-weight:bold;font-size:12px;padding:2px 8px 2px 4px">PREMIUM TRADER</span>
+    <span style="padding:2px 12px;font-size:11px;color:#c0a0a0">Command Center</span>
+    <span style="padding:2px 12px;font-size:11px;color:#c0a0a0">Pipeline</span>
+    <span style="padding:2px 12px;font-size:11px;color:#c0a0a0">Trades &amp; Learning</span>
+    <span style="padding:2px 12px;font-size:11px;color:#c0a0a0">Chat</span>
+    <span style="border:2px outset #dfdfdf;background:#c0c0c0;padding:2px 12px;font-size:11px;font-weight:bold;white-space:nowrap">Agents &#128274;</span>
+    <span style="flex:1"></span>
+    <span style="font-family:'Cascadia Mono',monospace;font-size:10px;color:#ff8080">ADMIN SESSION · 13:42 ET</span>
+  </div>
+  <!-- integrity strip -->
+  <div style="background:#d4d0c8;border-bottom:2px outset #dfdfdf;padding:6px 8px;display:flex;gap:4px">
+    <div style="border:2px inset #dfdfdf;background:#fff;padding:3px 10px;font-family:'Cascadia Mono',monospace"><span style="font-family:Tahoma;color:#808080;font-size:10px">DB WRITES TODAY </span><span style="font-weight:bold;font-size:13px">14,208</span></div>
+    <div style="border:2px inset #dfdfdf;background:#fff;padding:3px 10px;font-family:'Cascadia Mono',monospace;white-space:nowrap"><span style="font-family:Tahoma;color:#808080;font-size:10px">OVERWRITES </span><span style="font-weight:bold;font-size:13px;color:#808000;white-space:nowrap">2 flagged</span></div>
+    <div style="border:2px inset #dfdfdf;background:#fff;padding:3px 10px;font-family:'Cascadia Mono',monospace"><span style="font-family:Tahoma;color:#808080;font-size:10px">READ COST TODAY </span><span style="font-weight:bold;font-size:13px">$0.41</span></div>
+    <div style="border:2px inset #dfdfdf;background:#fff;padding:3px 10px;font-family:'Cascadia Mono',monospace"><span style="font-family:Tahoma;color:#808080;font-size:10px">INTEGRITY CHECK </span><span style="font-weight:bold;font-size:13px;color:#008000">PASS 05:00</span></div>
+    <div style="border:2px inset #dfdfdf;background:#fff;padding:3px 10px;font-family:'Cascadia Mono',monospace"><span style="font-family:Tahoma;color:#808080;font-size:10px">GHOST TRADES </span><span style="font-weight:bold;font-size:13px;color:#008000">0</span></div>
+  </div>
+  <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:4px;padding:4px;min-height:0">
+    <!-- DB write audit -->
+    <div style="border:2px outset #dfdfdf;background:#c0c0c0;display:flex;flex-direction:column;min-height:0">
+      <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">DB Write Audit — by agent × table (today)</div>
+      <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;overflow:auto;flex:1">
+        <table style="width:100%;border-collapse:collapse;font-size:10px;font-family:'Cascadia Mono',monospace">
+          <thead><tr>
+            <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:10px;padding:2px 6px;text-align:left;border:1px solid #808080">AGENT</th>
+            <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:10px;padding:2px 6px;text-align:left;border:1px solid #808080">TABLE</th>
+            <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:10px;padding:2px 6px;text-align:right;border:1px solid #808080">INS</th>
+            <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:10px;padding:2px 6px;text-align:right;border:1px solid #808080">UPD</th>
+            <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:10px;padding:2px 6px;text-align:left;border:1px solid #808080">FLAG</th>
+          </tr></thead>
+          <tbody>
+            <sc-for list="{{ dbWrites }}" as="w" hint-placeholder-count="9">
+              <tr style="background:{{ w.rowBg }}">
+                <td style="padding:1px 6px;border:1px solid #c0c0c0">{{ w.agent }}</td>
+                <td style="padding:1px 6px;border:1px solid #c0c0c0">{{ w.table }}</td>
+                <td style="padding:1px 6px;border:1px solid #c0c0c0;text-align:right">{{ w.ins }}</td>
+                <td style="padding:1px 6px;border:1px solid #c0c0c0;text-align:right">{{ w.upd }}</td>
+                <td style="padding:1px 6px;border:1px solid #c0c0c0;font-weight:bold;color:{{ w.flagColor }}">{{ w.flag }}</td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <!-- overwrite detection -->
+    <div style="border:2px outset #dfdfdf;background:#c0c0c0;display:flex;flex-direction:column;min-height:0">
+      <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px;display:flex"><span style="flex:1">Overwrite Detection — data muddying watch</span><span style="font-weight:normal;font-size:10px;color:#ffff80">2 FLAGGED</span></div>
+      <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;overflow:auto;flex:1;padding:4px 6px;font-family:'Cascadia Mono',monospace;font-size:10px;line-height:1.5">
+        <div style="border:1px solid #808000;background:#fffff0;padding:4px 6px;margin-bottom:4px">
+          <div style="font-weight:bold;color:#808000">&#9888; name_observations — SMCI 13:02</div>
+          <div style="font-family:Tahoma">tier2a_prefilter UPDATE overwrote analysis JSONB written 09:47 (same cycle key). 11 signal values replaced, 3 changed &gt;20%. Prior version not archived.</div>
+          <div style="margin-top:2px"><span style="border:2px outset #dfdfdf;background:#c0c0c0;padding:1px 8px;font-family:Tahoma">View diff</span> <span style="border:2px outset #dfdfdf;background:#c0c0c0;padding:1px 8px;font-family:Tahoma">Restore prior</span></div>
+        </div>
+        <div style="border:1px solid #808000;background:#fffff0;padding:4px 6px;margin-bottom:4px">
+          <div style="font-weight:bold;color:#808000">&#9888; wheel_state — SMCI 09:31</div>
+          <div style="font-family:Tahoma">worker_wheel wrote state=CSP_OPEN twice in 40s (idempotency key missing). Second write identical — benign, but pattern repeats 4x this week.</div>
+        </div>
+        <div style="color:#008000">&#10003; trades, positions, trade_outcomes — no destructive writes in 7d</div>
+        <div style="color:#008000">&#10003; cycle_snapshots — append-only verified</div>
+        <div style="color:#008000">&#10003; skill_documents — 2 new versions, old preserved</div>
+      </div>
+    </div>
+    <!-- per-agent cost -->
+    <div style="border:2px outset #dfdfdf;background:#c0c0c0;display:flex;flex-direction:column;min-height:0">
+      <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Per-Agent Cost (today) — $1.84 total</div>
+      <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:4px 6px;overflow:auto;flex:1">
+        <sc-for list="{{ agentCosts }}" as="ac" hint-placeholder-count="7">
+          <div style="display:flex;align-items:center;gap:6px;padding:1px 0;font-size:11px;font-family:'Cascadia Mono',monospace">
+            <span style="width:110px;text-align:right;font-family:Tahoma;font-size:10px;white-space:nowrap;overflow:hidden;flex-shrink:0">{{ ac.name }}</span>
+            <div style="flex:1;height:12px;border:1px inset #dfdfdf;background:#d4d0c8;position:relative"><div style="position:absolute;left:0;top:0;bottom:0;background:{{ ac.color }};width:{{ ac.pct }}"></div></div>
+            <span style="width:58px;text-align:right;flex-shrink:0">{{ ac.cost }}</span>
+            <span style="width:52px;text-align:right;flex-shrink:0;color:#808080;font-size:9px">{{ ac.calls }}</span>
+          </div>
+        </sc-for>
+        <div style="border-top:1px solid #808080;margin-top:4px;padding-top:3px;font-family:Tahoma;font-size:10px;color:#808080">MTD $41.20 of $150 budget (27%) · projection $118 &#10003;</div>
+      </div>
+    </div>
+    <!-- message bus -->
+    <div style="border:2px outset #dfdfdf;background:#c0c0c0;display:flex;flex-direction:column;min-height:0">
+      <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Agent Message Bus — raw</div>
+      <div style="border:2px inset #dfdfdf;margin:2px;background:#000;overflow:auto;flex:1;padding:4px;font-family:'Cascadia Mono',monospace;font-size:10px;line-height:1.6">
+        <sc-for list="{{ busMsgs }}" as="bm" hint-placeholder-count="10">
+          <div style="color:{{ bm.color }};margin-bottom:1px"><span style="color:#606060">{{ bm.time }}</span> <span style="color:#00c0c0">{{ bm.from }}</span><span style="color:#606060">&#8594;</span><span style="color:#c000c0">{{ bm.to }}</span> {{ bm.msg }}</div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+
+<!-- ═══════════ 3D — CHAT ═══════════ -->
+<div class="dv-opt" id="3d">
+<div class="dv-olabel"><a class="dv-oid" href="#3d">3d</a>Chat — tool-call transparency with per-step latency, data sources, suggested queries</div>
+<div class="dv-card" style="width:1280px">
+<div style="display:flex;flex-direction:column;height:880px;background:#c0c0c0">
+  <div style="background:#000080;display:flex;align-items:center;padding:2px 4px;gap:4px;border-bottom:2px outset #dfdfdf">
+    <span style="color:#fff;font-weight:bold;font-size:12px;padding:2px 8px 2px 4px">PREMIUM TRADER</span>
+    <span style="padding:2px 12px;font-size:11px;color:#c0c0ff">Command Center</span>
+    <span style="padding:2px 12px;font-size:11px;color:#c0c0ff">Pipeline</span>
+    <span style="padding:2px 12px;font-size:11px;color:#c0c0ff">Trades &amp; Learning</span>
+    <span style="border:2px outset #dfdfdf;background:#c0c0c0;padding:2px 12px;font-size:11px;font-weight:bold">Chat</span>
+    <span style="padding:2px 12px;font-size:11px;color:#6060a0;white-space:nowrap">Agents &#128274;</span>
+    <span style="flex:1"></span>
+    <span style="font-family:'Cascadia Mono',monospace;font-size:10px;color:#a0a0ff">FRI JUL 11 · 13:42 ET · MARKET OPEN</span>
+  </div>
+  <div style="flex:1;display:grid;grid-template-columns:1fr 330px;gap:4px;padding:4px;min-height:0">
+    <!-- chat window -->
+    <div style="border:2px outset #dfdfdf;background:#c0c0c0;display:flex;flex-direction:column;min-height:0">
+      <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px;display:flex"><span style="flex:1">&#128172; Chat Agent — session #a3f2</span><span style="font-weight:normal;font-size:10px;color:#80ff80">AVG RESPONSE 2.1s</span></div>
+      <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;overflow:auto;flex:1;padding:8px;font-size:11px;display:flex;flex-direction:column;gap:8px">
+        <div style="max-width:70%;align-self:flex-end;border:1px solid #808080;background:#e8e8ff;padding:4px 8px"><div style="font-size:9px;color:#808080;font-family:Tahoma">YOU · 13:40</div>Why did the sector rotation sleeve lose money this week?</div>
+        <div style="max-width:85%;align-self:flex-start">
+          <div style="border:1px solid #c0c0c0;background:#f0f0f0;padding:3px 6px;font-family:'Cascadia Mono',monospace;font-size:10px;color:#404040;margin-bottom:2px">
+            <div>&#9654; query_trades(sleeve=sector-rotation, days=7) <span style="color:#008000">184ms</span></div>
+            <div>&#9654; get_positions(sleeve=sector-rotation) <span style="color:#008000">92ms</span></div>
+            <div>&#9654; get_regime_history(days=7) <span style="color:#008000">78ms</span></div>
+            <div>&#9654; claude.generate() <span style="color:#808000">1,840ms</span></div>
+          </div>
+          <div style="border:1px solid #808080;background:#fff;padding:4px 8px"><div style="font-size:9px;color:#808080;font-family:Tahoma">AGENT · 13:40 · 2.2s · $0.0041</div>The sleeve is down <b>-$1,240</b> this week, driven by one position: <b>XLE $86 CSP</b> (-$308 unrealized, opened Jul 3). Energy sold off 4.1% after the OPEC supply headline on Jul 8 — the regime service flagged the sector-rotation signal as stale that morning, but the position predates the flag. The other two closed trades this week were small wins (+$122, +$96). Net: this is one macro headline against one position, not a pattern across the sleeve.</div>
+        </div>
+        <div style="max-width:70%;align-self:flex-end;border:1px solid #808080;background:#e8e8ff;padding:4px 8px"><div style="font-size:9px;color:#808080;font-family:Tahoma">YOU · 13:41</div>Will it roll the XLE put?</div>
+        <div style="max-width:85%;align-self:flex-start">
+          <div style="border:1px solid #c0c0c0;background:#f0f0f0;padding:3px 6px;font-family:'Cascadia Mono',monospace;font-size:10px;color:#404040;margin-bottom:2px">
+            <div>&#9654; get_cycle_snapshots(limit=1) <span style="color:#008000">61ms</span> · cached</div>
+            <div>&#9654; claude.generate() <span style="color:#808000">1,210ms</span></div>
+          </div>
+          <div style="border:1px solid #808080;background:#fff;padding:4px 8px"><div style="font-size:9px;color:#808080;font-family:Tahoma">AGENT · 13:41 · 1.3s · $0.0028</div>In the 13:31 cycle the Lead Agent evaluated XLE and chose <b>HOLD</b>: 7 DTE, strike 2.8% OTM, and roll credit currently unattractive (mid $0.34 vs $0.55 threshold). Its stated plan: reassess at 3 DTE or if XLE breaks $87.20.</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:4px;padding:4px;background:#d4d0c8;border-top:1px solid #808080">
+        <div style="flex:1;border:2px inset #dfdfdf;background:#fff;padding:4px 6px;font-family:'Cascadia Mono',monospace;font-size:11px;color:#808080">Ask about trades, sleeves, agents, data...</div>
+        <span style="border:2px outset #dfdfdf;background:#c0c0c0;padding:4px 16px;font-size:11px;font-weight:bold">Send</span>
+      </div>
+    </div>
+    <!-- right rail -->
+    <div style="display:flex;flex-direction:column;gap:4px;min-height:0">
+      <div style="border:2px outset #dfdfdf;background:#c0c0c0">
+        <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Latency Budget</div>
+        <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:4px 6px;font-family:'Cascadia Mono',monospace;font-size:11px">
+          <sc-for list="{{ latency }}" as="lt" hint-placeholder-count="4">
+            <div style="display:flex;align-items:center;gap:6px;padding:1px 0">
+              <span style="width:92px;text-align:right;font-family:Tahoma;font-size:10px;flex-shrink:0">{{ lt.name }}</span>
+              <div style="flex:1;height:10px;border:1px inset #dfdfdf;background:#d4d0c8;position:relative"><div style="position:absolute;left:0;top:0;bottom:0;background:{{ lt.color }};width:{{ lt.pct }}"></div></div>
+              <span style="width:52px;text-align:right;flex-shrink:0">{{ lt.ms }}</span>
+            </div>
+          </sc-for>
+          <div style="font-family:Tahoma;font-size:10px;color:#808080;margin-top:4px;border-top:1px solid #808080;padding-top:3px">DB reads now cached (5-min TTL) — p50 response 2.1s, was 6.8s</div>
+        </div>
+      </div>
+      <div style="border:2px outset #dfdfdf;background:#c0c0c0">
+        <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Agent Can See</div>
+        <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:4px 6px;font-family:'Cascadia Mono',monospace;font-size:10px;line-height:1.7">
+          <div>&#10003; trades, positions, outcomes</div>
+          <div>&#10003; cycle snapshots + reasoning</div>
+          <div>&#10003; name observations (all tiers)</div>
+          <div>&#10003; regime + news + earnings</div>
+          <div>&#10003; playbook + skill documents</div>
+          <div style="color:#808080">&#215; cannot place or modify orders</div>
+        </div>
+      </div>
+      <div style="border:2px outset #dfdfdf;background:#c0c0c0;display:flex;flex-direction:column;flex:1;min-height:0">
+        <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Suggested Queries</div>
+        <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:4px 6px;overflow:auto;flex:1;display:flex;flex-direction:column;gap:3px">
+          <sc-for list="{{ suggested }}" as="sq" hint-placeholder-count="6">
+            <div style="border:2px outset #dfdfdf;background:#c0c0c0;padding:3px 8px;font-size:10px;font-family:Tahoma">{{ sq }}</div>
+          </sc-for>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Try next: "make the admin screen (<a class="dv-oid" href="#3c">3c</a>) scarier/more locked down" · "add a mobile layout for <a class="dv-oid" href="#2a">2a</a>" · "assemble these into one clickable prototype"</p>
+</section>
+
+<section class="dv-turn" id="t2">
+<div class="dv-thd"><a class="dv-tid" href="#t2">2</a><span class="dv-tname">Combined: <a class="dv-oid" href="#1b">1b</a> structure + <a class="dv-oid" href="#1a">1a</a> sleeve cards, learning progress &amp; system status</span></div>
+<div class="dv-opts">
+
+<div class="dv-opt" id="2a">
+<div class="dv-olabel"><a class="dv-oid" href="#2a">2a</a>Top tabs · pipeline spine · LLM spend top-right · sleeve cards · feed + learning + status rail</div>
+<div class="dv-card" style="width:1280px">
+<div style="display:flex;flex-direction:column;height:920px;background:#c0c0c0">
+  <!-- top tab nav -->
+  <div style="background:#000080;display:flex;align-items:center;padding:2px 4px;gap:4px;border-bottom:2px outset #dfdfdf">
+    <span style="color:#fff;font-weight:bold;font-size:12px;padding:2px 8px 2px 4px">PREMIUM TRADER</span>
+    <span style="border:2px outset #dfdfdf;background:#c0c0c0;padding:2px 12px;font-size:11px;font-weight:bold">Command Center</span>
+    <span style="padding:2px 12px;font-size:11px;color:#c0c0ff">Pipeline</span>
+    <span style="padding:2px 12px;font-size:11px;color:#c0c0ff">Trades &amp; Learning</span>
+    <span style="padding:2px 12px;font-size:11px;color:#c0c0ff">Chat</span>
+    <span style="padding:2px 12px;font-size:11px;color:#6060a0;white-space:nowrap">Agents &#128274;</span>
+    <span style="flex:1"></span>
+    <span style="font-family:'Cascadia Mono',monospace;font-size:10px;color:#a0a0ff">FRI JUL 11 · 13:42 ET · MARKET OPEN</span>
+  </div>
+  <!-- pipeline spine + LLM spend -->
+  <div style="background:#d4d0c8;border-bottom:2px outset #dfdfdf;padding:6px 8px">
+    <div style="display:flex;align-items:stretch;gap:0">
+      <sc-for list="{{ funnel }}" as="f" hint-placeholder-count="6">
+        <div style="display:flex;align-items:center">
+          <div style="border:2px outset #dfdfdf;background:{{ f.bg }};padding:4px 10px;min-width:96px">
+            <div style="font-size:9px;font-family:Tahoma;color:{{ f.labelColor }};text-transform:uppercase;letter-spacing:0.5px">{{ f.label }}</div>
+            <div style="font-family:'Cascadia Mono',monospace;font-size:16px;font-weight:bold;color:{{ f.countColor }}">{{ f.count }}</div>
+            <div style="font-size:9px;font-family:Tahoma;color:{{ f.labelColor }}">{{ f.sub }}</div>
+          </div>
+          <sc-if value="{{ f.arrow }}" hint-placeholder-val="{{ true }}"><span style="font-family:'Cascadia Mono',monospace;font-size:14px;color:#808080;padding:0 4px">&#9654;</span></sc-if>
+        </div>
+      </sc-for>
+      <div style="flex:1"></div>
+      <div style="border:2px inset #dfdfdf;background:#000;padding:4px 10px;display:flex;flex-direction:column;justify-content:center">
+        <div style="font-size:9px;font-family:Tahoma;color:#00c000;text-transform:uppercase">LLM spend today</div>
+        <div style="font-family:'Cascadia Mono',monospace;font-size:16px;font-weight:bold;color:#00ff00">$1.84</div>
+      </div>
+    </div>
+  </div>
+  <!-- body -->
+  <div style="flex:1;display:grid;grid-template-columns:1fr 300px;gap:4px;padding:4px;min-height:0">
+    <!-- left column -->
+    <div style="display:flex;flex-direction:column;gap:4px;min-height:0">
+      <!-- equity + sleeves P&L -->
+      <div style="display:grid;grid-template-columns:1fr 300px;gap:4px">
+        <div style="border:2px outset #dfdfdf;background:#c0c0c0">
+          <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Equity — $512,847 <span style="color:#80ff80">+2.6%</span> · today <span style="color:#80ff80">+$438</span></div>
+          <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:4px;height:150px;position:relative">
+            <div style="position:absolute;inset:4px">{{ equityCurve2a }}</div>
+          </div>
+        </div>
+        <div style="border:2px outset #dfdfdf;background:#c0c0c0">
+          <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Sleeves — P&amp;L</div>
+          <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:4px 6px;font-family:'Cascadia Mono',monospace;font-size:11px">
+            <sc-for list="{{ sleeves }}" as="sl" hint-placeholder-count="4">
+              <div style="display:flex;align-items:center;gap:6px;padding:2px 0">
+                <span style="width:86px;font-family:Tahoma;font-size:10px;white-space:nowrap;overflow:hidden">{{ sl.name }}</span>
+                <div style="flex:1;height:10px;border:1px inset #dfdfdf;background:#d4d0c8;position:relative">
+                  <div style="position:absolute;left:0;top:0;bottom:0;background:{{ sl.barColor }};width:{{ sl.pnlBarPct }}"></div>
+                </div>
+                <span style="width:56px;text-align:right;font-weight:bold;color:{{ sl.pnlColor }}">{{ sl.pnl }}</span>
+              </div>
+            </sc-for>
+            <div style="border-top:1px solid #808080;margin-top:4px;padding-top:3px;display:flex;justify-content:space-between"><span style="font-family:Tahoma;font-size:10px;color:#808080">Total premium MTD</span><span style="font-weight:bold">$3,210</span></div>
+          </div>
+        </div>
+      </div>
+      <!-- sleeve cards (from 1a) -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:4px">
+        <sc-for list="{{ sleeves }}" as="sl" hint-placeholder-count="4">
+          <div style="border:2px outset #dfdfdf;background:#c0c0c0">
+            <div style="background:#000080;color:#fff;font-size:11px;font-weight:bold;padding:2px 4px;display:flex;justify-content:space-between"><span>{{ sl.name }}</span><span style="font-family:'Cascadia Mono',monospace;font-weight:normal;font-size:9px;color:#a0a0ff">{{ sl.tag }}</span></div>
+            <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:4px 6px;font-family:'Cascadia Mono',monospace;font-size:11px">
+              <div style="display:flex;justify-content:space-between"><span style="color:#808080;font-family:Tahoma;font-size:10px">P&amp;L</span><span style="font-weight:bold;color:{{ sl.pnlColor }}">{{ sl.pnl }}</span></div>
+              <div style="display:flex;justify-content:space-between"><span style="color:#808080;font-family:Tahoma;font-size:10px">Positions</span><span>{{ sl.positions }}</span></div>
+              <div style="display:flex;justify-content:space-between"><span style="color:#808080;font-family:Tahoma;font-size:10px">Capital used</span><span>{{ sl.capital }}</span></div>
+              <div style="height:8px;border:1px inset #dfdfdf;background:#d4d0c8;margin-top:3px;position:relative"><div style="position:absolute;left:0;top:0;bottom:0;background:#000080;width:{{ sl.capitalPct }}"></div></div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+      <!-- positions -->
+      <div style="border:2px outset #dfdfdf;background:#c0c0c0;display:flex;flex-direction:column;flex:1;min-height:0">
+        <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px;display:flex"><span style="flex:1">Active Positions (8) — vs Alpaca: 8/8 matched</span><span style="font-weight:normal;font-size:10px;color:#80ff80">SYNCED 13:41</span></div>
+        <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;overflow:auto;flex:1">
+          <table style="width:100%;border-collapse:collapse;font-size:11px;font-family:'Cascadia Mono',monospace">
+            <thead><tr>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:left;border:1px solid #808080">SYMBOL</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:left;border:1px solid #808080">SLEEVE</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:left;border:1px solid #808080">TYPE</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:right;border:1px solid #808080">STRIKE</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:right;border:1px solid #808080">EXP</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:right;border:1px solid #808080">DTE</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:right;border:1px solid #808080">ENTRY</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:right;border:1px solid #808080">P&amp;L</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:left;border:1px solid #808080">ALPACA</th>
+            </tr></thead>
+            <tbody>
+              <sc-for list="{{ positions }}" as="p" hint-placeholder-count="8">
+                <tr style="background:{{ p.rowBg }}">
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0;font-weight:bold">{{ p.symbol }}</td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0"><span style="font-family:Tahoma;font-size:9px;padding:0 4px;border:1px solid #808080;background:{{ p.sleeveBg }};text-transform:uppercase">{{ p.sleeve }}</span></td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0">{{ p.type }}</td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0;text-align:right">{{ p.strike }}</td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0;text-align:right">{{ p.exp }}</td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0;text-align:right">{{ p.dte }}</td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0;text-align:right">{{ p.entry }}</td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0;text-align:right;font-weight:bold;color:{{ p.pnlColor }}">{{ p.pnl }}</td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0;color:{{ p.reconColor }}">{{ p.recon }}</td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <!-- right rail: feed + learning + status -->
+    <div style="display:flex;flex-direction:column;gap:4px;min-height:0">
+      <div style="border:2px outset #dfdfdf;background:#c0c0c0;display:flex;flex-direction:column;flex:1;min-height:0">
+        <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Agent Activity — Live</div>
+        <div style="border:2px inset #dfdfdf;margin:2px;background:#000;overflow:auto;flex:1;padding:4px;font-family:'Cascadia Mono',monospace;font-size:10px;line-height:1.6">
+          <sc-for list="{{ feed }}" as="ev" hint-placeholder-count="14">
+            <div style="color:{{ ev.color }};margin-bottom:2px"><span style="color:#606060">{{ ev.time }}</span> <span style="color:#00c0c0">[{{ ev.agent }}]</span> {{ ev.msg }}</div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="border:2px outset #dfdfdf;background:#c0c0c0;flex-shrink:0">
+        <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Learning Progress</div>
+        <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:6px;font-family:'Cascadia Mono',monospace;font-size:11px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-family:Tahoma;color:#808080;font-size:10px">Labeled trades</span><span style="font-weight:bold">31 / 50</span></div>
+          <div style="height:14px;border:2px inset #dfdfdf;background:#d4d0c8;position:relative;display:flex;gap:1px;padding:1px">
+            {{ learningBlocks }}
+          </div>
+          <div style="font-family:Tahoma;font-size:10px;color:#808080;margin-top:4px">Signal-weight learning activates at 50. 19 to go.</div>
+        </div>
+      </div>
+      <div style="border:2px outset #dfdfdf;background:#c0c0c0;flex-shrink:0">
+        <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">System Status</div>
+        <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:4px 6px;font-family:'Cascadia Mono',monospace;font-size:11px">
+          <div style="display:flex;justify-content:space-between;padding:1px 0"><span style="font-family:Tahoma;color:#808080;font-size:10px">Last Tier 1</span><span>06:42</span></div>
+          <div style="display:flex;justify-content:space-between;padding:1px 0"><span style="font-family:Tahoma;color:#808080;font-size:10px">Last Tier 2</span><span>13:05</span></div>
+          <div style="display:flex;justify-content:space-between;padding:1px 0"><span style="font-family:Tahoma;color:#808080;font-size:10px">Last Cycle</span><span>13:31 <span style="color:#808080">($0.0812)</span></span></div>
+          <div style="display:flex;justify-content:space-between;padding:1px 0"><span style="font-family:Tahoma;color:#808080;font-size:10px">Errors today</span><span>0</span></div>
+          <div style="display:flex;justify-content:space-between;padding:1px 0;border-top:1px solid #808080;margin-top:2px;padding-top:3px"><span style="font-family:Tahoma;color:#808080;font-size:10px">Reconciliation</span><span style="color:#008000;font-weight:bold">OK · drift $0</span></div>
+          <div style="display:flex;justify-content:space-between;padding:1px 0"><span style="font-family:Tahoma;color:#808080;font-size:10px">Regime</span><span style="color:#808000;font-weight:bold">NEUTRAL</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Try next: "build the remaining screens in this style" · "tweak the sleeve cards" · "make a variation with the feed on the left"</p>
+</section>
+
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Command Center — 3 directions (Win95 × Bloomberg, brutalist)</span></div>
+<div class="dv-opts">
+
+<!-- ═══════════════ OPTION 1A — P&L-first classic ═══════════════ -->
+<div class="dv-opt" id="1a">
+<div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>P&amp;L-first · equity curve hero · sleeve strip · classic tiled windows</div>
+<div class="dv-card" style="width:1280px">
+<div style="display:flex;height:860px;background:#c0c0c0">
+  <!-- sidebar -->
+  <div style="width:180px;flex-shrink:0;background:#000080;display:flex;flex-direction:column;border-right:2px outset #dfdfdf">
+    <div style="padding:10px 12px 8px;border-bottom:1px solid #0000b0">
+      <div style="color:#fff;font-weight:bold;font-size:14px">PREMIUM TRADER</div>
+      <div style="color:#a0a0ff;font-size:10px;margin-top:1px">Multi-Agent Options</div>
+    </div>
+    <div style="flex:1;padding:6px 0">
+      <div style="display:block;padding:6px 12px;font-size:12px;color:#fff;background:#0000b0;font-weight:bold;border-left:3px solid #fff">Command Center</div>
+      <div style="display:block;padding:6px 12px;font-size:12px;color:#c0c0ff;border-left:3px solid transparent">Pipeline</div>
+      <div style="display:block;padding:6px 12px;font-size:12px;color:#c0c0ff;border-left:3px solid transparent">Trades &amp; Learning</div>
+      <div style="display:block;padding:6px 12px;font-size:12px;color:#c0c0ff;border-left:3px solid transparent">Chat</div>
+      <div style="display:block;padding:6px 12px;font-size:12px;color:#6060a0;border-left:3px solid transparent">Agents &#128274;</div>
+    </div>
+    <div style="padding:8px 12px;border-top:1px solid #0000b0;color:#8080c0;font-size:10px">v2.0 · Paper Mode</div>
+  </div>
+  <!-- main -->
+  <div style="flex:1;overflow:hidden;display:flex;flex-direction:column;gap:4px;padding:4px">
+    <!-- top stat strip -->
+    <div style="display:flex;gap:2px;flex-wrap:wrap">
+      <div style="border:2px inset #dfdfdf;background:#fff;padding:3px 10px;font-family:'Cascadia Mono',monospace"><span style="font-family:Tahoma;color:#808080;font-size:10px">EQUITY </span><span style="font-weight:bold;font-size:14px">$512,847</span></div>
+      <div style="border:2px inset #dfdfdf;background:#fff;padding:3px 10px;font-family:'Cascadia Mono',monospace"><span style="font-family:Tahoma;color:#808080;font-size:10px">TOTAL P&amp;L </span><span style="font-weight:bold;font-size:14px;color:#008000">+$12,847 (+2.6%)</span></div>
+      <div style="border:2px inset #dfdfdf;background:#fff;padding:3px 10px;font-family:'Cascadia Mono',monospace"><span style="font-family:Tahoma;color:#808080;font-size:10px">TODAY </span><span style="font-weight:bold;font-size:14px;color:#008000">+$438</span></div>
+      <div style="border:2px inset #dfdfdf;background:#fff;padding:3px 10px;font-family:'Cascadia Mono',monospace"><span style="font-family:Tahoma;color:#808080;font-size:10px">PREMIUM MTD </span><span style="font-weight:bold;font-size:14px">$3,210</span></div>
+      <div style="border:2px inset #dfdfdf;background:#fff;padding:3px 10px;font-family:'Cascadia Mono',monospace"><span style="font-family:Tahoma;color:#808080;font-size:10px">LLM COST TODAY </span><span style="font-weight:bold;font-size:14px">$1.84</span></div>
+      <div style="border:2px inset #dfdfdf;background:#fff;padding:3px 10px;font-family:'Cascadia Mono',monospace"><span style="font-family:Tahoma;color:#808080;font-size:10px">RECON </span><span style="font-weight:bold;font-size:14px;color:#008000">OK</span></div>
+      <div style="border:2px inset #dfdfdf;background:#fff;padding:3px 10px;font-family:'Cascadia Mono',monospace"><span style="font-family:Tahoma;color:#808080;font-size:10px">REGIME </span><span style="font-weight:bold;font-size:14px;color:#808000">NEUTRAL</span></div>
+    </div>
+    <!-- equity curve window -->
+    <div style="border:2px outset #dfdfdf;background:#c0c0c0;display:flex;flex-direction:column">
+      <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px;display:flex;align-items:center;gap:4px">
+        <span style="flex:1">Equity Curve — $500,000 basis · 90 days</span>
+        <span style="width:16px;height:14px;border:1px outset #dfdfdf;background:#c0c0c0;color:#000;font-size:9px;display:flex;align-items:center;justify-content:center">_</span>
+        <span style="width:16px;height:14px;border:1px outset #dfdfdf;background:#c0c0c0;color:#000;font-size:9px;display:flex;align-items:center;justify-content:center">&#9633;</span>
+        <span style="width:16px;height:14px;border:1px outset #dfdfdf;background:#c0c0c0;color:#000;font-size:9px;display:flex;align-items:center;justify-content:center">&#215;</span>
+      </div>
+      <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:4px">
+        <div style="display:flex">
+          <div style="display:flex;flex-direction:column;justify-content:space-between;font-family:'Cascadia Mono',monospace;font-size:9px;color:#808080;text-align:right;padding-right:4px;height:180px;flex-shrink:0">
+            <span>$515K</span><span>$510K</span><span>$505K</span><span>$500K</span><span>$495K</span>
+          </div>
+          <div style="flex:1;height:180px;position:relative;border-left:1px solid #808080;border-bottom:1px solid #808080">
+            <div style="position:absolute;top:25%;left:0;right:0;border-top:1px dotted #d0d0d0"></div>
+            <div style="position:absolute;top:50%;left:0;right:0;border-top:1px dotted #d0d0d0"></div>
+            <div style="position:absolute;top:75%;left:0;right:0;border-top:1px dotted #b0b0b0"></div>
+            <div style="position:absolute;inset:0">{{ equityCurve1a }}</div>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-family:'Cascadia Mono',monospace;font-size:9px;color:#808080;padding-left:40px;margin-top:2px">
+          <span>APR 12</span><span>MAY 1</span><span>MAY 22</span><span>JUN 10</span><span>JUL 1</span><span>JUL 11</span>
+        </div>
+      </div>
+    </div>
+    <!-- sleeve strip -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:4px">
+      <sc-for list="{{ sleeves }}" as="sl" hint-placeholder-count="4">
+        <div style="border:2px outset #dfdfdf;background:#c0c0c0">
+          <div style="background:#000080;color:#fff;font-size:11px;font-weight:bold;padding:2px 4px;display:flex;justify-content:space-between"><span>{{ sl.name }}</span><span style="font-family:'Cascadia Mono',monospace;font-weight:normal;font-size:9px;color:#a0a0ff">{{ sl.tag }}</span></div>
+          <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:4px 6px;font-family:'Cascadia Mono',monospace;font-size:11px">
+            <div style="display:flex;justify-content:space-between"><span style="color:#808080;font-family:Tahoma;font-size:10px">P&amp;L</span><span style="font-weight:bold;color:{{ sl.pnlColor }}">{{ sl.pnl }}</span></div>
+            <div style="display:flex;justify-content:space-between"><span style="color:#808080;font-family:Tahoma;font-size:10px">Positions</span><span>{{ sl.positions }}</span></div>
+            <div style="display:flex;justify-content:space-between"><span style="color:#808080;font-family:Tahoma;font-size:10px">Capital used</span><span>{{ sl.capital }}</span></div>
+            <div style="height:8px;border:1px inset #dfdfdf;background:#d4d0c8;margin-top:3px;position:relative"><div style="position:absolute;left:0;top:0;bottom:0;background:#000080;width:{{ sl.capitalPct }}"></div></div>
+          </div>
+        </div>
+      </sc-for>
+    </div>
+    <!-- positions + right column -->
+    <div style="display:grid;grid-template-columns:1fr 340px;gap:4px;flex:1;min-height:0">
+      <div style="border:2px outset #dfdfdf;background:#c0c0c0;display:flex;flex-direction:column;min-height:0">
+        <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Active Positions (8)</div>
+        <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;overflow:auto;flex:1">
+          <table style="width:100%;border-collapse:collapse;font-size:11px;font-family:'Cascadia Mono',monospace">
+            <thead><tr>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:left;border:1px solid #808080">SYMBOL</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:left;border:1px solid #808080">SLEEVE</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:left;border:1px solid #808080">TYPE</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:right;border:1px solid #808080">STRIKE</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:right;border:1px solid #808080">DTE</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:right;border:1px solid #808080">P&amp;L</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:left;border:1px solid #808080">ALPACA</th>
+            </tr></thead>
+            <tbody>
+              <sc-for list="{{ positions }}" as="p" hint-placeholder-count="8">
+                <tr style="background:{{ p.rowBg }}">
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0;font-weight:bold">{{ p.symbol }}</td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0"><span style="font-family:Tahoma;font-size:9px;padding:0 4px;border:1px solid #808080;background:{{ p.sleeveBg }};text-transform:uppercase;letter-spacing:0.5px">{{ p.sleeve }}</span></td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0">{{ p.type }}</td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0;text-align:right">{{ p.strike }}</td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0;text-align:right">{{ p.dte }}</td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0;text-align:right;font-weight:bold;color:{{ p.pnlColor }}">{{ p.pnl }}</td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0;color:{{ p.reconColor }}">{{ p.recon }}</td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px;min-height:0">
+        <div style="border:2px outset #dfdfdf;background:#c0c0c0;display:flex;flex-direction:column">
+          <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Learning Progress</div>
+          <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:6px;font-family:'Cascadia Mono',monospace;font-size:11px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:3px"><span style="font-family:Tahoma;color:#808080;font-size:10px">Labeled trades</span><span style="font-weight:bold">31 / 50</span></div>
+            <div style="height:14px;border:2px inset #dfdfdf;background:#d4d0c8;position:relative;display:flex;gap:1px;padding:1px">
+              {{ learningBlocks }}
+            </div>
+            <div style="font-family:Tahoma;font-size:10px;color:#808080;margin-top:4px">Signal-weight learning activates at 50. 19 to go.</div>
+          </div>
+        </div>
+        <div style="border:2px outset #dfdfdf;background:#c0c0c0;display:flex;flex-direction:column;flex:1;min-height:0">
+          <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">System Status</div>
+          <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:4px 6px;font-family:'Cascadia Mono',monospace;font-size:11px;overflow:auto;flex:1">
+            <div style="display:flex;justify-content:space-between;padding:1px 0"><span style="font-family:Tahoma;color:#808080;font-size:10px">Last Tier 1</span><span>06:42</span></div>
+            <div style="display:flex;justify-content:space-between;padding:1px 0"><span style="font-family:Tahoma;color:#808080;font-size:10px">Last Tier 2</span><span>13:05</span></div>
+            <div style="display:flex;justify-content:space-between;padding:1px 0"><span style="font-family:Tahoma;color:#808080;font-size:10px">Last Cycle</span><span>13:31 <span style="color:#808080">($0.0812)</span></span></div>
+            <div style="display:flex;justify-content:space-between;padding:1px 0"><span style="font-family:Tahoma;color:#808080;font-size:10px">Errors today</span><span>0</span></div>
+            <div style="border-top:1px solid #808080;margin:4px 0;padding-top:4px">Universe 6,350 &#8594; T1 4,285 &#8594; T2a 87 &#8594; T2b 42 &#8594; Lead 9 &#8594; <span style="font-weight:bold">2 trades</span></div>
+            <div style="display:flex;justify-content:space-between;padding:1px 0"><span style="font-family:Tahoma;color:#808080;font-size:10px">Reconciliation</span><span style="color:#008000;font-weight:bold">OK · drift $0</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+
+<!-- ═══════════════ OPTION 1B — Live pipeline spine ═══════════════ -->
+<div class="dv-opt" id="1b">
+<div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>Novel UX · horizontal pipeline spine across the top · agent activity feed right rail</div>
+<div class="dv-card" style="width:1280px">
+<div style="display:flex;flex-direction:column;height:860px;background:#c0c0c0">
+  <!-- top menu bar nav (more Win95-accurate than sidebar) -->
+  <div style="background:#000080;display:flex;align-items:center;padding:2px 4px;gap:4px;border-bottom:2px outset #dfdfdf">
+    <span style="color:#fff;font-weight:bold;font-size:12px;padding:2px 8px 2px 4px">PREMIUM TRADER</span>
+    <span style="border:2px outset #dfdfdf;background:#c0c0c0;padding:2px 12px;font-size:11px;font-weight:bold">Command Center</span>
+    <span style="padding:2px 12px;font-size:11px;color:#c0c0ff">Pipeline</span>
+    <span style="padding:2px 12px;font-size:11px;color:#c0c0ff">Trades &amp; Learning</span>
+    <span style="padding:2px 12px;font-size:11px;color:#c0c0ff">Chat</span>
+    <span style="flex:1"></span>
+    <span style="font-family:'Cascadia Mono',monospace;font-size:10px;color:#a0a0ff">FRI JUL 11 · 13:42 ET · MARKET OPEN</span>
+  </div>
+  <!-- pipeline spine -->
+  <div style="background:#d4d0c8;border-bottom:2px outset #dfdfdf;padding:6px 8px">
+    <div style="display:flex;align-items:stretch;gap:0">
+      <sc-for list="{{ funnel }}" as="f" hint-placeholder-count="6">
+        <div style="display:flex;align-items:center">
+          <div style="border:2px outset #dfdfdf;background:{{ f.bg }};padding:4px 10px;min-width:96px">
+            <div style="font-size:9px;font-family:Tahoma;color:{{ f.labelColor }};text-transform:uppercase;letter-spacing:0.5px">{{ f.label }}</div>
+            <div style="font-family:'Cascadia Mono',monospace;font-size:16px;font-weight:bold;color:{{ f.countColor }}">{{ f.count }}</div>
+            <div style="font-size:9px;font-family:Tahoma;color:{{ f.labelColor }}">{{ f.sub }}</div>
+          </div>
+          <sc-if value="{{ f.arrow }}" hint-placeholder-val="{{ true }}"><span style="font-family:'Cascadia Mono',monospace;font-size:14px;color:#808080;padding:0 4px">&#9654;</span></sc-if>
+        </div>
+      </sc-for>
+      <div style="flex:1"></div>
+      <div style="border:2px inset #dfdfdf;background:#000;padding:4px 10px;display:flex;flex-direction:column;justify-content:center">
+        <div style="font-size:9px;font-family:Tahoma;color:#00c000;text-transform:uppercase">LLM spend today</div>
+        <div style="font-family:'Cascadia Mono',monospace;font-size:16px;font-weight:bold;color:#00ff00">$1.84</div>
+      </div>
+    </div>
+  </div>
+  <!-- body: main + activity feed -->
+  <div style="flex:1;display:grid;grid-template-columns:1fr 300px;gap:4px;padding:4px;min-height:0">
+    <div style="display:flex;flex-direction:column;gap:4px;min-height:0">
+      <!-- equity + sleeves side by side -->
+      <div style="display:grid;grid-template-columns:1fr 300px;gap:4px">
+        <div style="border:2px outset #dfdfdf;background:#c0c0c0">
+          <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Equity — $512,847 <span style="color:#80ff80">+2.6%</span></div>
+          <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:4px;height:150px;position:relative">
+            <div style="position:absolute;inset:4px">{{ equityCurve1b }}</div>
+          </div>
+        </div>
+        <div style="border:2px outset #dfdfdf;background:#c0c0c0">
+          <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Sleeves — P&amp;L</div>
+          <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:4px 6px;font-family:'Cascadia Mono',monospace;font-size:11px">
+            <sc-for list="{{ sleeves }}" as="sl" hint-placeholder-count="4">
+              <div style="display:flex;align-items:center;gap:6px;padding:2px 0">
+                <span style="width:86px;font-family:Tahoma;font-size:10px;white-space:nowrap;overflow:hidden">{{ sl.name }}</span>
+                <div style="flex:1;height:10px;border:1px inset #dfdfdf;background:#d4d0c8;position:relative">
+                  <div style="position:absolute;left:0;top:0;bottom:0;background:{{ sl.barColor }};width:{{ sl.pnlBarPct }}"></div>
+                </div>
+                <span style="width:56px;text-align:right;font-weight:bold;color:{{ sl.pnlColor }}">{{ sl.pnl }}</span>
+              </div>
+            </sc-for>
+            <div style="border-top:1px solid #808080;margin-top:4px;padding-top:3px;display:flex;justify-content:space-between"><span style="font-family:Tahoma;font-size:10px;color:#808080">Total premium MTD</span><span style="font-weight:bold">$3,210</span></div>
+          </div>
+        </div>
+      </div>
+      <!-- positions -->
+      <div style="border:2px outset #dfdfdf;background:#c0c0c0;display:flex;flex-direction:column;flex:1;min-height:0">
+        <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px;display:flex"><span style="flex:1">Active Positions (8) — vs Alpaca: 8/8 matched</span><span style="font-weight:normal;font-size:10px;color:#80ff80">SYNCED 13:41</span></div>
+        <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;overflow:auto;flex:1">
+          <table style="width:100%;border-collapse:collapse;font-size:11px;font-family:'Cascadia Mono',monospace">
+            <thead><tr>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:left;border:1px solid #808080">SYMBOL</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:left;border:1px solid #808080">SLEEVE</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:left;border:1px solid #808080">TYPE</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:right;border:1px solid #808080">STRIKE</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:right;border:1px solid #808080">EXP</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:right;border:1px solid #808080">DTE</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:right;border:1px solid #808080">ENTRY</th>
+              <th style="background:#000080;color:#fff;font-family:Tahoma;font-size:11px;padding:2px 6px;text-align:right;border:1px solid #808080">P&amp;L</th>
+            </tr></thead>
+            <tbody>
+              <sc-for list="{{ positions }}" as="p" hint-placeholder-count="8">
+                <tr style="background:{{ p.rowBg }}">
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0;font-weight:bold">{{ p.symbol }}</td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0"><span style="font-family:Tahoma;font-size:9px;padding:0 4px;border:1px solid #808080;background:{{ p.sleeveBg }};text-transform:uppercase">{{ p.sleeve }}</span></td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0">{{ p.type }}</td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0;text-align:right">{{ p.strike }}</td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0;text-align:right">{{ p.exp }}</td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0;text-align:right">{{ p.dte }}</td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0;text-align:right">{{ p.entry }}</td>
+                  <td style="padding:2px 6px;border:1px solid #c0c0c0;text-align:right;font-weight:bold;color:{{ p.pnlColor }}">{{ p.pnl }}</td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <!-- agent activity feed -->
+    <div style="border:2px outset #dfdfdf;background:#c0c0c0;display:flex;flex-direction:column;min-height:0">
+      <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">Agent Activity — Live</div>
+      <div style="border:2px inset #dfdfdf;margin:2px;background:#000;overflow:auto;flex:1;padding:4px;font-family:'Cascadia Mono',monospace;font-size:10px;line-height:1.6">
+        <sc-for list="{{ feed }}" as="ev" hint-placeholder-count="14">
+          <div style="color:{{ ev.color }};margin-bottom:2px"><span style="color:#606060">{{ ev.time }}</span> <span style="color:#00c0c0">[{{ ev.agent }}]</span> {{ ev.msg }}</div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+
+<!-- ═══════════════ OPTION 1C — Desktop metaphor ═══════════════ -->
+<div class="dv-opt" id="1c">
+<div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a>Full Win95 desktop metaphor · teal desktop · overlapping windows · taskbar with Start</div>
+<div class="dv-card" style="width:1280px">
+<div style="height:860px;background:#008080;position:relative;overflow:hidden">
+  <!-- desktop icons -->
+  <div style="position:absolute;top:12px;left:12px;display:flex;flex-direction:column;gap:16px">
+    <sc-for list="{{ desktopIcons }}" as="ic" hint-placeholder-count="5">
+      <div style="width:74px;display:flex;flex-direction:column;align-items:center;gap:2px">
+        <div style="width:32px;height:32px;border:1px solid #fff;background:#c0c0c0;display:flex;align-items:center;justify-content:center;font-size:16px">{{ ic.glyph }}</div>
+        <div style="color:#fff;font-size:10px;text-align:center;text-shadow:1px 1px 0 #000">{{ ic.label }}</div>
+      </div>
+    </sc-for>
+  </div>
+  <!-- Window 1: Portfolio (large, back) -->
+  <div style="position:absolute;top:24px;left:120px;width:760px;border:2px outset #dfdfdf;background:#c0c0c0;box-shadow:2px 2px 0 rgba(0,0,0,.4)">
+    <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px;display:flex;align-items:center;gap:4px">
+      <span style="flex:1">&#128200; Portfolio.exe — $512,847 (+2.6%)</span>
+      <span style="width:16px;height:14px;border:1px outset #dfdfdf;background:#c0c0c0;color:#000;font-size:9px;display:flex;align-items:center;justify-content:center">_</span>
+      <span style="width:16px;height:14px;border:1px outset #dfdfdf;background:#c0c0c0;color:#000;font-size:9px;display:flex;align-items:center;justify-content:center">&#9633;</span>
+      <span style="width:16px;height:14px;border:1px outset #dfdfdf;background:#c0c0c0;color:#000;font-size:9px;display:flex;align-items:center;justify-content:center">&#215;</span>
+    </div>
+    <div style="display:flex;gap:0;background:#c0c0c0;padding:1px 4px;font-size:11px;border-bottom:1px solid #808080">
+      <span style="padding:1px 8px;text-decoration:underline">F</span><span style="padding:1px 8px">ile&nbsp;&nbsp;Edit&nbsp;&nbsp;View&nbsp;&nbsp;Sleeves&nbsp;&nbsp;Help</span>
+    </div>
+    <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:4px">
+      <div style="height:150px;position:relative;margin-bottom:4px">
+        <div style="position:absolute;inset:0">{{ equityCurve1c }}</div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;font-family:'Cascadia Mono',monospace">
+        <thead><tr>
+          <th style="background:#c0c0c0;color:#000;border:1px outset #dfdfdf;font-family:Tahoma;font-size:10px;padding:1px 6px;text-align:left">SLEEVE</th>
+          <th style="background:#c0c0c0;color:#000;border:1px outset #dfdfdf;font-family:Tahoma;font-size:10px;padding:1px 6px;text-align:right">CAPITAL</th>
+          <th style="background:#c0c0c0;color:#000;border:1px outset #dfdfdf;font-family:Tahoma;font-size:10px;padding:1px 6px;text-align:right">POS</th>
+          <th style="background:#c0c0c0;color:#000;border:1px outset #dfdfdf;font-family:Tahoma;font-size:10px;padding:1px 6px;text-align:right">P&amp;L</th>
+          <th style="background:#c0c0c0;color:#000;border:1px outset #dfdfdf;font-family:Tahoma;font-size:10px;padding:1px 6px;text-align:right">WIN RATE</th>
+        </tr></thead>
+        <tbody>
+          <sc-for list="{{ sleeves }}" as="sl" hint-placeholder-count="4">
+            <tr>
+              <td style="padding:2px 6px;border:1px solid #d0d0d0;font-family:Tahoma;font-weight:bold;font-size:11px">{{ sl.name }}</td>
+              <td style="padding:2px 6px;border:1px solid #d0d0d0;text-align:right">{{ sl.capitalUsed }}</td>
+              <td style="padding:2px 6px;border:1px solid #d0d0d0;text-align:right">{{ sl.positions }}</td>
+              <td style="padding:2px 6px;border:1px solid #d0d0d0;text-align:right;font-weight:bold;color:{{ sl.pnlColor }}">{{ sl.pnl }}</td>
+              <td style="padding:2px 6px;border:1px solid #d0d0d0;text-align:right">{{ sl.winRate }}</td>
+            </tr>
+          </sc-for>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <!-- Window 2: Pipeline (front right) -->
+  <div style="position:absolute;top:120px;right:24px;width:360px;border:2px outset #dfdfdf;background:#c0c0c0;box-shadow:2px 2px 0 rgba(0,0,0,.4)">
+    <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px;display:flex;align-items:center;gap:4px">
+      <span style="flex:1">&#128270; Pipeline.exe</span>
+      <span style="width:16px;height:14px;border:1px outset #dfdfdf;background:#c0c0c0;color:#000;font-size:9px;display:flex;align-items:center;justify-content:center">&#215;</span>
+    </div>
+    <div style="border:2px inset #dfdfdf;margin:2px;background:#fff;padding:6px;font-family:'Cascadia Mono',monospace;font-size:11px">
+      <sc-for list="{{ funnel }}" as="f" hint-placeholder-count="6">
+        <div style="display:flex;align-items:center;gap:6px;padding:2px 0">
+          <span style="width:70px;font-family:Tahoma;font-size:10px;text-align:right;color:#404040">{{ f.label }}</span>
+          <div style="flex:1;height:11px;border:1px inset #dfdfdf;background:#d4d0c8;position:relative">
+            <div style="position:absolute;left:0;top:0;bottom:0;background:#000080;width:{{ f.barPct }}"></div>
+          </div>
+          <span style="width:46px;text-align:right;font-weight:bold">{{ f.count }}</span>
+        </div>
+      </sc-for>
+      <div style="border-top:1px solid #808080;margin-top:4px;padding-top:4px;font-size:10px;font-family:Tahoma;color:#808080">Today: 2 trades submitted · both filled on Alpaca</div>
+    </div>
+  </div>
+  <!-- Window 3: cost monitor (front bottom left) -->
+  <div style="position:absolute;bottom:70px;left:150px;width:330px;border:2px outset #dfdfdf;background:#c0c0c0;box-shadow:2px 2px 0 rgba(0,0,0,.4)">
+    <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px;display:flex;align-items:center;gap:4px">
+      <span style="flex:1">&#128176; LLM_Cost.exe</span>
+      <span style="width:16px;height:14px;border:1px outset #dfdfdf;background:#c0c0c0;color:#000;font-size:9px;display:flex;align-items:center;justify-content:center">&#215;</span>
+    </div>
+    <div style="border:2px inset #dfdfdf;margin:2px;background:#000;padding:6px;font-family:'Cascadia Mono',monospace;font-size:11px;color:#00ff00">
+      <div>TODAY&nbsp;&nbsp;&nbsp;$1.84&nbsp;&nbsp;(23 calls)</div>
+      <div>MTD&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;$41.20 / $150 budget</div>
+      <div style="margin-top:4px;display:flex;gap:1px">{{ costBlocks }}</div>
+      <div style="margin-top:4px;color:#00a000">Claude $1.62 · Llama $0.19 · Embed $0.03</div>
+    </div>
+  </div>
+  <!-- Window 4: alert dialog (front center) -->
+  <div style="position:absolute;top:300px;left:420px;width:340px;border:2px outset #dfdfdf;background:#c0c0c0;box-shadow:3px 3px 0 rgba(0,0,0,.5)">
+    <div style="background:#000080;color:#fff;font-size:12px;font-weight:bold;padding:2px 4px">&#9888; Position Sentinel</div>
+    <div style="padding:10px;display:flex;gap:10px;align-items:flex-start">
+      <div style="width:32px;height:32px;border:2px outset #dfdfdf;background:#ffff00;color:#000;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:bold;flex-shrink:0">!</div>
+      <div style="font-size:11px;line-height:1.5">MARA within 3.2% of $18.00 strike (CSP, 6 DTE).<br>Lead Agent will evaluate roll at next cycle.</div>
+    </div>
+    <div style="display:flex;justify-content:center;gap:8px;padding:0 10px 10px">
+      <span style="border:2px outset #dfdfdf;background:#c0c0c0;padding:2px 20px;font-size:11px;text-align:center">OK</span>
+      <span style="border:2px outset #dfdfdf;background:#c0c0c0;padding:2px 12px;font-size:11px;text-align:center">View Position</span>
+    </div>
+  </div>
+  <!-- taskbar -->
+  <div style="position:absolute;left:0;right:0;bottom:0;height:34px;background:#c0c0c0;border-top:2px outset #dfdfdf;display:flex;align-items:center;gap:4px;padding:2px 4px">
+    <span style="border:2px outset #dfdfdf;background:#c0c0c0;padding:3px 10px;font-size:12px;font-weight:bold;display:flex;align-items:center;gap:4px"><span style="width:14px;height:14px;background:#000080;display:inline-block"></span>Start</span>
+    <span style="border:2px inset #dfdfdf;background:#d4d0c8;padding:3px 10px;font-size:11px;flex-shrink:1;white-space:nowrap;overflow:hidden">&#128200; Portfolio.exe</span>
+    <span style="border:2px outset #dfdfdf;background:#c0c0c0;padding:3px 10px;font-size:11px;flex-shrink:1;white-space:nowrap;overflow:hidden">&#128270; Pipeline.exe</span>
+    <span style="border:2px outset #dfdfdf;background:#c0c0c0;padding:3px 10px;font-size:11px;flex-shrink:1;white-space:nowrap;overflow:hidden">&#128176; LLM_Cost.exe</span>
+    <span style="flex:1"></span>
+    <span style="border:2px inset #dfdfdf;background:#d4d0c8;padding:3px 8px;font-size:11px;font-family:'Cascadia Mono',monospace">RECON OK &nbsp;|&nbsp; 13:42</span>
+  </div>
+</div>
+</div>
+</div>
+
+</div>
+<p class="dv-next">Try next: "go deeper on <a class="dv-oid" href="#1b">1b</a> and design the other screens" · "mix <a class="dv-oid" href="#1a">1a</a>'s layout with <a class="dv-oid" href="#1b">1b</a>'s activity feed" · "make the desktop metaphor (<a class="dv-oid" href="#1c">1c</a>) the whole app"</p>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    const green = '#008000', red = '#ff0000';
+
+    // ── equity curve points (90d, start 500K) ──
+    const pts = [500,499.2,500.8,501.5,500.9,502.3,503.1,502.6,504.0,503.4,504.8,505.5,504.9,506.2,505.7,507.1,506.4,507.9,508.5,507.8,509.2,508.6,510.1,509.4,510.8,511.5,510.9,512.2,511.6,512.8];
+    const min = 495, max = 515;
+    const toPath = (w, h) => {
+      const step = w / (pts.length - 1);
+      return pts.map((v, i) => `${i === 0 ? 'M' : 'L'}${(i * step).toFixed(1)},${(h - ((v - min) / (max - min)) * h).toFixed(1)}`).join(' ');
+    };
+    const mkCurve = (w, h, key) => React.createElement('svg', { key, width: '100%', height: '100%', viewBox: `0 0 ${w} ${h}`, preserveAspectRatio: 'none', style: { display: 'block' } },
+      React.createElement('path', { d: toPath(w, h) + ` L${w},${h} L0,${h} Z`, fill: '#e8e8ff', stroke: 'none' }),
+      React.createElement('path', { d: toPath(w, h), fill: 'none', stroke: '#000080', strokeWidth: 2 }),
+      React.createElement('line', { x1: 0, y1: h * 0.75, x2: w, y2: h * 0.75, stroke: '#808080', strokeDasharray: '3,3', strokeWidth: 1 })
+    );
+
+    const sleeves = [
+      { name: 'Event-Driven', tag: 'EVT', pnl: '+$4,812', pnlColor: green, barColor: green, positions: '3 / 5', capital: '$91K / $125K', capitalUsed: '$91,400', capitalPct: '73%', pnlBarPct: '88%', winRate: '71%' },
+      { name: 'Vol Reversion', tag: 'VOL', pnl: '+$3,905', pnlColor: green, barColor: green, positions: '2 / 5', capital: '$64K / $125K', capitalUsed: '$63,800', capitalPct: '51%', pnlBarPct: '72%', winRate: '64%' },
+      { name: 'Sector Rotation', tag: 'SEC', pnl: '-$1,240', pnlColor: red, barColor: red, positions: '1 / 5', capital: '$38K / $125K', capitalUsed: '$38,200', capitalPct: '31%', pnlBarPct: '23%', winRate: '50%' },
+      { name: 'Yield Farming', tag: 'YLD', pnl: '+$5,370', pnlColor: green, barColor: green, positions: '2 / 5', capital: '$88K / $125K', capitalUsed: '$88,100', capitalPct: '70%', pnlBarPct: '98%', winRate: '83%' },
+    ];
+
+    const sleeveBgs = { 'EVT': '#e8e8ff', 'VOL': '#e8ffe8', 'SEC': '#fff0e0', 'YLD': '#ffffe0' };
+    const positions = [
+      { symbol: 'MARA', sleeve: 'VOL', type: 'CSP', strike: '18.00', exp: 'Jul 17', dte: '6', entry: '$0.62', pnl: '+$214', pnlColor: green, recon: 'MATCH', reconColor: green, rowBg: '#fff8e0', sleeveBg: sleeveBgs.VOL },
+      { symbol: 'NVDA', sleeve: 'EVT', type: 'CSP', strike: '148.00', exp: 'Jul 25', dte: '14', entry: '$2.41', pnl: '+$486', pnlColor: green, recon: 'MATCH', reconColor: green, rowBg: '#fff', sleeveBg: sleeveBgs.EVT },
+      { symbol: 'KO', sleeve: 'YLD', type: 'CC', strike: '72.50', exp: 'Aug 1', dte: '21', entry: '$0.84', pnl: '+$132', pnlColor: green, recon: 'MATCH', reconColor: green, rowBg: '#f0f0f0', sleeveBg: sleeveBgs.YLD },
+      { symbol: 'XLE', sleeve: 'SEC', type: 'CSP', strike: '86.00', exp: 'Jul 18', dte: '7', entry: '$1.12', pnl: '-$308', pnlColor: red, recon: 'MATCH', reconColor: green, rowBg: '#fff', sleeveBg: sleeveBgs.SEC },
+      { symbol: 'AMD', sleeve: 'EVT', type: 'CSP', strike: '155.00', exp: 'Aug 8', dte: '28', entry: '$3.05', pnl: '+$95', pnlColor: green, recon: 'MATCH', reconColor: green, rowBg: '#f0f0f0', sleeveBg: sleeveBgs.EVT },
+      { symbol: 'PG', sleeve: 'YLD', type: 'CC', strike: '170.00', exp: 'Aug 15', dte: '35', entry: '$1.20', pnl: '+$88', pnlColor: green, recon: 'MATCH', reconColor: green, rowBg: '#fff', sleeveBg: sleeveBgs.YLD },
+      { symbol: 'COIN', sleeve: 'VOL', type: 'CSP', strike: '240.00', exp: 'Jul 25', dte: '14', entry: '$4.80', pnl: '+$362', pnlColor: green, recon: 'PENDING', reconColor: '#808000', rowBg: '#f0f0f0', sleeveBg: sleeveBgs.VOL },
+      { symbol: 'SMCI', sleeve: 'EVT', type: 'WHEEL', strike: '42.00', exp: 'Jul 18', dte: '7', entry: '$1.35', pnl: '-$121', pnlColor: red, recon: 'MATCH', reconColor: green, rowBg: '#fff', sleeveBg: sleeveBgs.EVT },
+    ];
+
+    const funnel = [
+      { label: 'Universe', count: '6,350', sub: 'optionable', bg: '#c0c0c0', labelColor: '#606060', countColor: '#000', arrow: true, barPct: '100%' },
+      { label: 'Tier 1', count: '4,285', sub: 'breadth pass', bg: '#c0c0c0', labelColor: '#606060', countColor: '#000', arrow: true, barPct: '68%' },
+      { label: 'Tier 2a', count: '87', sub: '11-rule gate', bg: '#c0c0c0', labelColor: '#606060', countColor: '#000', arrow: true, barPct: '34%' },
+      { label: 'Tier 2b', count: '42', sub: 'LLM reasoned', bg: '#c0c0c0', labelColor: '#606060', countColor: '#000080', arrow: true, barPct: '20%' },
+      { label: 'Lead Agent', count: '9', sub: 'evaluated', bg: '#e8e8ff', labelColor: '#000080', countColor: '#000080', arrow: true, barPct: '9%' },
+      { label: 'Trades', count: '2', sub: 'submitted', bg: '#000080', labelColor: '#a0a0ff', countColor: '#ffffff', arrow: false, barPct: '4%' },
+    ];
+
+    const feed = [
+      { time: '13:41', agent: 'RECON', msg: 'Broker sync OK — 8/8 positions matched, drift $0', color: '#00ff00' },
+      { time: '13:31', agent: 'LEAD/VOL', msg: 'OPEN CSP MARA $18 Jul17 ×2 — edge est 0.64', color: '#ffffff' },
+      { time: '13:31', agent: 'LEAD/VOL', msg: 'Cycle complete. 3 tools, $0.0812', color: '#c0c0c0' },
+      { time: '13:30', agent: 'RISKGATE', msg: 'PASS — sector conc 22% < 30%, util 62% < 80%', color: '#00c000' },
+      { time: '13:28', agent: 'LEAD/EVT', msg: 'HOLD — NVDA earnings 19d out, premium rich but theta thin', color: '#c0c0c0' },
+      { time: '13:05', agent: 'TIER2B', msg: '42 names reasoned (Llama 3.3) — $0.11', color: '#c0c0c0' },
+      { time: '13:02', agent: 'TIER2A', msg: '87 promoted of 4,285 · top: SMCI (4 rules)', color: '#c0c0c0' },
+      { time: '12:44', agent: 'SENTINEL', msg: 'WARN MARA within 3.2% of $18 strike', color: '#ffff00' },
+      { time: '11:15', agent: 'FUND', msg: 'EDGAR 10-Q parsed: COIN — cash up 12% q/q', color: '#c0c0c0' },
+      { time: '10:30', agent: 'REGIME', msg: 'NEUTRAL (conf 0.72) — VIX 14.2, breadth mixed', color: '#ffff00' },
+      { time: '09:31', agent: 'WORKER/CC', msg: 'FILL confirmed KO $72.5 Aug1 CC @ $0.84', color: '#00ff00' },
+      { time: '09:30', agent: 'BRIEFING', msg: 'Pre-market briefing assembled (6 sources)', color: '#c0c0c0' },
+      { time: '06:42', agent: 'BREADTH', msg: 'Tier 1 sweep: 4,285 pass / 6,350 · 14 new bars sources', color: '#c0c0c0' },
+      { time: '06:40', agent: 'JOURNAL', msg: 'Labeled 2 outcomes — 31/50 toward learning threshold', color: '#00c0c0' },
+    ];
+
+    const desktopIcons = [
+      { glyph: '📈', label: 'Portfolio' },
+      { glyph: '🔍', label: 'Pipeline' },
+      { glyph: '📒', label: 'Trades' },
+      { glyph: '💬', label: 'Chat Agent' },
+      { glyph: '🔧', label: 'Diagnostics' },
+    ];
+
+    const sleeveEnvelopes = [
+      { name: 'Vol Reversion', verdict: 'OPEN', verdictBg: '#008000', conf: '0.72', oneLiner: 'Sell MARA $18 CSP ×2 — premium rich vs realized vol.' },
+      { name: 'Event-Driven', verdict: 'HOLD', verdictBg: '#808000', conf: '0.61', oneLiner: 'NVDA premium rich but theta thin 19d from earnings.' },
+      { name: 'Sector Rotation', verdict: 'HOLD', verdictBg: '#808000', conf: '0.55', oneLiner: 'XLE 7 DTE; roll credit $0.34 below $0.55 threshold.' },
+      { name: 'Yield Farming', verdict: 'PASS', verdictBg: '#808080', conf: '0.80', oneLiner: 'Both CCs on plan; no adjustments warranted.' },
+    ];
+
+    // 3-state learning blocks: 4 clean, 3 unknown, 43 remaining
+    const learningBlocks3 = React.createElement('div', { style: { display: 'flex', gap: 1, width: '100%' } },
+      Array.from({ length: 50 }, (_, i) => React.createElement('div', { key: i, style: { flex: 1, background: i < 4 ? '#000080' : i < 7 ? '#c0c000' : 'transparent' } }))
+    );
+
+    // learning progress blocks (50 blocks, 31 filled)
+    const learningBlocks = React.createElement('div', { style: { display: 'flex', gap: 1, width: '100%' } },
+      Array.from({ length: 50 }, (_, i) => React.createElement('div', { key: i, style: { flex: 1, background: i < 31 ? '#000080' : 'transparent' } }))
+    );
+
+    // LLM cost blocks (green terminal bar)
+    const costBlocks = Array.from({ length: 30 }, (_, i) => React.createElement('span', { key: i, style: { width: 6, height: 10, display: 'inline-block', background: i < 8 ? '#00ff00' : '#003000' } }));
+
+    // ── turn 3 data ──
+    const funnelBig = [
+      { label: 'Universe', count: '6,350', sub: 'optionable US equities', when: 'refreshed 06:30', bg: '#c0c0c0', labelColor: '#606060', countColor: '#000', arrow: true },
+      { label: 'Tier 1 — Breadth', count: '4,285', sub: 'median/MAD stats pass', when: 'swept 06:42 · 8m 12s', bg: '#c0c0c0', labelColor: '#606060', countColor: '#000', arrow: true },
+      { label: 'Tier 2a — Rules', count: '87', sub: '11 rules · 2-rule gate', when: 'ran 13:02 · 3x daily', bg: '#c0c0c0', labelColor: '#606060', countColor: '#000', arrow: true },
+      { label: 'Tier 2b — LLM', count: '42', sub: 'Llama 3.3 narrative', when: 'ran 13:05 · $0.11', bg: '#c0c0c0', labelColor: '#606060', countColor: '#000080', arrow: true },
+      { label: 'Lead Agent', count: '9', sub: 'Claude · 4 sleeves', when: 'cycle 13:31 · $0.08', bg: '#e8e8ff', labelColor: '#000080', countColor: '#000080', arrow: true },
+      { label: 'Trades', count: '2', sub: 'submitted to Alpaca', when: 'both filled', bg: '#000080', labelColor: '#a0a0ff', countColor: '#fff', arrow: false },
+    ];
+
+    const sBg = sleeveBgs;
+    const promotions = [
+      { rank: '1', symbol: 'SMCI', score: '0.8412', fired: '4', signals: 'vol_spike, iv_rank, gap_hold', sleeve: 'EVT', sleeveBg: sBg.EVT, amp: '1.5x', rowBg: '#e8e8ff' },
+      { rank: '2', symbol: 'MARA', score: '0.7960', fired: '3', signals: 'iv_rank, atr_expand, social', sleeve: 'VOL', sleeveBg: sBg.VOL, amp: '', rowBg: '#fff' },
+      { rank: '3', symbol: 'COIN', score: '0.7714', fired: '3', signals: 'vol_spike, iv_rank, news', sleeve: 'VOL', sleeveBg: sBg.VOL, amp: '', rowBg: '#f0f0f0' },
+      { rank: '4', symbol: 'NVDA', score: '0.7488', fired: '3', signals: 'iv_rank, earnings_prox, oi_shift', sleeve: 'EVT', sleeveBg: sBg.EVT, amp: '1.5x', rowBg: '#fff' },
+      { rank: '5', symbol: 'XLU', score: '0.7102', fired: '2', signals: 'sector_flow, rel_strength', sleeve: 'SEC', sleeveBg: sBg.SEC, amp: '', rowBg: '#f0f0f0' },
+      { rank: '6', symbol: 'AMD', score: '0.6871', fired: '3', signals: 'earnings_prox, iv_rank, volume', sleeve: 'EVT', sleeveBg: sBg.EVT, amp: '1.5x', rowBg: '#fff' },
+      { rank: '7', symbol: 'PLTR', score: '0.6640', fired: '2', signals: 'social, vol_spike', sleeve: 'VOL', sleeveBg: sBg.VOL, amp: '', rowBg: '#f0f0f0' },
+      { rank: '8', symbol: 'KO', score: '0.6212', fired: '2', signals: 'low_vol_stable, yield_rank', sleeve: 'YLD', sleeveBg: sBg.YLD, amp: '', rowBg: '#fff' },
+      { rank: '9', symbol: 'XLE', score: '0.6087', fired: '2', signals: 'sector_flow, news', sleeve: 'SEC', sleeveBg: sBg.SEC, amp: '', rowBg: '#f0f0f0' },
+      { rank: '10', symbol: 'RIOT', score: '0.5904', fired: '2', signals: 'vol_spike, social', sleeve: 'VOL', sleeveBg: sBg.VOL, amp: '', rowBg: '#fff' },
+    ];
+
+    const smciSignals = [
+      { name: 'vol_spike', raw: '3.12', z: '2.84', fired: 'FIRED', bg: '#e8ffe8', border: '#008000' },
+      { name: 'iv_rank', raw: '0.87', z: '2.31', fired: 'FIRED', bg: '#e8ffe8', border: '#008000' },
+      { name: 'gap_hold', raw: '0.041', z: '2.05', fired: 'FIRED', bg: '#e8ffe8', border: '#008000' },
+      { name: 'social_velocity', raw: '4.20', z: '1.98', fired: 'FIRED', bg: '#e8ffe8', border: '#008000' },
+      { name: 'atr_expand', raw: '1.44', z: '1.21', fired: '', bg: '#fff', border: '#d0d0d0' },
+      { name: 'oi_shift', raw: '0.18', z: '0.92', fired: '', bg: '#fff', border: '#d0d0d0' },
+      { name: 'earnings_prox', raw: '11d', z: '--', fired: '', bg: '#fff', border: '#d0d0d0' },
+      { name: 'news_count', raw: '6', z: '0.74', fired: '', bg: '#fff', border: '#d0d0d0' },
+    ];
+
+    const fireRates = [
+      { name: 'iv_rank', rate: '34%', pct: '100%' },
+      { name: 'vol_spike', rate: '28%', pct: '82%' },
+      { name: 'social_velocity', rate: '19%', pct: '56%' },
+      { name: 'sector_flow', rate: '16%', pct: '47%' },
+      { name: 'atr_expand', rate: '14%', pct: '41%' },
+      { name: 'gap_hold', rate: '11%', pct: '32%' },
+      { name: 'earnings_prox', rate: '9%', pct: '26%' },
+      { name: 'oi_shift', rate: '6%', pct: '18%' },
+    ];
+
+    const nearMisses = [
+      { symbol: 'HOOD', why: '1 rule fired (needs 2) — vol_spike z=2.6 alone' },
+      { symbol: 'INTC', why: 'passed rules, failed $10M liquidity floor on options' },
+      { symbol: 'DKNG', why: '2 rules fired but earnings blackout window' },
+      { symbol: 'SQ', why: 'iv_rank 0.79, missed 0.80 threshold by 0.01' },
+      { symbol: 'F', why: 'volume 2.9x but dollar-volume below floor' },
+      { symbol: 'UPST', why: 'social velocity spike flagged as promo-driven' },
+    ];
+
+    const trades = [
+      { closed: 'Jul 11', symbol: 'GLD', sleeve: 'SEC', sleeveBg: sBg.SEC, type: 'CSP', strike: '218.00', pnl: '+$122', pnlColor: green, label: 'WIN', labelColor: green, exit: 'expired worthless', rowBg: '#fff' },
+      { closed: 'Jul 10', symbol: 'TSLA', sleeve: 'VOL', sleeveBg: sBg.VOL, type: 'CSP', strike: '230.00', pnl: '+$540', pnlColor: green, label: 'WIN', labelColor: green, exit: '50% profit target', rowBg: '#f0f0f0' },
+      { closed: 'Jul 10', symbol: 'JPM', sleeve: 'YLD', sleeveBg: sBg.YLD, type: 'CC', strike: '215.00', pnl: '+$96', pnlColor: green, label: 'WIN', labelColor: green, exit: 'expired worthless', rowBg: '#fff' },
+      { closed: 'Jul 9', symbol: 'SMCI', sleeve: 'EVT', sleeveBg: sBg.EVT, type: 'CSP', strike: '44.00', pnl: '-$418', pnlColor: red, label: 'LOSS', labelColor: red, exit: 'stop — breached strike', rowBg: '#f0f0f0' },
+      { closed: 'Jul 8', symbol: 'XLK', sleeve: 'SEC', sleeveBg: sBg.SEC, type: 'CSP', strike: '228.00', pnl: '+$205', pnlColor: green, label: 'WIN', labelColor: green, exit: '50% profit target', rowBg: '#fff' },
+      { closed: 'Jul 8', symbol: 'AAPL', sleeve: 'YLD', sleeveBg: sBg.YLD, type: 'CC', strike: '232.50', pnl: '+$164', pnlColor: green, label: 'WIN', labelColor: green, exit: 'rolled up+out', rowBg: '#f0f0f0' },
+      { closed: 'Jul 7', symbol: 'COIN', sleeve: 'VOL', sleeveBg: sBg.VOL, type: 'CSP', strike: '235.00', pnl: '+$388', pnlColor: green, label: 'WIN', labelColor: green, exit: '50% profit target', rowBg: '#fff' },
+      { closed: 'Jul 3', symbol: 'RIVN', sleeve: 'EVT', sleeveBg: sBg.EVT, type: 'CSP', strike: '13.00', pnl: '-$276', pnlColor: red, label: 'LOSS', labelColor: red, exit: 'assigned — to wheel', rowBg: '#f0f0f0' },
+      { closed: 'Jul 2', symbol: 'MSFT', sleeve: 'YLD', sleeveBg: sBg.YLD, type: 'CC', strike: '505.00', pnl: '+$142', pnlColor: green, label: 'WIN', labelColor: green, exit: 'expired worthless', rowBg: '#fff' },
+      { closed: 'Jul 1', symbol: 'XLE', sleeve: 'SEC', sleeveBg: sBg.SEC, type: 'CSP', strike: '88.00', pnl: '-$194', pnlColor: red, label: 'LOSS', labelColor: red, exit: 'stop — regime shift', rowBg: '#f0f0f0' },
+      { closed: 'Jun 30', symbol: 'MARA', sleeve: 'VOL', sleeveBg: sBg.VOL, type: 'CSP', strike: '17.50', pnl: '+$231', pnlColor: green, label: 'WIN', labelColor: green, exit: 'expired worthless', rowBg: '#fff' },
+      { closed: 'Jun 27', symbol: 'PG', sleeve: 'YLD', sleeveBg: sBg.YLD, type: 'CC', strike: '168.00', pnl: '+$118', pnlColor: green, label: 'WIN', labelColor: green, exit: 'expired worthless', rowBg: '#f0f0f0' },
+    ];
+
+    const scorecard = [
+      { name: 'Event-Driven', trades: '11', win: '64%', pnl: '+$2,204', pnlColor: green },
+      { name: 'Vol Reversion', trades: '12', win: '75%', pnl: '+$3,108', pnlColor: green },
+      { name: 'Sector Rotation', trades: '8', win: '50%', pnl: '-$412', pnlColor: red },
+      { name: 'Yield Farming', trades: '12', win: '83%', pnl: '+$3,512', pnlColor: green },
+    ];
+
+    const dailyPnl = [120,-80,240,90,-150,310,180,-60,220,140,-310,90,260,180,-90,340,120,-180,280,90,150,-120,410,230,-90,180,260,-140,320,438];
+    const maxAbs = 440;
+    const dailyBars = dailyPnl.map((v, i) => React.createElement('div', { key: i, style: { flex: 1, position: 'relative', height: '100%' } },
+      React.createElement('div', { style: { position: 'absolute', bottom: v >= 0 ? '50%' : `calc(50% - ${Math.abs(v) / maxAbs * 50}%)`, left: 0, right: 0, height: `${Math.abs(v) / maxAbs * 50}%`, background: v >= 0 ? '#008000' : '#ff0000' } })
+    ));
+
+    const dbWrites = [
+      { agent: 'breadth_analyst', table: 'name_observations', ins: '4,285', upd: '0', flag: '', flagColor: '#000', rowBg: '#fff' },
+      { agent: 'breadth_analyst', table: 'historical_bars', ins: '3,912', upd: '0', flag: '', flagColor: '#000', rowBg: '#f0f0f0' },
+      { agent: 'tier2a_prefilter', table: 'name_observations', ins: '87', upd: '11', flag: 'OVERWRITE', flagColor: '#808000', rowBg: '#fffff0' },
+      { agent: 'tier2b_reasoning', table: 'name_observations', ins: '42', upd: '0', flag: '', flagColor: '#000', rowBg: '#fff' },
+      { agent: 'lead_agent', table: 'cycle_snapshots', ins: '4', upd: '0', flag: '', flagColor: '#000', rowBg: '#f0f0f0' },
+      { agent: 'worker_wheel', table: 'wheel_state', ins: '1', upd: '3', flag: 'DUP WRITE', flagColor: '#808000', rowBg: '#fffff0' },
+      { agent: 'order_reconciler', table: 'trades', ins: '2', upd: '1', flag: '', flagColor: '#000', rowBg: '#fff' },
+      { agent: 'outcome_labeler', table: 'trade_outcomes', ins: '2', upd: '0', flag: '', flagColor: '#000', rowBg: '#f0f0f0' },
+      { agent: 'news_feed', table: 'news_headlines', ins: '1,204', upd: '0', flag: '', flagColor: '#000', rowBg: '#fff' },
+    ];
+
+    const agentCosts = [
+      { name: 'lead_agent', cost: '$1.12', calls: '4 calls', pct: '100%', color: '#000080' },
+      { name: 'chat_agent', cost: '$0.31', calls: '9 calls', pct: '28%', color: '#000080' },
+      { name: 'tier2b', cost: '$0.19', calls: '42 calls', pct: '17%', color: '#008080' },
+      { name: 'fundamentals', cost: '$0.11', calls: '3 calls', pct: '10%', color: '#008080' },
+      { name: 'research', cost: '$0.06', calls: '1 call', pct: '5%', color: '#008080' },
+      { name: 'embeddings', cost: '$0.03', calls: '118 calls', pct: '3%', color: '#808080' },
+      { name: 'summarizers', cost: '$0.02', calls: '2 calls', pct: '2%', color: '#808080' },
+    ];
+
+    const busMsgs = [
+      { time: '13:31', from: 'lead_agent', to: 'worker_csp', msg: 'OPEN MARA 18P Jul17 x2 limit 0.62', color: '#fff' },
+      { time: '13:31', from: 'worker_csp', to: 'lead_agent', msg: 'ACK order 88f2 submitted', color: '#c0c0c0' },
+      { time: '13:30', from: 'risk_gate', to: 'lead_agent', msg: 'PASS util=0.62 conc=0.22 dd=0.011', color: '#00c000' },
+      { time: '13:28', from: 'lead_agent', to: 'bus', msg: 'HOLD NVDA — theta/premium ratio thin', color: '#c0c0c0' },
+      { time: '13:05', from: 'tier2b', to: 'bus', msg: '42 narratives written to name_observations', color: '#c0c0c0' },
+      { time: '12:44', from: 'sentinel', to: 'lead_agent', msg: 'WARN MARA 3.2% from strike', color: '#ffff00' },
+      { time: '11:15', from: 'fundamentals', to: 'lead_agent', msg: 'COIN 10-Q: cash +12% q/q, no red flags', color: '#c0c0c0' },
+      { time: '10:30', from: 'regime', to: 'bus', msg: 'NEUTRAL conf=0.72 vix=14.2', color: '#ffff00' },
+      { time: '09:31', from: 'worker_cc', to: 'bus', msg: 'FILL KO 72.5C Aug1 @ 0.84', color: '#00ff00' },
+      { time: '06:42', from: 'breadth', to: 'bus', msg: 'sweep done 4285/6350 pass 8m12s', color: '#c0c0c0' },
+    ];
+
+    const latency = [
+      { name: 'DB queries', ms: '355ms', pct: '18%', color: '#008080' },
+      { name: 'Embeddings', ms: '120ms', pct: '6%', color: '#008080' },
+      { name: 'Claude gen', ms: '1,840ms', pct: '92%', color: '#000080' },
+      { name: 'Render', ms: '12ms', pct: '2%', color: '#808080' },
+    ];
+
+    const suggested = [
+      'What changed in the regime this week?',
+      'Show me every trade the learner will train on',
+      'Which signal has the best hit rate so far?',
+      'Why was SMCI promoted but not traded yesterday?',
+      'How much has the wheel strategy made vs plain CSPs?',
+      'What would the risk gate block right now?',
+    ];
+
+    return {
+      sleeves, positions, funnel, feed, desktopIcons, learningBlocks, costBlocks,
+      funnelBig, promotions, smciSignals, fireRates, nearMisses, trades, scorecard, dailyBars,
+      dbWrites, agentCosts, busMsgs, latency, suggested,
+      sleeveEnvelopes, learningBlocks3,
+      equityCurve1a: mkCurve(800, 180, 'a'),
+      equityCurve2a: mkCurve(500, 142, 'd'),
+      equityCurve5a: mkCurve(500, 142, 'e'),
+      equityCurve1b: mkCurve(500, 142, 'b'),
+      equityCurve1c: mkCurve(700, 150, 'c'),
+    };
+  }
+}
+</script>
+</body>
+</html>

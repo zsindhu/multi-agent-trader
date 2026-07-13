@@ -13,7 +13,7 @@
 export
 
 DEPLOY_HOST ?= $(error Set DEPLOY_HOST in .env or environment, e.g. root@123.45.67.89)
-DEPLOY_DIR  ?= /opt/premium-trader
+DEPLOY_DIR  ?= /opt/multi-agent-trader
 
 .PHONY: preflight deploy logs status
 
