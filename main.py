@@ -169,7 +169,8 @@ async def main(mode: str = "paper"):
             await lead.run_cycle()
             await _write_equity_snapshot(lead.portfolio)
 
-    scheduler.add_job(lead_cycle_wrapper, "cron", hour="10,12,14", minute="20", timezone="US/Eastern", id="lead_cycle")
+    scheduler.add_job(lead_cycle_wrapper, "cron", hour="10,12,14", minute="20", timezone="US/Eastern", day_of_week="mon-fri",
+        id="lead_cycle")
 
     # Legacy scanner DISABLED — redundant with Tier 2a funnel, causes Alpaca 429 hangs.
     # Regime refresh decoupled into standalone job below.
@@ -188,7 +189,8 @@ async def main(mode: str = "paper"):
 
     scheduler.add_job(
         _refresh_regime, "cron",
-        hour="9,12", minute="35,30", timezone="US/Eastern", id="regime_refresh",
+        hour="9,12", minute="35,30", timezone="US/Eastern", day_of_week="mon-fri",
+        id="regime_refresh",
     )
 
     # Breadth Analyst sweep: runs daily at 8:00 AM ET (before market open)
@@ -199,6 +201,7 @@ async def main(mode: str = "paper"):
         hour="8",
         minute="0",
         timezone="US/Eastern",
+        day_of_week="mon-fri",
         id="breadth_analyst_sweep",
     )
 
@@ -210,6 +213,7 @@ async def main(mode: str = "paper"):
         hour="10,12,14",
         minute="0",
         timezone="US/Eastern",
+        day_of_week="mon-fri",
         id="tier2a_sweep",
     )
 
@@ -221,6 +225,7 @@ async def main(mode: str = "paper"):
         hour="10,12,14",
         minute="10",
         timezone="US/Eastern",
+        day_of_week="mon-fri",
         id="tier2b_sweep",
     )
 
@@ -245,6 +250,7 @@ async def main(mode: str = "paper"):
         hour="6",
         minute="0",
         timezone="US/Eastern",
+        day_of_week="mon-fri",
         id="earnings_refresh",
     )
     scheduler.add_job(
@@ -253,6 +259,7 @@ async def main(mode: str = "paper"):
         hour="9",
         minute="0",
         timezone="US/Eastern",
+        day_of_week="mon-fri",
         id="news_morning",
     )
     scheduler.add_job(
@@ -261,6 +268,7 @@ async def main(mode: str = "paper"):
         hour="12",
         minute="0",
         timezone="US/Eastern",
+        day_of_week="mon-fri",
         id="news_midday",
     )
 
@@ -342,6 +350,7 @@ async def main(mode: str = "paper"):
         hour="17",
         minute="30",
         timezone="US/Eastern",
+        day_of_week="mon-fri",
         id="research_reflection",
     )
 
@@ -404,6 +413,7 @@ async def main(mode: str = "paper"):
         hour="7",
         minute="30",
         timezone="US/Eastern",
+        day_of_week="mon-fri",
         id="premarket_briefing",
     )
 
