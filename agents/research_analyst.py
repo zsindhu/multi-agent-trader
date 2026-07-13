@@ -39,6 +39,22 @@ RULES:
 - DO identify: what names showed up repeatedly, what worked, what didn't, emerging themes
 - DO note: sector patterns, regime observations, signal clustering
 
+After the prose, end with ONE fenced json block summarizing the reflection:
+
+```json
+{
+  "takeaways": [
+    {"lead": "Energy dominated promotions", "sentence": "XLE and 4 single names fired gap z-scores above 3.", "valence": "neutral"},
+    {"lead": "CSP fills improved", "sentence": "3 of 4 entry orders filled vs 1 of 5 yesterday.", "valence": "positive"},
+    {"lead": "XLV thesis weakening", "sentence": "Second straight day below the 50MA with rising IV.", "valence": "negative"}
+  ],
+  "changes": ["+ GDX first promotion in 3 weeks", "~ regime neutral -> risk_on"],
+  "watching": "One line on what tomorrow should confirm or deny."
+}
+```
+
+valence must be one of: positive, neutral, negative. Exactly 3 takeaways.
+
 Your reflection will be read by the Lead Agent tomorrow morning as context for its decisions."""
 
 
@@ -102,6 +118,19 @@ class ResearchAnalyst:
             print(f"\n--- Research Analyst Reflection ---\n{reflection}\n---")
             return {"generated": True, "dry_run": True, "length": len(reflection)}
 
+        # Parse the structured summary block (best-effort; prose is primary)
+        structured = None
+        try:
+            import json as _json
+            import re as _re
+            blocks = _re.findall(r"```json\s*(.*?)\s*```", reflection, _re.DOTALL)
+            if blocks:
+                parsed = _json.loads(blocks[-1])
+                if isinstance(parsed, dict) and "takeaways" in parsed:
+                    structured = parsed
+        except Exception as e:
+            logger.debug(f"[Research] Structured reflection parse failed: {e}")
+
         # Store in agent_messages
         try:
             async with AsyncSessionLocal() as session:
@@ -110,6 +139,7 @@ class ResearchAnalyst:
                     message_type="daily_reflection",
                     subject=f"Reflection {date.today().isoformat()}",
                     body=reflection,
+                    payload=structured,
                     expires_at=datetime.now(timezone.utc) + timedelta(days=7),
                 ))
                 await session.commit()

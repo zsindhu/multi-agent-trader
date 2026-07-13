@@ -37,3 +37,10 @@ export const fetchDashboardDailyStats = (days = 30) => request(`/dashboard/daily
 export const fetchDashboardTrades = (days = 30) => request(`/dashboard/trades?days=${days}`);
 export const fetchPositionAlerts = () => request('/dashboard/position-alerts');
 export const fetchReconciliation = () => request('/dashboard/reconciliation');
+
+// ── Redesign additions (structured-data architecture) ────────
+export const fetchConflicts = (days = 7) => request(`/dashboard/conflicts?days=${days}`);
+export const fetchActivity = (limit = 40) => request(`/dashboard/activity?limit=${limit}`);
+export const fetchMessageBus = (limit = 30) => request(`/dashboard/message-bus?limit=${limit}`);
+export const fetchAgentCosts = () => request('/dashboard/agent-costs');
+export const fetchFillQuality = (days = 30) => request(`/dashboard/fill-quality?days=${days}`);

@@ -101,15 +101,29 @@ async def dashboard_status():
         )
         error_count = r.scalar() or 0
 
-        # Learning progress: funnel-driven labeled win/loss outcomes count
-        # toward the signal learner's 50-sample threshold
+        # Learning progress, 3-state, using the SAME math as the signal
+        # learner: distinct decisions (not contracts), contaminated labels
+        # excluded, plus the count of unknown-evidence outcomes.
+        from services.signal_learner import SignalLearner
+        contaminated = SignalLearner.CONTAMINATED_OUTCOME_IDS
         r = await session.execute(
-            select(sa_func.count(TradeOutcome.id)).where(
+            select(TradeOutcome.id, TradeOutcome.name_observation_id).where(
                 TradeOutcome.funnel_driven == True,  # noqa: E712
                 TradeOutcome.outcome.in_(["win", "loss"]),
             )
         )
-        learning_samples = r.scalar() or 0
+        decisions = set()
+        for oid, obs_id in r.all():
+            if oid in contaminated:
+                continue
+            decisions.add(obs_id or f"outcome:{oid}")
+        clean_samples = len(decisions)
+        r = await session.execute(
+            select(sa_func.count(TradeOutcome.id)).where(
+                TradeOutcome.funnel_driven.is_(None)
+            )
+        )
+        unknown_samples = r.scalar() or 0
 
     return {
         "funnel": {
@@ -118,7 +132,10 @@ async def dashboard_status():
             "tier2_rejected": t2_reject,
         },
         "learning_progress": {
-            "samples": learning_samples,
+            "samples": clean_samples,  # legacy key = clean count
+            "clean": clean_samples,
+            "unknown": unknown_samples,
+            "contaminated_excluded": len(SignalLearner.CONTAMINATED_OUTCOME_IDS),
             "threshold": 50,
         },
         "last_tier1_sweep": last_t1.isoformat() if last_t1 else None,
@@ -244,7 +261,10 @@ async def dashboard_reflection():
     """Latest Research Analyst daily reflection."""
     async with AsyncSessionLocal() as session:
         r = await session.execute(
-            select(AgentMessage.body, AgentMessage.timestamp, AgentMessage.subject)
+            select(
+                AgentMessage.body, AgentMessage.timestamp,
+                AgentMessage.subject, AgentMessage.payload,
+            )
             .where(
                 AgentMessage.sender == "Research-Analyst",
                 AgentMessage.message_type == "daily_reflection",
@@ -264,6 +284,7 @@ async def dashboard_reflection():
         "body": ref[0],
         "timestamp": ref[1].isoformat() if ref[1] else None,
         "subject": ref[2],
+        "structured": ref[3],
         "is_today": is_today,
     }
 
@@ -329,6 +350,8 @@ async def dashboard_cycles(
                 "llm_model": c.llm_model,
                 "llm_tokens_in": c.llm_tokens_in,
                 "llm_tokens_out": c.llm_tokens_out,
+                "envelope": (c.full_context or {}).get("envelope"),
+                "sleeve_envelopes": (c.full_context or {}).get("sleeve_envelopes"),
             }
             for c in cycles
         ],
@@ -471,6 +494,8 @@ async def dashboard_trades(days: int = Query(30, ge=1, le=365)):
         elif trade.status in ("order_expired", "expired"):
             # Order expired unfilled — never a position, never an outcome
             display_outcome = "Unfilled"
+        elif trade.status == "partially_filled":
+            display_outcome = "Partial Fill"
         elif trade.status == "assigned":
             display_outcome = "Assigned"
         elif trade.status == "closed":
@@ -500,6 +525,9 @@ async def dashboard_trades(days: int = Query(30, ge=1, le=365)):
             "expiration": trade.expiration,
             "status": trade.status,
             "pnl": trade.pnl,
+            "fill_price": trade.fill_price,
+            "filled_at": trade.filled_at.isoformat() if trade.filled_at else None,
+            "trade_sleeve_id": trade.sleeve_id,
             "display_pnl": round(display_pnl, 2) if display_pnl is not None else None,
             "display_outcome": display_outcome,
             "order_id": trade.order_id,
@@ -526,6 +554,19 @@ async def dashboard_trades(days: int = Query(30, ge=1, le=365)):
         else 0
     )
 
+    # Per-sleeve scorecard (labeled outcomes only; sleeve from outcome, else trade)
+    by_sleeve: dict = {}
+    for t in completed:
+        sid = t["sleeve_id"] or t["trade_sleeve_id"] or "unattributed"
+        s = by_sleeve.setdefault(sid, {"trades": 0, "wins": 0, "losses": 0, "pnl": 0.0})
+        s["trades"] += 1
+        s["wins"] += 1 if t["outcome"] == "win" else 0
+        s["losses"] += 1 if t["outcome"] == "loss" else 0
+        s["pnl"] += t["outcome_pnl"] or 0
+    for s in by_sleeve.values():
+        s["pnl"] = round(s["pnl"], 2)
+        s["win_rate"] = round(s["wins"] / max(s["wins"] + s["losses"], 1) * 100, 1)
+
     return {
         "trades": trades,
         "summary": {
@@ -536,7 +577,142 @@ async def dashboard_trades(days: int = Query(30, ge=1, le=365)):
             "total_pnl": round(total_pnl, 2),
             "avg_pnl": round(avg_pnl, 2),
             "avg_hold_days": round(avg_hold, 1),
+            "by_sleeve": by_sleeve,
         },
+    }
+
+
+@router.get("/conflicts")
+async def dashboard_conflicts(days: int = Query(7, ge=1, le=90)):
+    """Sleeve conflict-resolution verdicts (persisted by the orchestrator)."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    async with AsyncSessionLocal() as session:
+        r = await session.execute(
+            select(AgentAction)
+            .where(AgentAction.action_type == "conflict_resolved")
+            .where(AgentAction.timestamp >= cutoff)
+            .order_by(desc(AgentAction.timestamp))
+            .limit(100)
+        )
+        rows = list(r.scalars().all())
+    return {
+        "conflicts": [
+            {
+                "timestamp": a.timestamp.isoformat() if a.timestamp else None,
+                "symbol": a.target_symbol,
+                "winner": a.outcome,
+                **(a.payload or {}),
+            }
+            for a in rows
+        ],
+        "count": len(rows),
+    }
+
+
+@router.get("/activity")
+async def dashboard_activity(limit: int = Query(40, ge=1, le=200)):
+    """Recent agent actions for the live-activity terminal feed."""
+    async with AsyncSessionLocal() as session:
+        r = await session.execute(
+            select(AgentAction).order_by(desc(AgentAction.timestamp)).limit(limit)
+        )
+        rows = list(r.scalars().all())
+    return {
+        "events": [
+            {
+                "timestamp": a.timestamp.isoformat() if a.timestamp else None,
+                "agent": a.agent_name,
+                "action_type": a.action_type,
+                "outcome": a.outcome,
+                "symbol": a.target_symbol,
+                "reason": a.reason,
+            }
+            for a in rows
+        ]
+    }
+
+
+@router.get("/message-bus")
+async def dashboard_message_bus(limit: int = Query(30, ge=1, le=100)):
+    """Recent inter-agent messages (agent_messages table)."""
+    async with AsyncSessionLocal() as session:
+        r = await session.execute(
+            select(AgentMessage).order_by(desc(AgentMessage.timestamp)).limit(limit)
+        )
+        rows = list(r.scalars().all())
+    return {
+        "messages": [
+            {
+                "timestamp": m.timestamp.isoformat() if m.timestamp else None,
+                "sender": m.sender,
+                "recipient": getattr(m, "recipient", None),
+                "message_type": m.message_type,
+                "subject": m.subject,
+            }
+            for m in rows
+        ]
+    }
+
+
+@router.get("/agent-costs")
+async def dashboard_agent_costs():
+    """Per-caller LLM cost today + month-to-date total (llm_usage_log)."""
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    async with AsyncSessionLocal() as session:
+        r = await session.execute(
+            select(
+                LlmUsageLog.caller,
+                sa_func.count(LlmUsageLog.id),
+                sa_func.sum(LlmUsageLog.cost_usd),
+            )
+            .where(LlmUsageLog.timestamp >= today_start)
+            .group_by(LlmUsageLog.caller)
+            .order_by(desc(sa_func.sum(LlmUsageLog.cost_usd)))
+        )
+        today_rows = r.all()
+        r = await session.execute(
+            select(sa_func.sum(LlmUsageLog.cost_usd)).where(
+                LlmUsageLog.timestamp >= month_start
+            )
+        )
+        mtd = float(r.scalar() or 0.0)
+    return {
+        "today": [
+            {"caller": c or "unknown", "calls": n, "cost_usd": round(float(cost or 0), 4)}
+            for c, n, cost in today_rows
+        ],
+        "mtd_usd": round(mtd, 2),
+        "budget_usd": 150.0,
+    }
+
+
+@router.get("/fill-quality")
+async def dashboard_fill_quality(days: int = Query(30, ge=1, le=365)):
+    """Entry-order fill rate and slippage (fill vs submitted limit)."""
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    async with AsyncSessionLocal() as session:
+        r = await session.execute(
+            select(Trade.status, Trade.premium, Trade.fill_price)
+            .where(Trade.trade_type == "sell_to_open")
+            .where(Trade.created_at >= cutoff)
+        )
+        rows = r.all()
+    submitted = len(rows)
+    filled = [x for x in rows if x[0] in ("filled", "partially_filled", "closed", "assigned")]
+    slippages = [
+        float(fp) - float(prem)
+        for st, prem, fp in filled
+        if fp is not None and prem is not None
+    ]
+    return {
+        "days": days,
+        "entry_orders": submitted,
+        "filled": len(filled),
+        "fill_rate_pct": round(len(filled) / submitted * 100, 1) if submitted else None,
+        "avg_slippage": round(sum(slippages) / len(slippages), 4) if slippages else None,
+        "slippage_samples": len(slippages),
     }
 
 
