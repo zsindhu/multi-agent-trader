@@ -54,6 +54,9 @@ class JudgmentEnvelope(BaseModel):
     full_text: str = ""
     schema_version: int = 1
     degraded: bool = False
+    # Why the envelope degraded, when known — "truncated_at_max_tokens"
+    # indicts the token budget, absence of a reason indicts the model's JSON.
+    degraded_reason: Optional[str] = None
 
 
 def parse_envelope(text: str, envelope_obj: Optional[dict] = None) -> dict:
@@ -243,6 +246,13 @@ class LLMService:
                 total_output_tokens += usage.completion_tokens
 
                 msg = response.choices[0].message
+                finish_reason = response.choices[0].finish_reason
+
+                if finish_reason == "length" and msg.tool_calls:
+                    logger.warning(
+                        f"[LLM] Turn {turn + 1} hit max_tokens ({self.max_tokens}) "
+                        f"mid-tool-call — arguments may be truncated"
+                    )
 
                 if msg.tool_calls:
                     # Echo the assistant turn (with tool calls) back verbatim
@@ -294,6 +304,50 @@ class LLMService:
                 else:
                     # Model is done reasoning — extract the final text
                     final_text = msg.content or ""
+                    was_truncated = finish_reason == "length"
+
+                    if was_truncated:
+                        # GLM's hidden reasoning shares the completion budget:
+                        # a 'length' finish here means the json block (actions
+                        # AND envelope) was cut off or never emitted. One
+                        # cheap rescue attempt before accepting the loss.
+                        logger.warning(
+                            f"[LLM] Final turn truncated at max_tokens "
+                            f"({self.max_tokens}) — retrying for the json block"
+                        )
+                        retry_messages = messages + [
+                            {"role": "assistant", "content": final_text or "(reasoning elided)"},
+                            {"role": "user", "content": (
+                                "You were cut off before finishing. Do not repeat your "
+                                "analysis. Output ONLY the final fenced ```json block "
+                                "now: the {\"actions\": [...], \"envelope\": {...}} object."
+                            )},
+                        ]
+                        try:
+                            retry = await self.client.chat.completions.create(
+                                model=self.model,
+                                max_tokens=self.max_tokens,
+                                messages=retry_messages,
+                                tools=openai_tools,
+                            )
+                            r_usage = retry.usage
+                            r_cached = 0
+                            r_details = getattr(r_usage, "prompt_tokens_details", None)
+                            if r_details is not None:
+                                r_cached = getattr(r_details, "cached_tokens", 0) or 0
+                            self._track_usage(r_usage.prompt_tokens, r_usage.completion_tokens, r_cached)
+                            total_input_tokens += r_usage.prompt_tokens
+                            total_output_tokens += r_usage.completion_tokens
+                            retry_text = retry.choices[0].message.content or ""
+                            if retry_text:
+                                final_text = (
+                                    final_text
+                                    + "\n\n[truncated at max_tokens — json block recovered via retry]\n\n"
+                                    + retry_text
+                                )
+                        except Exception as e:
+                            logger.error(f"[LLM] Truncation-recovery retry failed: {e}")
+
                     cycle_cost = self._daily_cost - cost_before_cycle
                     logger.info(
                         f"[LLM] Cycle complete — "
@@ -302,6 +356,8 @@ class LLMService:
                         f"| Daily: ${self._daily_cost:.4f}"
                     )
                     decision = self._parse_decision(final_text)
+                    if was_truncated and decision["envelope"].get("degraded"):
+                        decision["envelope"]["degraded_reason"] = "truncated_at_max_tokens"
                     decision["tokens_in"] = total_input_tokens
                     decision["tokens_out"] = total_output_tokens
                     decision["cost_usd"] = cycle_cost
