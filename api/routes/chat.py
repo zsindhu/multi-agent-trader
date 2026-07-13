@@ -31,6 +31,7 @@ class ChatResponse(BaseModel):
     data: Optional[dict] = None
     actions_taken: list = []
     session_id: str
+    elapsed_ms: Optional[int] = None
 
 
 def _cleanup_sessions():
@@ -65,10 +66,12 @@ async def chat(body: ChatRequest):
     session["messages"].append({"role": "user", "content": body.message})
 
     # Call chat agent with history
+    _started = time.time()
     result = await _agent.chat(
         message=body.message,
         history=session["messages"][:-1],  # Exclude current message (agent receives it directly)
     )
+    _elapsed_ms = int((time.time() - _started) * 1000)
 
     # Add assistant response to history
     session["messages"].append({"role": "assistant", "content": result["response"]})
@@ -82,6 +85,7 @@ async def chat(body: ChatRequest):
         data=result.get("data"),
         actions_taken=result.get("actions_taken", []),
         session_id=session_id,
+        elapsed_ms=_elapsed_ms,
     )
 
 
