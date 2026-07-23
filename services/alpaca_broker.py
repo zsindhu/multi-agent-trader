@@ -731,6 +731,21 @@ class AlpacaBroker(Broker):
             logger.error(f"Failed to fetch order {order_id}: {e}")
             raise
 
+    async def get_option_quote(self, option_symbol: str) -> dict:
+        """
+        Fetch the current NBBO for a single option contract.
+
+        Returns {"bid": float, "ask": float, "mid": float}. Any leg that is
+        unavailable comes back as 0.0 so callers (e.g. OrderChaser) can fall
+        back to a reference price rather than submitting an unmarketable order.
+        """
+        snapshots = await self._get_option_snapshots_batched([option_symbol])
+        snap = snapshots.get(option_symbol, {})
+        bid = float(snap.get("bid", 0.0) or 0.0)
+        ask = float(snap.get("ask", 0.0) or 0.0)
+        mid = float(snap.get("mid_price", 0.0) or 0.0)
+        return {"bid": bid, "ask": ask, "mid": mid}
+
     async def close_option_position(self, option_symbol: str) -> dict:
         """
         Close an open option position by submitting a market order via the close_position endpoint.
