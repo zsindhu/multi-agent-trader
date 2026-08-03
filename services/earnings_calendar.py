@@ -136,12 +136,25 @@ class EarningsCalendarService:
 
         return len(events)
 
-    async def get_upcoming(self, days_ahead: int = 14) -> list[dict]:
-        """Return all symbols with events in the next N days."""
+    async def get_upcoming(
+        self, days_ahead: int = 14, symbols: Optional[list[str]] = None
+    ) -> list[dict]:
+        """Return symbols with events in the next N days.
+
+        When ``symbols`` is provided, the calendar is scoped to those names.
+        The Lead Agent only acts on its <=15 sleeve candidates plus open
+        positions, so returning the whole ~2,600-row calendar every cycle was
+        pure context bloat — it grew the multi-turn LLM prompt past GLM-5.2's
+        262k window and 400'd every sleeve. Scoping is lossless for the
+        decision (earnings for un-actionable names can't change it) and
+        earnings discovery already happens upstream via the earnings_proximity
+        scanner signal. See ADR-027. Passing ``symbols=None`` keeps the old
+        full-calendar behaviour for callers that genuinely need it.
+        """
         today = date.today()
         cutoff = today + timedelta(days=days_ahead)
         async with AsyncSessionLocal() as session:
-            result = await session.execute(
+            query = (
                 select(EarningsEvent)
                 .where(
                     EarningsEvent.event_date >= today,
@@ -149,6 +162,9 @@ class EarningsCalendarService:
                 )
                 .order_by(EarningsEvent.event_date)
             )
+            if symbols is not None:
+                query = query.where(EarningsEvent.symbol.in_(symbols))
+            result = await session.execute(query)
             rows = list(result.scalars().all())
         return [self._to_dict(r) for r in rows]
 

@@ -894,12 +894,21 @@ Use `##` headers for each section. Use tables for position summaries. Bullet lis
 
                     entries = strategy_entries + regime_entries + weekly_entries + monthly_entries
 
+                # Cap per-entry content so verbose auto-generated entries
+                # (esp. regime_observation, ~4.4k chars avg / 9.8k max) don't
+                # bloat the multi-turn cycle prompt past GLM-5.2's context
+                # window. Full text stays reachable via category=/query=. ADR-027.
+                CONTENT_CAP = 1200
                 return {
                     "entries": [
                         {
                             "id": e.id,
                             "category": e.category,
-                            "content": e.content,
+                            "content": (
+                                e.content[:CONTENT_CAP] + " …[truncated]"
+                                if e.content and len(e.content) > CONTENT_CAP
+                                else e.content
+                            ),
                             "confidence": e.confidence,
                             "validated": e.validated,
                             "created_at": e.created_at.isoformat() if e.created_at else None,

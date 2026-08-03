@@ -30,6 +30,20 @@ class Settings(BaseSettings):
     # RECON_ENVELOPE_DEGRADATION.md.
     llm_max_tokens: int = 16384
 
+    # ── Order fill: near-touch pricing + deterministic poll-and-chase ──
+    # Root-cause fix for "submitted but unfilled → expired at 16:00 ET":
+    # orders are priced at the near touch (sell at the bid, buy at the ask)
+    # so they are immediately marketable, then polled. An order still
+    # working after chase_poll_seconds is cancelled and re-submitted one
+    # step more aggressive, up to chase_max_attempts, bounded by
+    # chase_max_cross past the original touch. Fully deterministic — no LLM.
+    # Set CHASE_ENABLED=false to revert to a single near-touch submit.
+    chase_enabled: bool = True
+    chase_poll_seconds: float = 15.0    # wait between fill polls
+    chase_max_attempts: int = 3         # re-prices after the initial submit
+    chase_step: float = 0.02            # price improvement per re-price ($/sh)
+    chase_max_cross: float = 0.10       # hard cap past the touch ($/sh)
+
     model_config = {"env_file": ".env"}
 
 

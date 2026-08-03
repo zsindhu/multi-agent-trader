@@ -553,3 +553,20 @@ Both entrypoints (`main.py` and `api/state.py`) construct `VIXService(broker=bro
 6. **Honest learner:** one sample per decision (not per contract), 6 contaminated outcome ids excluded, 50-clean-sample gate before any weight proposal.
 
 **Consequences:** Training labels reflect what decisions actually saw; history can no longer be silently destroyed or laundered; integrity drift surfaces within a day. The clean-label era starts 2026-07-12 with effective n=4 — the honest baseline the experiment evaluates from (charter amendments A1–A3).
+
+---
+
+## ADR-027: Lead Agent Cycle Prompt — Bound Context Growth (Scoped Earnings, Capped Playbook)
+
+**Status:** Accepted
+**Date:** 2026-07-28
+
+**Context:** From ~2026-07-10 the per-sleeve Lead Agent LLM call's input tokens climbed steadily (`llm_usage_log`: ~205k on 07-10 → ~246k on 07-27) and by 2026-07-24/27 crossed GLM-5.2's 262,144-token context window — every sleeve (event_driven, sector_rotation, vol_reversion, yield_farming) 400'd with `context_length_exceeded` (input 246–249k + the 16,384 completion reserve > 262,144), so the system made **zero trading decisions**. Recon traced it to the multi-turn tool loop in `services/llm_service.py` (lines 230-302) re-sending all accumulated tool results every turn with no pruning, dominated by two uncapped payloads: `get_earnings_upcoming` returned the entire ~2,600-symbol 14-day calendar (~60–75k tokens), and `get_playbook` emitted full per-entry content (default set ~35k tokens; 336 `regime_observation` entries averaging 4,414 chars). Tier-2 candidates were **not** the cause — they are capped at 15, latest-sweep, with `_analysis` stripped (`sleeve_orchestrator.py:234,350`); the 2026-07-12 append-only sweep tripling (ADR-026) never reached the prompt.
+
+**Decision:**
+1. **Scope earnings to actionable names.** `earnings_calendar.get_upcoming` gains an optional `symbols` filter; the sleeve tool executor (`sleeve_orchestrator.py`) passes the sleeve's ≤15 candidates + open-position symbols. Lossless for the decision — the sleeve only trades those names, and earnings *discovery* already happens upstream via the `earnings_proximity` scanner signal. Full-calendar behaviour is preserved when `symbols=None`.
+2. **Cap playbook per-entry content at 1,200 chars** in `get_playbook` (`lead_agent.py`). Full text stays reachable via `category=`/`query=`.
+
+**Not done (considered, rejected/deferred):** pruning the tool-loop message history — deferred, since fixes 1+2 clear the window with margin and naive pruning risks dropping anchor results (the candidate list, positions). Lowering the 16,384 completion reserve — rejected: it exists to prevent the envelope/action truncation failure where GLM's hidden reasoning budget starved the decision output (`RECON_ENVELOPE_DEGRADATION.md`); shrinking it re-opens that failure mode.
+
+**Consequences:** Measured input drops ~82–91k tokens (earnings ~60–75k → <1k scoped; playbook 34.8k → 13.5k), taking the peak per-sleeve prompt from ~248k to ~157–166k — under the window with headroom, and cheaper per cycle (avg input had reached ~175k tokens/call). Decision quality is preserved-to-improved: the model reasons over its 15 candidates' earnings/fundamentals plus truncated-but-substantive playbook lessons instead of a 2,600-row calendar. This restores the decision layer only; it does not touch execution/fills (separate order-chase work). If prompts approach the window again as data grows, the deferred history-pruning fix is the next lever.
