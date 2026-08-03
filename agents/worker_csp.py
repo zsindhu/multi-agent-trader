@@ -26,6 +26,7 @@ from core.strategy import StrategyManager
 from data.market_feed import MarketFeed
 from data.options_chain import OptionsChainAnalyzer
 from services.logger_service import PerformanceLogger
+from services.order_chaser import OrderChaser
 from agents.trade_journal import TradeJournalAgent
 
 
@@ -57,6 +58,7 @@ class CashSecuredPutWorker(BaseAgent):
     ):
         super().__init__(name="Cash-Secured-Puts", agent_type="cash_secured_puts")
         self.broker = broker
+        self.order_chaser = OrderChaser(broker) if broker else None
         self.portfolio = portfolio
         self.risk_manager = risk_manager
         self.market_feed = market_feed
@@ -269,18 +271,21 @@ class CashSecuredPutWorker(BaseAgent):
                     logger.error(f"[CSP] Skipping trade — limit_price={trade.get('limit_price')} for {trade.get('symbol')} {trade.get('option_symbol')}")
                     continue
 
-                # Submit order
-                order = await self.broker.submit_option_order(
+                # Submit order — near-touch pricing + poll-and-chase to a fill.
+                order = await self.order_chaser.submit_and_chase(
                     option_symbol=trade["option_symbol"],
                     side="sell",
                     qty=trade["qty"],
-                    order_type="limit",
-                    limit_price=trade["limit_price"],
+                    reference_price=trade["limit_price"],
                     time_in_force="day",
                 )
 
                 order_id = order.get("order_id")
                 order_status = order.get("status", "")
+                # Reflect the actual submitted (near-touch) price for logging.
+                submitted_px = order.get("limit_price")
+                if submitted_px:
+                    trade["limit_price"] = round(float(submitted_px), 2)
                 if order_status in ("rejected", "canceled", "held"):
                     logger.error(
                         f"[{self.name}] Order {order_id} for {trade['option_symbol']} "
@@ -579,18 +584,18 @@ class CashSecuredPutWorker(BaseAgent):
                     "option_symbol": pos.option_symbol,
                 }
 
-            # Submit buy-to-close order at market (for simplicity; could use limit)
-            buy_price = pos.current_price if pos.current_price > 0 else 0.05
-
-            order = await self.broker.submit_option_order(
+            # Buy-to-close at the near touch (ask) and chase to a fill.
+            ref_price = pos.current_price if pos.current_price > 0 else 0.05
+            order = await self.order_chaser.submit_and_chase(
                 option_symbol=pos.option_symbol,
                 side="buy",
                 qty=abs(pos.quantity),
-                order_type="limit",
-                limit_price=round(buy_price, 2),
+                reference_price=round(ref_price, 2),
                 time_in_force="day",
             )
 
+            fill = order.get("filled_avg_price")
+            buy_price = float(fill) if fill else float(order.get("limit_price") or ref_price)
             realized_pnl = (pos.entry_price - buy_price) * abs(pos.quantity) * 100
 
             logger.info(

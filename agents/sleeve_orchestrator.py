@@ -353,6 +353,24 @@ class SleeveOrchestrator:
                     "source": f"tier2_funnel_sleeve_{sleeve_id}",
                     "sleeve": sleeve_id,
                 }
+            if tool_name == "get_earnings_upcoming":
+                # Scope the earnings calendar to names this sleeve can act on
+                # (its candidates + open positions). The full ~2,600-row
+                # calendar blew the context window; the sleeve only trades its
+                # <=15 candidates, so this is lossless for the decision. ADR-027.
+                if self.lead.earnings_service:
+                    days = tool_input.get("days", 14)
+                    relevant = {c.get("symbol") for c in candidates if c.get("symbol")}
+                    if self.lead.portfolio:
+                        relevant |= {
+                            getattr(p, "symbol", None)
+                            for p in self.lead.portfolio.options
+                        }
+                    relevant.discard(None)
+                    return await self.lead.earnings_service.get_upcoming(
+                        days_ahead=days, symbols=sorted(relevant)
+                    )
+                return {"error": "Earnings service not available"}
             return await original_executor(tool_name, tool_input)
 
         decision = await self.lead.llm_service.get_cycle_decision(
