@@ -549,7 +549,7 @@ class AlpacaBroker(Broker):
                 "all": QueryOrderStatus.ALL,
             }
             orders = self.trading.get_orders(
-                filter=status_map.get(status, QueryOrderStatus.OPEN)
+                filter=GetOrdersRequest(status=status_map.get(status, QueryOrderStatus.OPEN))
             )
             return [
                 {
