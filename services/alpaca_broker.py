@@ -634,41 +634,41 @@ class AlpacaBroker(Broker):
         """
         await self._rate_limiter.acquire()
         try:
-            from alpaca.trading.requests import GetAssetsRequest
-
             # Fetch ALL active US equity assets without server-side attributes filter.
             # The attributes field is unreliable — many options-eligible assets have
             # it unpopulated. We apply a two-tier client-side check instead.
-            request = GetAssetsRequest(
-                status=AssetStatus.ACTIVE,
-                asset_class=AssetClass.US_EQUITY,
-            )
+            #
+            # Use the raw REST response rather than get_all_assets(): alpaca-py
+            # validates `exchange` against a closed enum, so a single new exchange
+            # code (e.g. 'TXSE', Oct 2026) fails the whole list and kills the sweep.
+            assets = self.trading.get(
+                "/assets",
+                {"status": AssetStatus.ACTIVE.value, "asset_class": AssetClass.US_EQUITY.value},
+            ) or []
 
-            assets = self.trading.get_all_assets(request)
-
-            with_attrs = sum(1 for a in assets if a.attributes)
-            without_attrs = sum(1 for a in assets if not a.attributes)
+            with_attrs = sum(1 for a in assets if a.get("attributes"))
+            without_attrs = len(assets) - with_attrs
             logger.info(
                 f"[AlpacaBroker] Raw asset fetch: {len(assets)} total, "
                 f"{with_attrs} with attributes populated, {without_attrs} without"
             )
 
+            etf_exchanges = {"ARCA", "BATS", "NYSEARCA"}
             results = []
             for a in assets:
-                if not a.tradable:
+                if not a.get("tradable"):
                     continue
 
                 # Determine asset type: ETF vs stock
-                etf_exchanges = {"ARCA", "BATS", "NYSEARCA"}
-                exchange_str = str(a.exchange) if a.exchange else ""
-                exchange_clean = exchange_str.split(".")[-1] if "." in exchange_str else exchange_str
+                exchange_clean = a.get("exchange") or ""
                 asset_type = "etf" if exchange_clean in etf_exchanges else "stock"
 
                 # Two-tier options check:
                 # Tier 1: attributes populated — check explicitly
                 # Tier 2: attributes missing — assume optionable, let liquidity score filter it
-                if a.attributes and isinstance(a.attributes, (list, set)):
-                    has_options = "has_options" in a.attributes
+                attributes = a.get("attributes")
+                if attributes and isinstance(attributes, (list, set)):
+                    has_options = "has_options" in attributes
                 else:
                     # Attributes not populated by Alpaca — pass through, downstream will filter
                     has_options = True
@@ -677,10 +677,10 @@ class AlpacaBroker(Broker):
                     continue
 
                 results.append({
-                    "symbol": a.symbol,
-                    "name": a.name or "",
+                    "symbol": a["symbol"],
+                    "name": a.get("name") or "",
                     "asset_type": asset_type,
-                    "tradable": a.tradable,
+                    "tradable": True,
                     "options_enabled": has_options,
                     "exchange": exchange_clean,
                 })

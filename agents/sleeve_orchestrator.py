@@ -470,7 +470,7 @@ Be specific. Explain your reasoning before the JSON block."""
 {chr(10).join(sleeve_descriptions)}
 
 Signal profile for {symbol}:
-- Signals fired: {[n for n, s in signals.items() if s.get('fired') and not n.startswith('_')]}
+- Signals fired: {[n for n, s in signals.items() if not n.startswith('_') and isinstance(s, dict) and s.get('fired')]}
 - Asset type: {signals.get('_asset_type', 'unknown')}
 
 Which sleeve's thesis better explains why this specific setup is an opportunity right now? Respond with ONLY the sleeve name, nothing else. Choose based on which edge source is the primary driver for this particular setup."""

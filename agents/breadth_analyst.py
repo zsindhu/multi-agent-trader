@@ -569,7 +569,7 @@ class BreadthAnalyst(BaseAgent):
                     action_type=action_type,
                     target_scope="universe",
                     outcome=outcome,
-                    reason=reason,
+                    reason=reason[:256] if reason else reason,  # column is String(256)
                     payload=payload,
                 ))
                 await session.commit()
