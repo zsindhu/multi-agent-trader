@@ -2,6 +2,8 @@ services:
 
   db:
     image: pgvector/pgvector:pg16
+    ports:
+      - "127.0.0.1:5432:5432"
     environment:
       POSTGRES_USER: premium_trader
       POSTGRES_PASSWORD: ${DB_PASSWORD}
