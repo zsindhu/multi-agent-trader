@@ -1,5 +1,7 @@
 # Recon: Pre-Approval Verification for Structured Data Remediation
 
+> **Archived 2026-10-21.** Questions answered and acted on in b72708f.
+
 Generated: 2026-07-11
 Status: Recon only — no code changes, no migrations, no DB writes. All SQL below ran read-only against the production Postgres on the droplet (`docker compose exec -T db psql -U premium_trader -d premium_trader`).
 

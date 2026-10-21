@@ -3,7 +3,7 @@ Sweep identity helpers for append-only name_observations.
 
 Sweeps used to DELETE the day's rows and reinsert — destroying traded-on
 signal snapshots and tier2b reasoning three times a day (see
-RECON_PRE_REMEDIATION_VERIFICATION.md Q1: 6 of the first 10 funnel labels
+docs/archive/RECON_PRE_REMEDIATION_VERIFICATION.md Q1: 6 of the first 10 funnel labels
 were provably wrong-sweep). Sweeps now append, stamped with a sweep_id.
 
 The id is lexically sortable ("YYYYMMDDTHHMMSS-t<tier>-<suffix>") so "the

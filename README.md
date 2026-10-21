@@ -2,9 +2,9 @@
 
 A research sandbox for answering one question: **can an agentic LLM-driven system generate repeatable alpha, and does the architecture transfer to other markets?**
 
-Options is the first test market — rich structured data, clear entry/exit semantics, enough inefficiency that there might be alpha to capture. The system monitors ~4,500 optionable names across a tiered scanning funnel, reasons over macro context via a GLM-5.2-powered Lead Agent orchestrated across four strategy sleeves, and executes income strategies (Covered Calls, Cash Secured Puts, The Wheel) through Alpaca's brokerage API — with a data-integrity layer that keeps every decision auditable and every training label honest.
+Options is the first test market — rich structured data, clear entry/exit semantics, enough inefficiency that there might be alpha to capture. The system evaluates ~6,200 optionable names daily and keeps the top ~4,500 by dollar volume in a tiered scanning funnel, reasons over macro context via a GLM-5.2-powered Lead Agent orchestrated across four strategy sleeves, and executes income strategies (Covered Calls, Cash Secured Puts, The Wheel) through Alpaca's brokerage API — with a data-integrity layer that keeps every decision auditable and every training label honest.
 
-The core thesis about where alpha comes from: the LLM's edge isn't being smarter on any single trade. It's **scale and breadth** — monitoring 4,500 names instead of 5, processing every headline, making consistent decisions across the full universe, never getting tired or biased. The goal is to run a comprehensive research operation for the cost of a Netflix subscription (~$150/month) vs the $50-100K/month a real desk would burn.
+The core thesis about where alpha comes from: the LLM's edge isn't being smarter on any single trade. It's **scale and breadth** — monitoring thousands of names instead of 5, processing every headline, making consistent decisions across the full universe, never getting tired or biased. The goal is to run a comprehensive research operation for the cost of a Netflix subscription (~$150/month) vs the $50-100K/month a real desk would burn.
 
 The formal experiment is registered in [`EXPERIMENT_CHARTER.md`](EXPERIMENT_CHARTER.md) (MSE-2026-01, 180 days from the 2026-04-20 funnel cutover), with all protocol amendments recorded.
 
@@ -29,8 +29,8 @@ The formal experiment is registered in [`EXPERIMENT_CHARTER.md`](EXPERIMENT_CHAR
 │    load-balance, every verdict persisted         (live) │
 ├─────────────────────────────────────────────────────────┤
 │  Layer 4 — Operator Interface                           │
-│  React dashboard: Command Center / History /            │
-│    Rules / Chat (Win95 style)                    (live) │
+│  React dashboard: Command Center / Pipeline /           │
+│    Trades & Learning / Chat (+ Rules, Agents)    (live) │
 │  /research HTML inspector                        (live) │
 │  RAG Chat Agent (DeepSeek-V3, SQL over the              │
 │    research schema)                              (live) │
@@ -84,12 +84,17 @@ The formal experiment is registered in [`EXPERIMENT_CHARTER.md`](EXPERIMENT_CHAR
 
 - **Sleeve Orchestrator** — Runs 4 independent Lead Agent calls (one per strategy sleeve) with per-sleeve system prompts and filtered Tier 2 candidates, then consolidates. Cross-sleeve conflicts resolve in three escalating modes — deterministic (ETF → sector-rotation), LLM judge (thesis-fit), load-balance fallback — and **every verdict is persisted** to `agent_actions` with competitors, model, and latency.
 - **4 Strategy Sleeves** — Event-driven premium (pre-earnings IV), vol mean reversion (IV spikes without catalyst), sector rotation (ETF macro-driven IV), yield farming (far-OTM on stable large-caps). Per-sleeve config, scanner criteria, weight overrides, capital allocation ($125K each, $500K total paper).
-- **Lead Agent** — GLM-5.2 per-sleeve decision maker, 15 tools (fundamentals, briefing, playbook, regime, positions, earnings, news...). Emits both prose reasoning and a **structured judgment envelope** (`verdict, one_liner, factors, confidence`) per cycle. Edge estimates captured per trade for future Kelly calibration.
+- **Lead Agent** — GLM-5.2 per-sleeve decision maker, 14 tools (fundamentals, briefing, playbook, regime, positions, earnings, news...). Emits both prose reasoning and a **structured judgment envelope** (`verdict, one_liner, factors, confidence`) per cycle. Edge estimates captured per trade for future Kelly calibration.
 - **Sleeve Risk Gate** — Hard limits the Lead Agent cannot override: per-sleeve position count, cross-sleeve single-name prevention, sector concentration (30%), capital utilization (80%), portfolio drawdown trigger (8%).
 - **Worker Agents** — Covered Calls, Cash Secured Puts, The Wheel (full state machine). Close paths refuse to buy-to-close non-short positions and never stack duplicate close orders (post-incident guards, ADR-026).
-- **Breadth Analyst** — Tier 1 daily sweep over ~6,300 optionable names. Robust statistics (median/MAD). Every decision written to `name_observations`.
+- **Breadth Analyst** — Tier 1 daily sweep that evaluates ~6,200 optionable names and keeps the top 4,500 by dollar volume (`max_universe_size` in `config/breadth_analyst.yaml`). Robust statistics (median/MAD). Every decision written to `name_observations`.
 - **Tier 2a Pre-filter** — 11 change-detection rules with per-name baselines, 2-rule minimum gate, earnings amplification. Runs 3×/day, **append-only** (each sweep stamped with a sortable `sweep_id`; history is never destroyed).
 - **Tier 2b Reasoning** — Llama 3.3 narrative per promotion, written once to dedicated columns (never overwrites, never mutates the mechanical snapshot).
+- **Order Chaser** (`services/order_chaser.py`) — Orders are priced at the near touch (sell at the bid, buy at the ask), then polled every 15s; an unfilled order is cancelled and re-priced up to 3 times in $0.02/sh steps, capped at $0.10/sh past the original touch. Fully deterministic, no LLM. `CHASE_ENABLED=false` reverts to a single near-touch submit.
+- **Order Reconciler** (`services/order_reconciler.py`) — Runs at the start of every Lead Agent cycle so the LLM sees true fill state, not stale "submitted" records; logs positions that disappeared (expired, assigned).
+- **Position Sentinel** (`services/position_sentinel.py`) — Every-5-minute intraday check of open short positions (skips outside market hours).
+- **Backtester** (`services/backtester.py`) — Historical replay of worker-agent logic against cached market data, with equity curve, trade log, and monthly returns.
+- **Proposals API** (`/api/proposals`) — Generate, approve, reject, modify, and batch-approve trade proposals.
 
 ### Learning & Integrity Pipeline (the research product)
 
@@ -119,12 +124,14 @@ The formal experiment is registered in [`EXPERIMENT_CHARTER.md`](EXPERIMENT_CHAR
 
 ### API + Dashboard
 
-- **FastAPI Backend** — REST endpoints for dashboard, portfolio, trades, proposals, intelligence, research, diagnostics, chat; serves the production dashboard build.
-- **React Dashboard** (Vite, Win95 styling) — 4 screens:
-  - **Command Center** (`/`) — system status, funnel counts (latest sweep), learning progress (n/50), reconciliation status, positions, promotions with tier2b reasoning, signal fire rates, daily reflection
-  - **History & Learning** (`/history`) — trade history with outcome labels and funnel attribution, cycle reasoning, playbook, daily PnL charts
-  - **Rules** (`/rules`) — strategy/rule reference
+- **FastAPI Backend** — REST endpoints for dashboard, portfolio, trades, proposals, intelligence, research, diagnostics, chat, backtest, scanner, account, executions, settings, plus `/api/health`; serves the production dashboard build.
+- **React Dashboard** (Vite, Win95 × Bloomberg styling) — 6 routes:
+  - **Command Center** (`/`) — system status, funnel counts (latest sweep), learning progress (n/50), reconciliation status, positions, daily reflection
+  - **Pipeline** (`/pipeline`) — funnel spine, today's promotions with tier2b reasoning, signal fire rates, scan schedule, near misses
+  - **Trades & Learning** (`/trades`; `/history` redirects here) — labeled trade history with funnel attribution, cycle judgment envelopes, sleeve scorecard, Alpaca reconciliation, daily PnL
   - **Chat** (`/chat`) — RAG chat agent over the research database
+  - **Rules** (`/rules`, not in nav) — strategy/rule reference
+  - **Agents** (`/agents`, admin-only via `?admin=1`) — integrity strip, DB write audit, per-agent cost, message bus, sleeve conflicts
 
 ### CI/CD + Operations
 
@@ -138,16 +145,23 @@ The formal experiment is registered in [`EXPERIMENT_CHARTER.md`](EXPERIMENT_CHAR
 | Time | Job |
 |------|-----|
 | 06:00 | Earnings calendar refresh |
+| 07:30 | Pre-market briefing |
 | 08:00 | Tier 1 breadth sweep (append-only) |
+| 09:00 / 12:00 | News refresh |
+| 09:35 / 12:30 | Market regime refresh |
 | 10:00 / 12:00 / 14:00 | Tier 2a mechanical sweeps |
 | 10:10 / 12:10 / 14:10 | Tier 2b LLM reasoning |
 | 10:20 / 12:20 / 14:20 | Multi-sleeve Lead Agent cycles (trades) |
+| Every 5 min | Position Sentinel (no-ops outside market hours) |
+| 16:05 | Daily summary |
 | 16:30 | Performance Analyst |
 | 17:00 | Outcome Labeler |
 | 17:15 | Signal-Weight Learner |
 | 17:30 | Research Analyst reflection |
 | 17:45 | Broker Reconciliation |
 | Sun 18:00 / 1st 18:30 | Weekly / Monthly digests |
+
+Market-facing jobs (briefing, breadth, news, regime, Tier 2a/2b, Lead Agent, earnings, research reflection) are gated to Mon–Fri. The 16:05–17:45 post-close jobs other than the reflection run daily.
 
 ## Quick Start
 
@@ -156,7 +170,7 @@ The formal experiment is registered in [`EXPERIMENT_CHARTER.md`](EXPERIMENT_CHAR
 ```bash
 git clone https://github.com/zsindhu/multi-agent-trader.git
 cd multi-agent-trader
-cp .env.example .env   # Add your API keys
+cp .env.example .env   # Add your API keys and set DB_PASSWORD (required by Compose)
 docker compose up -d --build
 # Runs: alembic upgrade head → uvicorn (port 8000) + python main.py --mode paper
 # Dashboard at http://localhost:8000
@@ -182,13 +196,19 @@ ALPACA_API_KEY=your_key_here
 ALPACA_SECRET_KEY=your_secret_here
 ALPACA_BASE_URL=https://paper-api.alpaca.markets
 TRADING_MODE=paper
-DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/premium_trader
 TOGETHER_API_KEY=                   # REQUIRED for all LLM agents (lead, tier2b, analysts, chat)
-OPENAI_API_KEY=                     # Optional — semantic search embeddings
+OPENAI_API_KEY=                     # Optional — embeddings for semantic search (disabled without it)
+DB_PASSWORD=                        # REQUIRED for docker compose (Postgres password)
+DATABASE_URL=sqlite+aiosqlite:///./premium_trader.db   # Local default; Compose overrides to Postgres
 FINNHUB_API_KEY=                    # Optional — earnings + news (free tier)
 DISCORD_WEBHOOK_URL=                # Optional — notifications
 # LLM_MODEL / LLM_BASE_URL          # Optional — override the lead agent's model/endpoint
+# LLM_MAX_TOKENS=16384              # Optional — completion ceiling (shared with GLM hidden reasoning)
+# CHASE_ENABLED=true                # Optional — order-fill chase (false = single near-touch submit)
+# CHASE_POLL_SECONDS=15 / CHASE_MAX_ATTEMPTS=3 / CHASE_STEP=0.02 / CHASE_MAX_CROSS=0.10
 ```
+
+`ANTHROPIC_API_KEY` is no longer used (the Lead Agent moved to GLM-5.2 via Together AI, ADR-025); the `anthropic` package remains in `requirements.txt` but nothing imports it.
 
 Sleeve configs live in `config/sleeves/*.yaml`; tier funnel configs in `config/tier2a.yaml` / `config/tier2b.yaml` / `config/breadth_analyst.yaml`; worker strategy params in `config/strategies.yaml`.
 
@@ -209,16 +229,16 @@ Sleeve configs live in `config/sleeves/*.yaml`; tier funnel configs in `config/t
 | **CI/CD** | Preflight gates every deploy | Broken imports/migrations caught in 30 seconds |
 | **Agent Communication** | Shared database (`agent_messages`) | Loose coupling — add agents without modifying existing ones |
 
-## Current Status (2026-07)
+## Current Status (2026-10-21)
 
-- **Experiment MSE-2026-01** running: 4 sleeves, $500K paper, Day-90 checkpoint 2026-07-19, final evaluation 2026-10-17.
-- Learning funnel: 17 labeled trades, **4 clean decisions** toward the 50-sample learner gate (6 pre-remediation labels excluded as contaminated — see `RECON_PRE_REMEDIATION_VERIFICATION.md`).
-- Known constraint: ~55% of entry limit orders expire unfilled — fill-rate work is the biggest lever on the learning timeline.
-- Next build items: frontend alignment batch (`RECON_FRONTEND_ARCHITECTURE_ALIGNMENT.md`), Integrity Sentinel agent (`BACKLOG.md`).
+- **Experiment MSE-2026-01**: the 4-sleeve, $500K paper window ended 2026-10-17; the Day-180 evaluation is pending.
+- **Trading halted since 2026-09-29** — an orchestrator conflict-resolution crash plus an Alpaca `TXSE` exchange-enum failure; fix in PR #7.
+- Fill rate: ~55% of entry limit orders were expiring unfilled; the order-fill chase (`ea94bb1`) addresses this.
+- Learning funnel: ~34 `trade_outcomes` rows, **21–27 clean learner decisions** vs the 50-sample gate (pre-remediation labels excluded — see `docs/archive/RECON_PRE_REMEDIATION_VERIFICATION.md`).
 
 ## Tech Stack
 
-- **Python 3.9+** — async/await throughout
+- **Python 3.12** (Dockerfile + CI) — async/await throughout
 - **alpaca-py** — brokerage & market data
 - **openai SDK** — all LLM calls (Together AI endpoints) + embeddings
 - **FastAPI / SQLAlchemy 2.0 / Alembic** — API + async ORM + migrations
@@ -230,11 +250,14 @@ Sleeve configs live in `config/sleeves/*.yaml`; tier funnel configs in `config/t
 
 ## Docs
 
-- [`docs/ADR.md`](docs/ADR.md) — Architecture Decision Records (ADR-001 … ADR-026)
+- [`docs/ADR.md`](docs/ADR.md) — Architecture Decision Records (ADR-001 … ADR-027)
+- [`docs/DEPLOY_SETUP.md`](docs/DEPLOY_SETUP.md) — one-time GitHub Actions → droplet deploy setup
+- [`docs/PRFAQ.md`](docs/PRFAQ.md) — PR/FAQ (placeholder, not yet written)
 - [`EXPERIMENT_CHARTER.md`](EXPERIMENT_CHARTER.md) — registered experiment protocol + amendments
 - [`BACKLOG.md`](BACKLOG.md) — working rules, thesis, roadmap
-- [`TIER_ARCHITECTURE.md`](TIER_ARCHITECTURE.md) — scanning substrate design
-- `RECON_*.md` — point-in-time architecture audits (multi-sleeve viability, structured data, pre-remediation verification, frontend alignment)
+- [`docs/archive/TIER_ARCHITECTURE.md`](docs/archive/TIER_ARCHITECTURE.md) — scanning substrate design
+- [`docs/archive/`](docs/archive/) — historical point-in-time recons (`RECON_*.md`: multi-sleeve viability, structured data, pre-remediation verification, frontend alignment, envelope degradation)
+- [`docs/audits/`](docs/audits/) — data audits (funnel throughput, constraint reconciliation)
 
 ## License
 

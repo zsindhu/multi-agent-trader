@@ -1,5 +1,7 @@
 # Recon: Frontend Alignment with the Remediated Architecture
 
+> **Archived 2026-10-21.** Implemented in b8976e0; verified live 2026-07-14.
+
 Generated: 2026-07-12
 Status: Recon only — no code changes. Companion to PR #2 (structured-data
 remediation) and the 2026-07-08 outcome-integrity deploy.

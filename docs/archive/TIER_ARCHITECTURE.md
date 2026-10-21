@@ -1,5 +1,12 @@
 # Tier Architecture Roadmap (Updated 2026-04-09 evening)
 
+> **Archived 2026-10-21: superseded, kept for history.** The pipeline actually built is
+> Tier 1 Breadth sweep (`agents/breadth_analyst.py`, 08:00 ET) → Tier 2a rule prefilter
+> (`agents/tier2a_prefilter.py`) → Tier 2b LLM reasoning (`agents/tier2b_reasoning.py`) →
+> 4 strategy sleeves (`agents/sleeve_orchestrator.py`, `services/sleeve_risk_gate.py`). There is no Kaggle
+> source (bars come from alpaca/stooq/yfinance), the scanner is disabled, and tiers 3–4 are never written.
+> See README.md for the current architecture.
+
 **Status:** Working hypothesis, refined twice during the April 9 session.
 
 **What changed in the second revision:** The original roadmap assumed `historical_bars` would be populated via an Alpaca-based backfill. Two architectural questions during the evening session pulled the design in a better direction:

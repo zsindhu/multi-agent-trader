@@ -5,6 +5,12 @@
 ## End Date: 2026-10-17 (Start + 180 calendar days)
 ## Registered By: Zane Sindhu (operator), drafted by Claude Code from live config
 
+> **Status as of 2026-10-21:** the 180-day window **ended 2026-10-17** and the Day-180
+> evaluation has **not been run**. No trades went in after **2026-09-29**, 18 days before the
+> end, because of two bugs: the orchestrator crashed on cross-sleeve conflicts, and Alpaca's new
+> `TXSE` exchange code broke the Tier 1 sweep from 2026-10-20 (fix: PR #7). Data-collection
+> and risk claims corrected below. The operator must decide whether to evaluate now or extend.
+
 > **Registration note (honesty clause):** this charter was registered on
 > 2026-07-11, ~12 weeks into the experiment window, after the July audits
 > found it had been left as an unfilled template. All facts (sleeves,
@@ -67,7 +73,7 @@ model changed 2026-07-08.
 ### Portfolio-level success
 - [ ] Combined Sharpe > 1.2 **[PROPOSED]**
 - [ ] Mean pairwise sleeve correlation < 0.7 **[PROPOSED]**
-- [ ] Total LLM + data cost < $150/month **[PROPOSED]**
+- [ ] Total LLM + data cost < $150/month **[PROPOSED]** (note: Tier 2b Llama-3.3-70B calls are not recorded in `llm_usage_log`, so measured cost is understated)
 
 ### Learning-pipeline success (added at registration — this is the research thesis)
 - [ ] ≥ 50 clean funnel-driven labeled decisions by Day 180 (signal-learner activation)
@@ -80,7 +86,9 @@ model changed 2026-07-08.
 
 ### Capital preservation (automatic)
 - Sleeve hits −10% drawdown of sleeve capital → pause, human review required to restart **[PROPOSED]**
+  - ⚠️ **Not enforced:** `max_sleeve_drawdown_pct` is stored (`services/sleeve_risk_gate.py:61`) but never checked.
 - Portfolio hits −8% drawdown → halt all new positions across all sleeves **[PROPOSED]**
+  - ⚠️ The baseline is the equity snapshot taken when the orchestrator starts (`sleeve_risk_gate.py:58`), so it resets on every process restart.
 
 ### Performance evaluation (Day 90 checkpoint — 2026-07-19)
 - Sleeve with Sharpe < 0 and ≥ 10 closed trades after 90 days → flag for review (not auto-terminate) **[PROPOSED]**
@@ -106,7 +114,7 @@ What would prove the multi-sleeve thesis wrong:
 
 ## Data Collection Requirements
 
-- [x] All trades tagged with sleeve_id — shipped 2026-07-11 (freeze-at-decision plumbing)
+- [ ] All trades tagged with sleeve_id — plumbing shipped 2026-07-11, but **only 30/72 trades since 2026-07-12 carry sleeve_id** (0/12 on 2026-09-29). Fails the ≥90% criterion above.
 - [x] Signal snapshot frozen onto trades at decision time — shipped 2026-07-11
 - [x] Edge estimates captured, not acted upon (`edge_estimate_captured` actions)
 - [x] Conflict-resolution verdicts persisted — shipped 2026-07-11
@@ -130,7 +138,7 @@ What would prove the multi-sleeve thesis wrong:
 
 | # | Date | Change | Impact on evaluation |
 |---|------|--------|----------------------|
-| A1 | 2026-07-08 | **Outcome-data repair**: 87 contaminated labels purged and relabeled from fills (phantom expired-order wins; see RECON_PRE_REMEDIATION_VERIFICATION.md Q2). | All current labels are post-repair artifacts; pre-repair metrics are void. |
+| A1 | 2026-07-08 | **Outcome-data repair**: 87 contaminated labels purged and relabeled from fills (phantom expired-order wins; see docs/archive/RECON_PRE_REMEDIATION_VERIFICATION.md Q2). | All current labels are post-repair artifacts; pre-repair metrics are void. |
 | A2 | 2026-07-08 | **Lead-agent model switch**: claude-sonnet-4-6 → zai-org/GLM-5.2 (commit 4a92b26), same deploy as A1. | Decisions ≤ 2026-07-07 are Sonnet-era; ≥ 2026-07-08 GLM-era. Model and label-quality effects are **confounded at this boundary** — segment analyses must not attribute cross-boundary deltas to the model alone. |
 | A3 | 2026-07-11 | **Structured-data remediation** (Blocks 1–3): freeze-at-decision snapshots, append-only sweeps, bounded labeler fallback, judgment envelopes, learner counts decisions not contracts, 6 wrong-sweep labels (outcome ids 96–99, 103, 104) excluded from training. | Clean-label era begins 2026-07-12. Effective clean n at registration: 4. |
 | A4 | 2026-07-11 | **Charter registered retroactively** with [PROPOSED] thresholds. | Day-180 evaluation treats thresholds as drafted-at-week-12, not pre-registered. |
