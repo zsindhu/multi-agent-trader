@@ -5,7 +5,7 @@
 Full redesign of the Premium Trader dashboard (`dashboard/src/` — React + Vite +
 react-router). New information architecture, new screens, and reusable patterns
 aligned with the remediated backend (PR #2 structured-data changes and the
-2026-07-08 outcome-integrity deploy, per `RECON_FRONTEND_ARCHITECTURE_ALIGNMENT.md`).
+2026-07-08 outcome-integrity deploy, per `docs/archive/RECON_FRONTEND_ARCHITECTURE_ALIGNMENT.md`).
 
 The design went through 5 iterations. **Implement the FINAL versions only:**
 
@@ -256,5 +256,5 @@ None — no images or icon fonts. Glyphs are Unicode text (▶ ▲ ▼ ⚠ ✓ �
 
 - `Command Center Options.dc.html` — all design iterations; finals are ids
   `5a, 3a, 3b, 3c, 3d` and patterns `4a, 4d` (search for `id="5a"` etc.)
-- `RECON_FRONTEND_ARCHITECTURE_ALIGNMENT.md` — backend recon this design
+- `docs/archive/RECON_FRONTEND_ARCHITECTURE_ALIGNMENT.md` — backend recon this design
   implements; build order suggestion in its §4

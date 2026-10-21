@@ -1,5 +1,7 @@
 # Multi-Sleeve Architecture Viability Recon
 
+> **Archived 2026-10-21.** 4 sleeves + orchestrator + risk gate shipped (fa49eff). Kelly sizing and 6 of 10 proposed sleeves were never built; tracked in BACKLOG.md.
+
 Generated: 2026-04-23
 Status: Recon only — no code changes made
 

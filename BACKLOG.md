@@ -1,6 +1,12 @@
 # Premium Trader — Backlog
 
-Last updated: 2026-05-12
+Last updated: 2026-10-21
+
+> **2026-10-21 reconciliation note:** GitHub `main` == droplet deploy ==
+> `f51c4c5` (2026-08-03). This file was last maintained 2026-05-12; items
+> below are marked DONE / PARTIAL / OBSOLETE against the code rather than
+> rewritten. Shipped-but-untracked work is listed under "Shipped since
+> 2026-05-12". RECON docs now live in `docs/archive/`; audits in `docs/audits/`.
 
 ---
 
@@ -59,9 +65,9 @@ that's a long-term measurement. The near-term success criteria are:
 ```
 ┌─────────────────────────────────────────────────────┐
 │  Layer 4 — Research Interface                       │
-│  Win95 dashboard (3 screens)               ← exists │
+│  Win95×Bloomberg dashboard (5 screens)     ← exists │
 │  CLI tools for ad-hoc queries              ← exists │
-│  RAG Chat Agent                            ← planned│
+│  RAG Chat Agent (DeepSeek-V3)              ← exists │
 ├─────────────────────────────────────────────────────┤
 │  Layer 3 — Intelligence Agents                      │
 │  Lead Agent (decisions + actions)         ← exists  │
@@ -89,7 +95,8 @@ that's a long-term measurement. The near-term success criteria are:
 │  Technical indicators (pure Python)       ← exists  │
 │  StockTwits (social velocity)             ← exists  │
 │  Together AI / Llama 3.3 (Tier 2b)        ← exists  │
-│  Together AI / DeepSeek V4-Flash (Chat)    ← planned │
+│  Together AI / DeepSeek-V3 (Chat)          ← exists  │
+│  Together AI / GLM-5.2 (Lead Agent)        ← exists  │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -102,12 +109,19 @@ that's a long-term measurement. The near-term success criteria are:
 - Learning flywheel: outcome labeler → Research Analyst reflection → pre-market briefing → Lead Agent reads
 - Position sentinel: 5-min price checks during market hours, Discord alerts
 - Dashboard: Win95 aesthetic — Command Center + History + Rules & Logic
+  *(2026-10-21: superseded — now a 5-screen Win95×Bloomberg redesign:
+  Command Center, Pipeline, Trades, Chat, Agents; b8976e0)*
 
 **Performance to date:**
 - 44 labeled outcomes: 32 wins (86%), 5 losses (14%)
 - 14 funnel-driven outcomes: 5 wins (71%), 2 losses (29%)
 - Total PnL: +$3,752.70 (avg win +$128.62, avg loss -$72.60)
 - Current positions: AMGN (2 CSPs, one at DANGER alert level)
+- *(2026-10-21: the July 2026 audit found ~91% of this reported PnL was
+  phantom — expired/unfilled orders labeled as wins. Outcomes repaired in
+  4a92b26. Do not cite the +$3,752 / 44-outcome figures. Learner sample is
+  now 27 funnel-driven outcomes on the droplet, 21 after excluding 6
+  wrong-sweep outcomes.)*
 
 **What's working well:**
 - Funnel producing real, profitable trades
@@ -115,13 +129,14 @@ that's a long-term measurement. The near-term success criteria are:
 - Strategy rules being created and applied (DDOG post-earnings IV distinction)
 - Signal attribution data accumulating (14 funnel-driven outcomes)
 
-**What's broken or suboptimal:**
-- Playbook bloat: 148K tokens of regime observations drowning 2.9K tokens of strategy
-- Research Analyst reflections are formulaic/repetitive
-- 21 ghost trades (March, pre-funnel) polluting the trades table
-- Prompt caching showing minimal savings (~$0.01-0.09 per call)
-- Cost tracking underreports due to container restart counter resets
-- Monthly API cost: ~$200-220/month (over $150 target)
+**What's broken or suboptimal:** *(May list — resolved/obsolete as of 2026-10-21;
+see "NOW — Open items" below for the current list)*
+- ~~Playbook bloat: 148K tokens of regime observations drowning 2.9K tokens of strategy~~ — fixed (0.2/1.15, then capped in 4a92b26/94fb10c)
+- Research Analyst reflections are formulaic/repetitive — PARTIAL (b8976e0 structured takeaways)
+- ~~21 ghost trades (March, pre-funnel) polluting the trades table~~ — fixed (0.3)
+- ~~Prompt caching showing minimal savings (~$0.01-0.09 per call)~~ — obsolete: lead agent moved to GLM-5.2 on Together; no Anthropic caching
+- ~~Cost tracking underreports due to container restart counter resets~~ — fixed by persistent llm_usage_log (but see Tier 2b gap in open items)
+- ~~Monthly API cost: ~$200-220/month (over $150 target)~~ — obsolete Claude-era figure
 
 ---
 
@@ -145,6 +160,63 @@ file, add it under PARKING LOT and keep working on the current phase.
 
 ## ROADMAP — Current priorities
 
+### NOW — Open items (added 2026-10-21) `[ ]`
+
+*Top priority. Verified against code + droplet DB on 2026-10-21.*
+
+**P0**
+- `[~]` **N.1 Trading outage since 2026-09-29.** Orchestrator raises
+  AttributeError during cross-sleeve conflict resolution (signal profile
+  comprehension in `_resolve_conflict_via_llm`, `agents/sleeve_orchestrator.py:473`),
+  and since 2026-10-20 Alpaca's new `'TXSE'` exchange enum value breaks the
+  Tier 1 sweep. Fix in open PR #7 (`fix/trading-outage`).
+- `[ ]` **N.2 Experiment Day-180 evaluation overdue.** Charter end date was
+  2026-10-17. Run the evaluation against `EXPERIMENT_CHARTER.md` (thresholds
+  marked [PROPOSED] in b72708f), accounting for the outage window.
+
+**P1**
+- `[ ]` **N.3 Phantom "executed" counts.** cycle_snapshots on 2026-10-06/07
+  report 34–45 executed actions with no corresponding `trades` rows; the LLM
+  is also fed legacy positions that no longer exist at the broker.
+- `[ ]` **N.4 Sleeve tagging gap.** Only 30/72 trades since 2026-07-12 carry
+  `sleeve_id` (0/12 on 2026-09-29) — per-sleeve attribution is unreliable.
+- `[ ]` **N.5 Drawdown limits not enforced.** Per-sleeve -10% pause:
+  `max_sleeve_drawdown_pct` is stored (`services/sleeve_risk_gate.py:61`) but
+  never checked. Portfolio -8% baseline is taken from current equity at
+  construction (`services/sleeve_risk_gate.py:58`), so it resets on every
+  process start.
+
+**P2**
+- `[ ]` **N.6 Tier 2b cost not tracked.** Llama-3.3-70B calls are not
+  recorded in `llm_usage_log`; reported LLM cost is understated.
+- `[ ]` **N.7 Constraint reconciliation** (`docs/audits/CONSTRAINT_RECONCILIATION_AUDIT.md`, all open):
+  - Dead sleeve config keys never read: `exclude_post_earnings_days`,
+    `max_iv_rank`, `min_market_cap_proxy`, `close_before_earnings`, `get_weight`
+  - `min_iv_rank * 0.3` "rough proxy" filter (`agents/sleeve_orchestrator.py:292`)
+  - Sleeve prompts lack the earnings-ban hard constraint
+  - `regime_confidence` column has no writer
+- `[ ]` **N.8 Funnel throughput** (`docs/audits/FUNNEL_THROUGHPUT_AUDIT.md`):
+  - ~0.1% decision rate is the bottleneck (policy decision, not a bug)
+  - Orders are still DAY-only TIF
+  - Risk-gate rejection reasons are not persisted
+- `[ ]` **N.9 Dashboard verification follow-ups** (`docs/archive/VERIFICATION_DASHBOARD_LIVE.md`):
+  - Reconciliation `ok` gate unreachable: `abs(pnl_drift) < 50.0`
+    (`services/broker_reconciliation.py:158`) vs a permanent ~$805 legacy drift
+  - TradesPage `?` marker over-applied
+- `[ ]` **N.10 Unfinished structured-data recs** (`docs/archive/RECON_STRUCTURED_DATA.md`, ranked list):
+  - #6 Revisioned `trade_outcomes` (revision history so repair scripts stop overwriting labels)
+  - #8 Wheel/worker state events + `ON CONFLICT` upsert
+  - #10 Proposal history integrity (`original_terms` + `status_history`)
+  - #11 Envelope for playbook entries
+  - #12 Retire Lead-Agent `execution_log` duplicate of cycle_snapshots
+  - #13 Envelope for fundamentals/digests; playbook `deactivated_at`; position-health event log
+- `[ ]` **N.11 Per-sleeve learner/backtester follow-up** from
+  `docs/archive/RECON_BACKLOG_ROADMAP_INTEGRATION.md` — never done
+  (0 `pending_changes` rows).
+- `[ ]` **N.12 Dead code still present:** `services/universe_loader.py`,
+  `services/tier_writer.py` (only used by `scripts/run_universe_sweep.py`),
+  `agents/scanner.py` (disabled, `main.py:175-177`).
+
 ### Phase 0 — Critical Fixes `[x]` SHIPPED
 
 *Unblocking issues that cost money or degrade system quality.*
@@ -154,15 +226,18 @@ file, add it under PARKING LOT and keep working on the current phase.
 - `[x]` **0.2** Smart playbook retrieval — `get_playbook()` returns all strategy
   entries + last 7 days regime (time-based, not count-based). Drops per-cycle
   tokens from 151K to ~28K. SHIPPED 2026-05-12.
+  *SUPERSEDED: retrieval is now 40 strategy + 20 regime entries, each capped
+  at 1,200 chars (`agents/lead_agent.py` ~859-901; 4a92b26, 94fb10c).*
 - `[x]` **0.3** Clean 21 ghost trades — `scripts/clean_ghost_trades.py` marks
   pre-funnel submitted trades as `cancelled`. Dashboard `/trades/history`
   excludes cancelled by default. SHIPPED 2026-05-12.
 - `[x]` **0.4** Playbook dedup — regime observations only written on material
   change. `_regime_materially_changed()` in `lead_agent.py:300-347`. SHIPPED 2026-05-04.
-- `[x]` **0.5** Prompt caching — tools block now cached with `cache_control:
+- ~~`[x]` **0.5** Prompt caching — tools block now cached with `cache_control:
   {"type": "ephemeral"}` on last tool. System prompt + tools (~4,100 tokens)
   cached on turns 2-10 within each cycle. Estimated ~$32/month savings.
-  SHIPPED 2026-05-12.
+  SHIPPED 2026-05-12.~~ OBSOLETE — lead agent runs GLM-5.2 via Together;
+  `services/llm_service.py` strips `cache_control` (:159).
 
 ### Phase 1 — Tiered Memory & Context Retrieval `[x]` SHIPPED
 
@@ -190,30 +265,34 @@ file, add it under PARKING LOT and keep working on the current phase.
 - `[x]` **1.15** Tiered playbook read — default `get_playbook()` now returns:
   all strategy content + 7d regime + last 4 weekly digests + last 12 monthly
   digests. Full temporal depth in ~28K tokens vs 151K. SHIPPED 2026-05-12.
+  *SUPERSEDED: see 0.2 note — 40 strategy + 20 regime, 1,200-char cap per
+  entry (4a92b26, 94fb10c).*
 
-### Phase 2 — RAG Chat Agent `[ ]`
+### Phase 2 — RAG Chat Agent `[~]` MOSTLY SHIPPED
 
 *Natural language interface for querying system data and writing strategy.
-DeepSeek V4-Flash on Together AI (~$0.50/month).*
+Planned on DeepSeek V4-Flash; actually runs `deepseek-ai/DeepSeek-V3` on
+Together AI (`agents/chat_agent.py:23`).*
 
-- `[ ]` **2.1** `agents/chat_agent.py` — query router + SQL executor + context
-  assembler + Together AI call. Does not exist yet.
-- `[ ]` **2.2** `api/routes/chat.py` — POST `/api/chat` endpoint. Does not exist.
-- `[ ]` **2.3** Dashboard chat panel — Win95 text input + message history.
-  Currently 3 pages only (CommandCenter, History, Rules).
-- `[ ]` **2.4** Write-back capability — chat agent can write playbook entries +
-  pending_changes.
+- `[x]` **2.1** `agents/chat_agent.py` — query router + SQL executor + context
+  assembler + Together AI call. DONE (fb8302f, 265133a).
+- `[x]` **2.2** `api/routes/chat.py` — POST `/api/chat` endpoint. DONE (461e0a5).
+- `[x]` **2.3** Dashboard chat panel — Win95 text input + message history.
+  DONE (7fd8f84); now the Chat screen of the 5-screen redesign (b8976e0).
+- `[x]` **2.4** Write-back capability — chat agent can write playbook entries +
+  pending_changes. DONE (fb8302f–265133a series).
 - `[ ]` **2.5** Claude Code prompt generation — chat agent generates prompts for
   code changes.
 
 **Dependencies:** Phase 1 context retrieval layer (1.11) is shipped. Ready to build.
 
-### Phase 3 — Research Analyst Upgrade `[ ]`
+### Phase 3 — Research Analyst Upgrade `[~]` PARTIAL
 
 *Better reflections, less boilerplate.*
 
-- `[ ]` **3.1** Tune Research Analyst prompt — require specific observations, not
+- `[~]` **3.1** Tune Research Analyst prompt — require specific observations, not
   generic summaries. Current prompt at `research_analyst.py:32-42` is generic.
+  PARTIAL: structured takeaways/envelope added (b8976e0); 3.2–3.4 not done.
 - `[ ]` **3.2** Add trade outcome awareness — reflection includes analysis of any
   trades that closed today.
 - `[ ]` **3.3** Add week-over-week comparison — reflection compares today's
@@ -221,22 +300,28 @@ DeepSeek V4-Flash on Together AI (~$0.50/month).*
 - `[ ]` **3.4** Add anomaly detection — flag when today's signal landscape differs
   significantly from recent baseline.
 
-### Phase 4 — Execution Reliability `[ ]`
+### Phase 4 — Execution Reliability `[~]` MOSTLY SHIPPED
 
 *The system decides correctly but fails to execute. Fix the plumbing.*
 
-- `[ ]` **4.1** Investigate hard close execution failure pattern — CHTR (10
-  cycles), AMGN (4 cycles).
-- `[ ]` **4.2** Add order retry logic — if a limit order doesn't fill within 2
-  minutes, resubmit at market or more aggressive limit. Currently only 429
-  rate-limit retry exists (`alpaca_broker.py:758-780`).
-- `[ ]` **4.3** Add order status dashboard panel.
+- `[x]` **4.1** Investigate hard close execution failure pattern — CHTR (10
+  cycles), AMGN (4 cycles). DONE: root causes were mid-priced limit orders
+  that never filled (fixed ea94bb1), a `get_orders` crash that blocked closes
+  (fixed 60e6933), and runaway buy-to-close loops (guards in 4a92b26).
+- `[x]` **4.2** Add order retry logic — if a limit order doesn't fill within 2
+  minutes, resubmit at market or more aggressive limit. DONE (ea94bb1):
+  near-touch pricing + poll-and-chase in `services/order_chaser.py`.
+- `[~]` **4.3** Add order status dashboard panel. PARTIAL: `/fill-quality`
+  endpoint (`api/routes/dashboard.py:691`), reconciliation panel, Partial Fill
+  badges (b8976e0). No live working-orders view yet.
 - `[ ]` **4.4** Kill switch — emergency endpoint to close all positions. Does not
   exist.
 
 ### Phase 5 — Signal Learner Activation `[?]` BLOCKED
 
-*Requires ~50 funnel-driven outcomes. Currently at 14.*
+*Requires ~50 funnel-driven outcomes. Was 14 (May); as of 2026-10-21: 27
+funnel-driven outcomes on the droplet, 21 after excluding 6 wrong-sweep
+outcomes. `config/learned_weights.json` still not produced on the droplet.*
 
 - `[x]` **5.1** Signal learner — `services/signal_learner.py`. Logistic regression,
   L2 regularized, MIN_SAMPLES=50, CONFIDENCE_THRESHOLD=200, bounded drift
@@ -245,7 +330,8 @@ DeepSeek V4-Flash on Together AI (~$0.50/month).*
   Replays historical observations under two configs, writes to pending_changes.
 - `[ ]` **5.3** Review and apply first weight update — `config/learned_weights.json`
   does not exist yet (created on-demand when learner runs).
-- `[ ]` **5.4** Control Lead Agent (1.4.2.10) — frozen baseline for comparison.
+- ~~`[ ]` **5.4** Control Lead Agent (1.4.2.10) — frozen baseline for comparison.~~
+  OBSOLETE — superseded by the 4-sleeve experiment (see 1.4.2.10).
 
 **Gating:** At ~2 funnel-driven trades/week, need ~18 more weeks to reach 50.
 Estimated late June 2026.
@@ -254,16 +340,20 @@ Estimated late June 2026.
 
 *Stay within budget as the system scales.*
 
-- `[x]` **6.1** Tools block caching — ~$32/month savings (shipped as 0.5).
+- ~~`[x]` **6.1** Tools block caching — ~$32/month savings (shipped as 0.5).~~
+  OBSOLETE — no Anthropic caching after GLM-5.2 migration (see 0.5).
 - `[ ]` **6.2** Reduce sleeve count if Sector Rotation continues showing 0 candidates.
-- `[ ]` **6.3** Move Fundamentals + Research Analyst to DeepSeek V4-Flash.
+- ~~`[ ]` **6.3** Move Fundamentals + Research Analyst to DeepSeek V4-Flash.~~
+  OBSOLETE — premised on Claude-era costs; these already run on Llama 3.3 via Together.
 - `[x]` **6.4** Tiered playbook read — shipped as 1.15.
 - `[ ]` **6.5** Evaluate Llama 4 Scout or DeepSeek V4-Flash for Tier 2b.
 
-**Monthly cost targets:**
-- Current: ~$220/month
-- After Phase 0+1: ~$160/month
-- After Phase 6: ~$120-140/month
+**Monthly cost targets:** *(OBSOLETE Claude-era figures — kept for history.
+Lead agent now GLM-5.2 on Together with a $15/day hard cap,
+`services/llm_service.py:110`. Re-baseline after N.6 fixes Tier 2b tracking.)*
+- ~~Current: ~$220/month~~
+- ~~After Phase 0+1: ~$160/month~~
+- ~~After Phase 6: ~$120-140/month~~
 - Target: under $150/month
 
 ### Phase 7 — Strategy Expansion (Q3 2026) `[ ]`
@@ -284,6 +374,11 @@ validated edge.
 
 *Added 2026-07-11 after the phantom-outcome audit and the structured-data
 remediation. Operator-proposed; scoped here for a future build slot.*
+
+**Status 2026-10-21: `[~]` PARTIAL** — `services/broker_reconciliation.py` +
+nightly reconciliation job exist (4a92b26); the sentinel harness and
+invariant set below are not built. Note the reconciliation `ok` gate is
+currently unreachable (see N.9).
 
 **Thesis:** every data-integrity failure this project has hit (phantom
 expired-order wins, runaway buy-to-close, tier2a sweeps destroying traded-on
@@ -325,6 +420,13 @@ Sentinel makes the audits continuous.
 
 ## Cost projections (updated 2026-05-11)
 
+> **2026-10-21: OBSOLETE table.** Lead Agent migrated from Claude Sonnet 4.6
+> to `zai-org/GLM-5.2` on Together (`config/settings.py:25`, 4a92b26), with a
+> $15/day hard cap (`services/llm_service.py:110`) and `llm_max_tokens`
+> 16384 (`config/settings.py:31`). Chat agent runs DeepSeek-V3. Tier 2b
+> Llama spend is not in `llm_usage_log` (N.6), so current totals are
+> understated. Table below kept for history.
+
 With cron scheduling (3 cycles/day x 4 sleeves):
 
 | Service | Monthly estimate |
@@ -343,11 +445,15 @@ April actual: $95.80 as of Apr 24. Apr 24 alone was $38.70 due to
 ### Operator tasks
 
 1. Rotate compromised credentials (Postgres password + Finnhub key)
-2. Fill EXPERIMENT_CHARTER.md specifics (exists as template, no values filled)
+2. ~~Fill EXPERIMENT_CHARTER.md specifics (exists as template, no values filled)~~
+   DONE retroactively in b72708f, with thresholds marked [PROPOSED].
 
 ---
 
-## PHASE 1 — Data Foundation (SHIPPED)
+## LEGACY PHASE 1 — Data Foundation (SHIPPED)
+
+*"Legacy Phase" numbering (this section through Legacy Phase 4) predates the
+ROADMAP Phase 0–7 numbering above; the two sets are unrelated.*
 
 **Goal:** Build the substrate that all future research and intelligence
 builds on. Capture every signal the system produces, expand the universe
@@ -437,6 +543,8 @@ all promoted names, 25/batch, narrative reasoning stored in
 Lead Agent reads from Tier 2 promotions (top 50 by composite_score) with
 signal profiles + Tier 2b reasoning. Open positions managed independently.
 Cost: ~$1.50/cycle via Claude Sonnet 4.6. Daily cap: $15.
+*(2026-10-21: now GLM-5.2 via Together, `config/settings.py:25`; $15/day cap
+unchanged, `services/llm_service.py:110`.)*
 
 **Full pipeline closed end-to-end:**
 ```
@@ -457,9 +565,10 @@ Tier 1 (6,350 -> 4,285 daily)
   reflection. ~$0.05/month.
 - `[x]` **1.4.1.3/1.4.2.4 Pre-market briefing** — Daily 7:30 AM ET. No
   LLM. Assembles Research Analyst reflection + playbook. $0/month.
-- `[x]` **1.4.1.4 Prompt caching** — `cache_control: {"type": "ephemeral"}`
+- ~~`[x]` **1.4.1.4 Prompt caching** — `cache_control: {"type": "ephemeral"}`
   on system prompt. Cache-aware cost tracking. Hit/miss logging added
-  2026-04-24.
+  2026-04-24.~~ OBSOLETE — lead agent on GLM-5.2 via Together; llm_service
+  strips `cache_control`.
 
 ### Batch 1.4.2 — Learning Loop Activation `[x]` SHIPPED (core items)
 
@@ -471,6 +580,8 @@ Tier 1 (6,350 -> 4,285 daily)
   L2 regularized, bounded drift (0.3x-3x), CI diagnostics. Min 50
   funnel-driven outcomes. Output: config/learned_weights.json (human-reviewed).
   EXISTS but WAITING — only 14 funnel-driven outcomes, needs 50.
+  *(2026-10-21: 27 funnel-driven on droplet, 21 after excluding 6 wrong-sweep
+  outcomes; learned_weights.json still not produced.)*
 - `[x]` **1.4.2.3 Research Analyst** — See 1.4.1.2 above.
 - `[x]` **1.4.2.4 Pre-market briefing** — See 1.4.1.3 above.
 - `[ ]` **1.4.2.5 Citation tracking** — Deferred to post-experiment.
@@ -508,7 +619,10 @@ Tier 1 (6,350 -> 4,285 daily)
 - `[x]` Rule 7 enriched with corr_short/corr_long diagnostic fields
 - `[x]` MAD=0 fallback to std for thinly-traded names
 
-### Batch 1.7 — RAG Chat Agent `[ ]`
+### Batch 1.7 — RAG Chat Agent `[x]` SHIPPED (see ROADMAP Phase 2; 2.5 open)
+
+*2026-10-21: built in fb8302f, 461e0a5, 7fd8f84, 265133a. Model is
+`deepseek-ai/DeepSeek-V3` (`agents/chat_agent.py:23`), not V4-Flash.*
 
 **Purpose:** Natural language interface for querying all system data — cycle
 history, trade outcomes, promotions, signal scores, agent reasoning, config,
@@ -585,24 +699,27 @@ Superseded by Phase 1 tiered memory roadmap (items 1.9-1.15).
 
 ---
 
-## PHASE 2 — Real Dashboard `[x]` SHIPPED (v1)
+## LEGACY PHASE 2 — Real Dashboard `[x]` SHIPPED (v2)
 
-Win95 aesthetic dashboard with 3 screens:
+*2026-10-21: superseded by the 5-screen Win95×Bloomberg redesign (b8976e0):
+Command Center, Pipeline, Trades, Chat, Agents.*
+
+v1 — Win95 aesthetic dashboard with 3 screens:
 - **Command Center** — portfolio overview, positions, sentinel alerts
 - **History** — trade history with status filters, per-filter summary stats
 - **Rules & Logic** — daily schedule, system configuration
 
 ---
 
-## PHASE 3 — Architecture Transferability (deferred)
+## LEGACY PHASE 3 — Architecture Transferability (deferred)
 
-## PHASE 4 — Model Diversification (partially realized)
+## LEGACY PHASE 4 — Model Diversification (realized)
 
 - **4a — Ensemble**: second opinion on critical cycles.
-- **4b — Three-model architecture:** PARTIALLY REALIZED
-  - Claude Sonnet 4.6: Lead Agent trade decisions (~$187/month, ~$100 with caching)
+- **4b — Three-model architecture:** REALIZED (all on Together AI as of 2026-10-21)
+  - ~~Claude Sonnet 4.6~~ GLM-5.2: Lead Agent trade decisions ($15/day cap)
   - Llama 3.3 70B (Together AI): Tier 2b + Fundamentals + Research Analyst (~$3/month)
-  - DeepSeek V4-Flash (Together AI): RAG Chat Agent (~$0.50/month) — planned
+  - DeepSeek-V3 (Together AI): RAG Chat Agent — shipped
 
 ---
 
@@ -627,12 +744,27 @@ Win95 aesthetic dashboard with 3 screens:
 - Semantic playbook query + tiered read with weekly/monthly digests (2026-05-12)
 - Vector search parameter binding fix for asyncpg (2026-05-12)
 
+## Shipped since 2026-05-12 (untracked until now)
+
+*Recorded 2026-10-21 from git history (main == droplet == f51c4c5).*
+
+- **265133a / 7fd8f84 / 461e0a5 / fb8302f** — RAG chat agent: core, API route + sessions, Win95 chat panel, SQL execution with natural-language answers (ROADMAP 2.1–2.4)
+- **4a92b26** — Phantom-outcome repair, runaway-close guards, Lead Agent migration Claude → GLM-5.2, nightly broker reconciliation (`services/broker_reconciliation.py`), playbook dedupe + regime cap
+- **b72708f** — Structured-data remediation: freeze-at-decision snapshots on trades, `sweep_id` append-only sweeps, JudgmentEnvelope, learner dedupe; EXPERIMENT_CHARTER filled with [PROPOSED] thresholds
+- **b8976e0** — Dashboard redesign (5 screens: Command Center, Pipeline, Trades, Chat, Agents) + `/conflicts`, `/activity`, `/message-bus`, `/agent-costs`, `/fill-quality` endpoints; Research Analyst structured takeaways; Partial Fill badges
+- **affad7c** — GLM truncation recovery, `llm_max_tokens` 16384, weekday-gated market crons
+- **ea94bb1** — Order chaser (`services/order_chaser.py`): near-touch pricing + poll-and-chase; `get_option_quote` and buy-to-close priced from live ask
+- **94fb10c** — Earnings scoping + playbook cap to keep cycle prompt under GLM context window (ADR-027)
+- **60e6933** — `get_orders` fix: wrap filter in `GetOrdersRequest` (was crashing and blocking closes)
+
 ### On hold for 6-month experiment
+
+*(Charter end date 2026-10-17 has passed — see N.2.)*
 
 - No new sleeves (4 only)
 - No signal weight changes without backtester validation
 - No Kelly sizing activation
-- No Phase 3 architecture transfer
+- No Legacy Phase 3 architecture transfer
 - Allowed: bug fixes, data quality, monitoring, prompt tuning
 
 ---
@@ -648,20 +780,25 @@ Win95 aesthetic dashboard with 3 screens:
 - Reddit ingestion for rule 11 (PRAW + parsing)
 - Earnings proximity weight tuning (after outcome labeler)
 - Coverage floor sanity checks on yfinance + StockTwits fetches
-- Alpaca options chain pagination fix (100 contract cap, calls only)
+- ~~Alpaca options chain pagination fix (100 contract cap, calls only)~~ DONE —
+  `next_page_token` loops in `services/alpaca_broker.py` (~508, ~855)
+- Kelly sizing — never built (`docs/archive/RECON_MULTI_SLEEVE_ARCHITECTURE.md`)
+- 6 of the 10 proposed sleeves never built (`docs/archive/RECON_MULTI_SLEEVE_ARCHITECTURE.md`)
 - Sector Rotation sleeve: 0 candidates every cycle since launch — keep
   running for data but investigate scanner_filter criteria
-- Legacy agents/scanner.py: disabled, not deleted. May reference later.
-- Internal cost tracker underreports vs Anthropic console (counter resets
+- Legacy agents/scanner.py: disabled, not deleted. May reference later. (See N.12.)
+- ~~Internal cost tracker underreports vs Anthropic console (counter resets
   on container restart). Anthropic console is ground truth. Persistent
-  llm_usage_log table added but verify dashboard reads from it.
+  llm_usage_log table added but verify dashboard reads from it.~~ Obsolete
+  (no Anthropic spend; `/agent-costs` reads llm_usage_log) — but Tier 2b is
+  missing from it, see N.6.
 - Discord webhook for notifications (notifier built, no webhook configured)
 - Daily health check email/alert
 - Annual summarizer (when system has 12+ months of data)
 
 ### Bugs
 - Two regime classifiers produce parallel outputs
-- Legacy dead code: universe_loader.py, tier_writer.py, etc.
+- Legacy dead code: universe_loader.py, tier_writer.py, etc. — still present 2026-10-21; promoted to N.12.
 
 ---
 
@@ -669,7 +806,8 @@ Win95 aesthetic dashboard with 3 screens:
 
 - **O1**: UPDATED — Flywheel running: Tier 2b reasoning written, Lead Agent
   reading it, playbook entries updated from funnel, outcome labeler closing
-  the loop. 44 labeled outcomes, 14 funnel-driven.
+  the loop. 44 labeled outcomes, 14 funnel-driven. *(2026-10-21: May figures
+  included phantom outcomes; now 27 funnel-driven, 21 excluding wrong-sweep.)*
 - **O2**: RESOLVED 2026-04-22 — Lead Agent rewired (1.4.0c).
 - **O3**: RESOLVED — Outcome labeler + Research Analyst + pre-market briefing
   all shipped and running.
@@ -688,21 +826,21 @@ Win95 aesthetic dashboard with 3 screens:
 - **O18**: RESOLVED — Legacy scanner disabled 2026-04-24, removed from API 2026-05-05.
 - **O19**: Anthropic billing vs internal tracker discrepancy — persistent
   llm_usage_log table shipped to fix counter reset issue.
-- **O20**: Playbook bloat — 148K tokens of regime observations drowning 2.9K
+- ~~**O20**~~: RESOLVED (0.2/1.15; capped 4a92b26, 94fb10c) — Playbook bloat — 148K tokens of regime observations drowning 2.9K
   tokens of strategy. get_playbook() returns flat 20 most recent entries
   regardless of category. Needs smart retrieval (Phase 0, item 0.2).
 - **O21**: Research Analyst reflections are formulaic and repetitive. Same
   structure every day regardless of what happened. Needs prompt tuning
   (Phase 3).
-- **O22**: 21 ghost trades from March (pre-funnel, status=submitted, no
+- ~~**O22**~~: RESOLVED (0.3) — 21 ghost trades from March (pre-funnel, status=submitted, no
   order_id) polluting trades table and dashboard. Need cancellation (Phase 0, item 0.3).
-- **O23**: Prompt caching showing minimal savings ($0.01-0.09 per call) despite
+- ~~**O23**~~: OBSOLETE (no Anthropic caching after GLM-5.2 migration) — Prompt caching showing minimal savings ($0.01-0.09 per call) despite
   correct cache_control format. Expected $0.50+ savings. Needs investigation
   (Phase 0, item 0.5).
 - **O24**: Lead Agent learning from losses: CHTR loss -> proactive UNP close.
   DDOG post-earnings IV distinction noted as strategy_rule. First evidence
   of genuine learning loop.
-- **O25**: Hard close execution failures — CHTR took 10 cycles to close,
+- ~~**O25**~~: RESOLVED (ea94bb1 order chaser; 60e6933; 4a92b26) — Hard close execution failures — CHTR took 10 cycles to close,
   AMGN taking 4+ cycles. Limit orders not filling. Needs order retry logic
   (Phase 4).
 
@@ -711,11 +849,13 @@ Win95 aesthetic dashboard with 3 screens:
 ## STRATEGIC OPEN QUESTIONS
 
 1. **Q1**: Marginal contribution of LLM narrative vs statistical baseline?
-   Falsifiable via control Lead Agent (Phase 5, item 5.4).
+   Falsifiable via control Lead Agent (Phase 5, item 5.4 — now obsolete;
+   the 4-sleeve experiment is the comparison vehicle).
 2. **Q2**: Does the validation pipeline catch overfitting?
 3. **Q3**: At what trade count do signal weights stabilize? (200 is a guess)
-4. **Q4**: Does $150/month hold with all agents? Current: ~$220/month.
-   Needs Phase 0 + Phase 6 optimizations.
+4. ~~**Q4**: Does $150/month hold with all agents? Current: ~$220/month.
+   Needs Phase 0 + Phase 6 optimizations.~~ OBSOLETE — $220/mo was the
+   Claude-era figure; re-ask after GLM migration once Tier 2b cost is tracked (N.6).
 5. **Q5**: Does the full 11-rule composite produce meaningfully different
    rankings than the old IV-rank-delta-dominated scores?
 6. **Q6**: Lead Agent requesting n=10 despite default=50 — monitor.
@@ -741,19 +881,19 @@ Win95 aesthetic dashboard with 3 screens:
 ## Success Metrics
 
 **Existence stage (now through June 2026):**
-- [ ] 50 funnel-driven outcomes labeled (currently 14)
+- [ ] 50 funnel-driven outcomes labeled (currently 27; 21 excluding wrong-sweep — 2026-10-21)
 - [ ] Signal learner produces first weight proposal
-- [ ] Win rate on funnel-driven trades > 60% (currently 71%)
+- [ ] Win rate on funnel-driven trades > 60% (May "71%" predates phantom-outcome repair; re-measure)
 - [ ] Profit factor > 2.0 (gross wins / gross losses)
-- [ ] Monthly API cost under $150 (currently ~$220)
+- [ ] Monthly API cost under $150 (May "~$220" was Claude-era; re-baseline post-GLM)
 - [x] Lead Agent demonstrates learning (cites playbook lessons in trade decisions)
 
 **Growth stage (July-September 2026):**
 - [ ] 100+ funnel-driven outcomes
-- [ ] Control Lead Agent comparison completed
+- ~~[ ] Control Lead Agent comparison completed~~ (obsolete — 4-sleeve experiment)
 - [ ] First weight update applied and validated
 - [ ] Weekly and monthly summaries producing actionable insights
-- [ ] Chat agent operational for system inspection
+- [x] Chat agent operational for system inspection
 
 **Maturity stage (Q4 2026+):**
 - [ ] Strategy expansion (directional trades) validated
@@ -764,6 +904,21 @@ Win95 aesthetic dashboard with 3 screens:
 ---
 
 ## CHANGELOG
+
+### 2026-10-21 — Backlog reconciliation against main/droplet (f51c4c5)
+
+- Added "NOW — Open items" (N.1–N.12): trading outage (PR #7), overdue
+  Day-180 evaluation, phantom executed counts, sleeve tagging, unenforced
+  drawdown limits, Tier 2b cost gap, audit follow-ups, dead code
+- Added "Shipped since 2026-05-12" section (11 untracked commits)
+- Marked DONE: 2.1–2.4 chat agent, 4.1, 4.2, operator task 2, options-chain
+  pagination; PARTIAL: 3.1, 4.3, Integrity Sentinel
+- Marked OBSOLETE: 0.5 / 1.4.1.4 / 6.1 prompt caching, 6.3, Claude-era cost
+  targets, 5.4, O20/O22/O23/O25, Q4
+- Corrected stale stats (phantom PnL, learner n, dashboard, lead-agent model)
+- Renamed old PHASE 1–4 headings to "LEGACY PHASE" to disambiguate from
+  ROADMAP Phase 0–7; updated paths for docs moved to `docs/archive/` and
+  `docs/audits/`
 
 ### 2026-05-12 — Phase 0 complete + Phase 1 shipped
 

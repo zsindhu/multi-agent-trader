@@ -1,6 +1,6 @@
 """Add decision-snapshot, sleeve, and fill columns to trades
 
-Freeze-at-decision (RECON_PRE_REMEDIATION_VERIFICATION.md Q5a): the signal
+Freeze-at-decision (docs/archive/RECON_PRE_REMEDIATION_VERIFICATION.md Q5a): the signal
 snapshot the Lead Agent traded on is copied onto the trade at write time,
 because tier2a's sweeps used to destroy it before the nightly labeler ran.
 sleeve_id rides the same new plumbing. fill_price/filled_at give the

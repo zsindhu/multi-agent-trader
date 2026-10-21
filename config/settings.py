@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     # Ceiling, not a target. GLM-5.2's hidden reasoning tokens share this
     # budget with visible content — at 4096, 11 of 12 sleeve envelopes (and
     # their ACTIONS) were truncated away on 2026-07-13. See
-    # RECON_ENVELOPE_DEGRADATION.md.
+    # docs/archive/RECON_ENVELOPE_DEGRADATION.md.
     llm_max_tokens: int = 16384
 
     # ── Order fill: near-touch pricing + deterministic poll-and-chase ──

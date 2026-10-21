@@ -157,7 +157,7 @@ class SignalLearner:
     # Outcomes whose signal_profile is provably from the wrong sweep — the
     # pre-July-2026 labeler joined observations written HOURS AFTER the trade
     # decision (tier2a sweeps used to delete+rewrite intraday). Verified
-    # against broker/DB forensics in RECON_PRE_REMEDIATION_VERIFICATION.md Q1.
+    # against broker/DB forensics in docs/archive/RECON_PRE_REMEDIATION_VERIFICATION.md Q1.
     # Their features describe a market state the decision never saw.
     CONTAMINATED_OUTCOME_IDS = {96, 97, 98, 99, 103, 104}
 

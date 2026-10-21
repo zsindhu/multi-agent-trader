@@ -1,5 +1,7 @@
 # Recon: Envelope Degradation — Root Cause
 
+> **Archived 2026-10-21.** All four fixes shipped (affad7c, 94fb10c).
+
 Generated: 2026-07-13 · Status: root cause confirmed; fix implemented + live-verified same day (see PR)
 Scope: 11 of 12 sleeve envelopes rendering DEGRADED (cycles 349–352, 2026-07-13)
 

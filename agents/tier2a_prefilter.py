@@ -334,7 +334,7 @@ class Tier2aPrefilter(BaseAgent):
         # Step 9: Write to name_observations. Append-only: each sweep gets a
         # sweep_id and prior sweeps' rows are preserved (they used to be
         # deleted here, which destroyed traded-on snapshots 3x/day — see
-        # RECON_PRE_REMEDIATION_VERIFICATION.md Q1). Readers select the
+        # docs/archive/RECON_PRE_REMEDIATION_VERIFICATION.md Q1). Readers select the
         # latest sweep via services/sweep_utils.
         if not dry_run:
             from services.sweep_utils import new_sweep_id

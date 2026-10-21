@@ -1,5 +1,8 @@
 # Recon: Structured Judgments + Append-Only Research Data
 
+> **Archived 2026-10-21.** Items 1–5, 7 and 9 shipped in b72708f. The unfinished items
+> (6, 8, 10–13) were moved to BACKLOG.md.
+
 Generated: 2026-07-11
 Status: Recon only — no code changes made
 Context read: TIER_ARCHITECTURE.md, RECON_MULTI_SLEEVE_ARCHITECTURE.md, docs/ADR.md (esp. ADR-014/017/019/022)

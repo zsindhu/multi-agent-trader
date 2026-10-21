@@ -525,7 +525,7 @@ Both entrypoints (`main.py` and `api/state.py`) construct `VIXService(broker=bro
 ## ADR-025: Lead Agent Migration to GLM-5.2 via OpenAI-Compatible Endpoint
 
 **Status:** Accepted
-**Date:** 2026-07 (retroactive record — deployed 2026-07-08 in commit 4a92b26; flagged as missing by RECON_PRE_REMEDIATION_VERIFICATION.md Q4a)
+**Date:** 2026-07 (retroactive record — deployed 2026-07-08 in commit 4a92b26; flagged as missing by docs/archive/RECON_PRE_REMEDIATION_VERIFICATION.md Q4a)
 
 **Context:** ADR-017 established Claude (claude-sonnet-4-6) as the Lead Agent's reasoning engine via the Anthropic SDK. By mid-2026, open-weight models reached parity on agentic tool-use benchmarks at a fraction of the cost, and every other agent in the fleet (Tier 2b, Research Analyst, Fundamentals, Summarizers, Chat) already spoke the OpenAI protocol on Together AI. The Anthropic dependency was isolated to `services/llm_service.py`.
 
@@ -567,6 +567,6 @@ Both entrypoints (`main.py` and `api/state.py`) construct `VIXService(broker=bro
 1. **Scope earnings to actionable names.** `earnings_calendar.get_upcoming` gains an optional `symbols` filter; the sleeve tool executor (`sleeve_orchestrator.py`) passes the sleeve's ≤15 candidates + open-position symbols. Lossless for the decision — the sleeve only trades those names, and earnings *discovery* already happens upstream via the `earnings_proximity` scanner signal. Full-calendar behaviour is preserved when `symbols=None`.
 2. **Cap playbook per-entry content at 1,200 chars** in `get_playbook` (`lead_agent.py`). Full text stays reachable via `category=`/`query=`.
 
-**Not done (considered, rejected/deferred):** pruning the tool-loop message history — deferred, since fixes 1+2 clear the window with margin and naive pruning risks dropping anchor results (the candidate list, positions). Lowering the 16,384 completion reserve — rejected: it exists to prevent the envelope/action truncation failure where GLM's hidden reasoning budget starved the decision output (`RECON_ENVELOPE_DEGRADATION.md`); shrinking it re-opens that failure mode.
+**Not done (considered, rejected/deferred):** pruning the tool-loop message history — deferred, since fixes 1+2 clear the window with margin and naive pruning risks dropping anchor results (the candidate list, positions). Lowering the 16,384 completion reserve — rejected: it exists to prevent the envelope/action truncation failure where GLM's hidden reasoning budget starved the decision output (`docs/archive/RECON_ENVELOPE_DEGRADATION.md`); shrinking it re-opens that failure mode.
 
 **Consequences:** Measured input drops ~82–91k tokens (earnings ~60–75k → <1k scoped; playbook 34.8k → 13.5k), taking the peak per-sleeve prompt from ~248k to ~157–166k — under the window with headroom, and cheaper per cycle (avg input had reached ~175k tokens/call). Decision quality is preserved-to-improved: the model reasons over its 15 candidates' earnings/fundamentals plus truncated-but-substantive playbook lessons instead of a 2,600-row calendar. This restores the decision layer only; it does not touch execution/fills (separate order-chase work). If prompts approach the window again as data grows, the deferred history-pruning fix is the next lever.

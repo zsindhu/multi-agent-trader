@@ -1,5 +1,7 @@
 # Backlog & Roadmap Integration Recon — Multi-Sleeve Architecture
 
+> **Archived 2026-10-21.** Executed or superseded. The per-sleeve learner/backtester follow-up never shipped; tracked in BACKLOG.md.
+
 Generated: 2026-04-23
 Status: Recon only — no code changes
 
